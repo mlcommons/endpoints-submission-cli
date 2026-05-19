@@ -1,0 +1,17 @@
+{
+  "n_samples_issued": 13368,
+  "n_samples_completed": 13368,
+  "n_samples_failed": 0,
+  "duration_ns": 1045116285522.0,
+  "ttft": {
+    "total": 7725994840968.0,
+    "percentiles": {
+      "50": 577946951.0,
+      "95": 1242402278.2499998
+    }
+  },
+  "output_sequence_lengths": {
+    "total": 1711102.0,
+    "percentiles": {}
+  }
+}
