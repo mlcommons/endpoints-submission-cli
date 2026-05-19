@@ -19,11 +19,9 @@ extensions = [
 
 autodoc_default_options = {
     "members": True,
-    "undoc-members": True,
     "show-inheritance": True,
 }
 autodoc_typehints = "description"
-always_document_param_types = False
 napoleon_google_docstring = True
 napoleon_numpy_docstring = False
 
