@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+__all__ = ["PercentileStats", "PointSummary"]
+
 
 class PercentileStats(BaseModel):
     """Summary statistics dict produced by the endpoints ``compute_summary()`` helper.

@@ -7,6 +7,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+__all__ = ["CheckResult", "Report", "Severity", "err", "ok", "warn"]
+
 
 class Severity(str, Enum):
     """Severity level for a check result."""

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+__all__ = ["AccuracyResult"]
+
 from pydantic import BaseModel, ConfigDict, PrivateAttr, ValidationInfo, model_validator
 
 from ..results import CheckResult, err, ok

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+__all__ = ["SubmissionChecker"]
+
 from .loader import (
     load_accuracy_result,
     load_point_config,
