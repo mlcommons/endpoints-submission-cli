@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from click.testing import CliRunner
 
 from endpoints_submission_cli.exceptions import APIError, GitHubError
 from endpoints_submission_cli.main import app
@@ -23,12 +24,13 @@ _TOKEN_ARGS = ["--token", TOKEN]
 _PR_URL = "https://github.com/mlcommons/submissions/pull/42"
 _PR_NUMBER = 42
 
+_runner = CliRunner()
+
 
 def _run_app(*args: str) -> None:
-    """Invoke the app, treating SystemExit(0) as success."""
-    with pytest.raises(SystemExit) as exc_info:
-        app(list(args), exit_on_error=False)
-    assert exc_info.value.code == 0
+    """Invoke the app and assert exit code 0."""
+    result = _runner.invoke(app, list(args))
+    assert result.exit_code == 0, result.output
 
 
 @pytest.mark.unit
@@ -38,25 +40,23 @@ class TestSubmissionsList:
             with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
                 _run_app("submissions", "list", *_TOKEN_ARGS)
 
-    def test_list_json_flag(self, capsys: pytest.CaptureFixture) -> None:
+    def test_list_json_flag(self) -> None:
         with patch("endpoints_submission_cli.api_client.list_submissions", return_value=[SUBMISSION_OUT]):
             with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
-                _run_app("submissions", "list", "-j", *_TOKEN_ARGS)
-        out = capsys.readouterr().out
-        assert SUBMISSION_ID in out
+                result = _runner.invoke(app, ["submissions", "list", "-j", *_TOKEN_ARGS])
+        assert result.exit_code == 0
+        assert SUBMISSION_ID in result.output
 
     def test_list_api_error_exits_1(self) -> None:
         with patch("endpoints_submission_cli.api_client.list_submissions", side_effect=APIError("fail")):
             with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
-                with pytest.raises(SystemExit) as exc_info:
-                    app(["submissions", "list", *_TOKEN_ARGS], exit_on_error=False)
-                assert exc_info.value.code == 1
+                result = _runner.invoke(app, ["submissions", "list", *_TOKEN_ARGS])
+        assert result.exit_code == 1
 
     def test_list_no_token_exits_1(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("PRISM_USER_API_TOKEN", raising=False)
-        with pytest.raises(SystemExit) as exc_info:
-            app(["submissions", "list"], exit_on_error=False)
-        assert exc_info.value.code == 1
+        result = _runner.invoke(app, ["submissions", "list"])
+        assert result.exit_code == 1
 
 
 @pytest.mark.unit
@@ -66,22 +66,23 @@ class TestSubmissionsGet:
             with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
                 _run_app("submissions", "get", "--submission-id", SUBMISSION_ID, *_TOKEN_ARGS)
 
-    def test_get_json_flag(self, capsys: pytest.CaptureFixture) -> None:
+    def test_get_json_flag(self) -> None:
         with patch("endpoints_submission_cli.api_client.get_submission", return_value=SUBMISSION_OUT):
             with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
-                _run_app("submissions", "get", "--submission-id", SUBMISSION_ID, "-j", *_TOKEN_ARGS)
-        out = capsys.readouterr().out
-        assert SUBMISSION_ID in out
+                result = _runner.invoke(
+                    app, ["submissions", "get", "--submission-id", SUBMISSION_ID, "-j", *_TOKEN_ARGS]
+                )
+        assert result.exit_code == 0
+        assert SUBMISSION_ID in result.output
 
     def test_get_api_error_exits_1(self) -> None:
         with patch("endpoints_submission_cli.api_client.get_submission", side_effect=APIError("404")):
             with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
-                with pytest.raises(SystemExit) as exc_info:
-                    app(
-                        ["submissions", "get", "--submission-id", SUBMISSION_ID, *_TOKEN_ARGS],
-                        exit_on_error=False,
-                    )
-                assert exc_info.value.code == 1
+                result = _runner.invoke(
+                    app,
+                    ["submissions", "get", "--submission-id", SUBMISSION_ID, *_TOKEN_ARGS],
+                )
+        assert result.exit_code == 1
 
 
 @pytest.mark.unit
@@ -116,24 +117,22 @@ class TestSubmissionsUpdate:
     def test_update_no_fields_is_noop(self) -> None:
         with patch("endpoints_submission_cli.api_client.update_submission") as mock_patch:
             with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
-                # "Nothing to update" → returns without exit 0 from command; cyclopts still exits 0
                 _run_app("submissions", "update", "--submission-id", SUBMISSION_ID, *_TOKEN_ARGS)
         mock_patch.assert_not_called()
 
     def test_update_api_error_exits_1(self) -> None:
         with patch("endpoints_submission_cli.api_client.update_submission", side_effect=APIError("500")):
             with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
-                with pytest.raises(SystemExit) as exc_info:
-                    app(
-                        [
-                            "submissions", "update",
-                            "--submission-id", SUBMISSION_ID,
-                            "--status", "REVIEW_PENDING",
-                            *_TOKEN_ARGS,
-                        ],
-                        exit_on_error=False,
-                    )
-                assert exc_info.value.code == 1
+                result = _runner.invoke(
+                    app,
+                    [
+                        "submissions", "update",
+                        "--submission-id", SUBMISSION_ID,
+                        "--status", "REVIEW_PENDING",
+                        *_TOKEN_ARGS,
+                    ],
+                )
+        assert result.exit_code == 1
 
 
 @pytest.mark.unit
@@ -164,7 +163,6 @@ class TestSubmissionsWithdraw:
                 with patch("endpoints_submission_cli.github_ops.close_pr", side_effect=GitHubError("closed")):
                     with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
                         with patch("endpoints_submission_cli.github_ops.get_target_repo", return_value="org/repo"):
-                            # PR close failure is non-fatal → should exit 0
                             _run_app("submissions", "withdraw", "--submission-id", SUBMISSION_ID, *_TOKEN_ARGS)
 
     def test_withdraw_archive_failure_is_warning(self) -> None:
@@ -176,19 +174,17 @@ class TestSubmissionsWithdraw:
             ):
                 with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
                     with patch("endpoints_submission_cli.github_ops.get_target_repo", return_value="org/repo"):
-                        # Archive deletion failure is non-fatal → should exit 0
                         _run_app("submissions", "withdraw", "--submission-id", SUBMISSION_ID, *_TOKEN_ARGS)
 
     def test_withdraw_api_error_exits_1(self) -> None:
         with patch("endpoints_submission_cli.api_client.withdraw_submission", side_effect=APIError("locked")):
             with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
                 with patch("endpoints_submission_cli.github_ops.get_target_repo", return_value="org/repo"):
-                    with pytest.raises(SystemExit) as exc_info:
-                        app(
-                            ["submissions", "withdraw", "--submission-id", SUBMISSION_ID, *_TOKEN_ARGS],
-                            exit_on_error=False,
-                        )
-                    assert exc_info.value.code == 1
+                    result = _runner.invoke(
+                        app,
+                        ["submissions", "withdraw", "--submission-id", SUBMISSION_ID, *_TOKEN_ARGS],
+                    )
+        assert result.exit_code == 1
 
 
 def _make_fake_archive(tmp_path: Path) -> Path:
@@ -263,18 +259,17 @@ class TestSubmissionsCreate:
                 side_effect=APIError("not found"),
             ):
                 with patch("endpoints_submission_cli.github_ops.get_target_repo", return_value="org/repo"):
-                    with pytest.raises(SystemExit) as exc_info:
-                        app(
-                            [
-                                "submissions", "create",
-                                "--division", "standardized",
-                                "--availability", "available",
-                                "--run-ids", RUN_ID,
-                                *_TOKEN_ARGS,
-                            ],
-                            exit_on_error=False,
-                        )
-                    assert exc_info.value.code == 1
+                    result = _runner.invoke(
+                        app,
+                        [
+                            "submissions", "create",
+                            "--division", "standardized",
+                            "--availability", "available",
+                            "--run-ids", RUN_ID,
+                            *_TOKEN_ARGS,
+                        ],
+                    )
+        assert result.exit_code == 1
 
     def test_create_checker_failure_exits_1(self, tmp_path: Path) -> None:
         from endpoints_submission_cli.exceptions import SubmissionCheckError
@@ -294,18 +289,17 @@ class TestSubmissionsCreate:
                         side_effect=SubmissionCheckError("1 error"),
                     ):
                         with patch("endpoints_submission_cli.github_ops.get_target_repo", return_value="org/repo"):
-                            with pytest.raises(SystemExit) as exc_info:
-                                app(
-                                    [
-                                        "submissions", "create",
-                                        "--division", "standardized",
-                                        "--availability", "available",
-                                        "--run-ids", RUN_ID,
-                                        *_TOKEN_ARGS,
-                                    ],
-                                    exit_on_error=False,
-                                )
-                            assert exc_info.value.code == 1
+                            result = _runner.invoke(
+                                app,
+                                [
+                                    "submissions", "create",
+                                    "--division", "standardized",
+                                    "--availability", "available",
+                                    "--run-ids", RUN_ID,
+                                    *_TOKEN_ARGS,
+                                ],
+                            )
+        assert result.exit_code == 1
 
     def test_create_api_error_exits_1(self, tmp_path: Path) -> None:
         fake_archive = _make_fake_archive(tmp_path)
@@ -324,18 +318,17 @@ class TestSubmissionsCreate:
                             side_effect=APIError("500"),
                         ):
                             with patch("endpoints_submission_cli.github_ops.get_target_repo", return_value="org/repo"):
-                                with pytest.raises(SystemExit) as exc_info:
-                                    app(
-                                        [
-                                            "submissions", "create",
-                                            "--division", "standardized",
-                                            "--availability", "available",
-                                            "--run-ids", RUN_ID,
-                                            *_TOKEN_ARGS,
-                                        ],
-                                        exit_on_error=False,
-                                    )
-                                assert exc_info.value.code == 1
+                                result = _runner.invoke(
+                                    app,
+                                    [
+                                        "submissions", "create",
+                                        "--division", "standardized",
+                                        "--availability", "available",
+                                        "--run-ids", RUN_ID,
+                                        *_TOKEN_ARGS,
+                                    ],
+                                )
+        assert result.exit_code == 1
 
     def test_create_upload_failure_rolls_back(self, tmp_path: Path) -> None:
         fake_archive = _make_fake_archive(tmp_path)
@@ -370,19 +363,18 @@ class TestSubmissionsCreate:
                                             "endpoints_submission_cli.github_ops.get_target_repo",
                                             return_value="org/repo",
                                         ):
-                                            with pytest.raises(SystemExit) as exc_info:
-                                                app(
-                                                    [
-                                                        "submissions", "create",
-                                                        "--division", "standardized",
-                                                        "--availability", "available",
-                                                        "--run-ids", RUN_ID,
-                                                        *_TOKEN_ARGS,
-                                                    ],
-                                                    exit_on_error=False,
-                                                )
-                                            assert exc_info.value.code == 1
-                                            mock_withdraw.assert_called_once_with(TOKEN, SUBMISSION_ID)
+                                            result = _runner.invoke(
+                                                app,
+                                                [
+                                                    "submissions", "create",
+                                                    "--division", "standardized",
+                                                    "--availability", "available",
+                                                    "--run-ids", RUN_ID,
+                                                    *_TOKEN_ARGS,
+                                                ],
+                                            )
+        assert result.exit_code == 1
+        mock_withdraw.assert_called_once_with(TOKEN, SUBMISSION_ID)
 
     def test_create_pr_failure_rolls_back_and_exits_1(self, tmp_path: Path) -> None:
         fake_archive = _make_fake_archive(tmp_path)
@@ -419,19 +411,18 @@ class TestSubmissionsCreate:
                                                 with patch(
                                                     "endpoints_submission_cli.api_client.withdraw_submission"
                                                 ) as mock_withdraw:
-                                                    with pytest.raises(SystemExit) as exc_info:
-                                                        app(
-                                                            [
-                                                                "submissions", "create",
-                                                                "--division", "standardized",
-                                                                "--availability", "available",
-                                                                "--run-ids", RUN_ID,
-                                                                *_TOKEN_ARGS,
-                                                            ],
-                                                            exit_on_error=False,
-                                                        )
-                                                    assert exc_info.value.code == 1
-                                                    mock_withdraw.assert_called_once_with(TOKEN, SUBMISSION_ID)
+                                                    result = _runner.invoke(
+                                                        app,
+                                                        [
+                                                            "submissions", "create",
+                                                            "--division", "standardized",
+                                                            "--availability", "available",
+                                                            "--run-ids", RUN_ID,
+                                                            *_TOKEN_ARGS,
+                                                        ],
+                                                    )
+        assert result.exit_code == 1
+        mock_withdraw.assert_called_once_with(TOKEN, SUBMISSION_ID)
 
 
 @pytest.mark.unit
@@ -482,17 +473,16 @@ class TestSubmissionsAddRun:
                 side_effect=APIError("conflict"),
             ):
                 with patch("endpoints_submission_cli.github_ops.get_target_repo", return_value="org/repo"):
-                    with pytest.raises(SystemExit) as exc_info:
-                        app(
-                            [
-                                "submissions", "add-run",
-                                "--submission-id", SUBMISSION_ID,
-                                "--run-id", self._NEW_RUN_ID,
-                                *_TOKEN_ARGS,
-                            ],
-                            exit_on_error=False,
-                        )
-                    assert exc_info.value.code == 1
+                    result = _runner.invoke(
+                        app,
+                        [
+                            "submissions", "add-run",
+                            "--submission-id", SUBMISSION_ID,
+                            "--run-id", self._NEW_RUN_ID,
+                            *_TOKEN_ARGS,
+                        ],
+                    )
+        assert result.exit_code == 1
 
     def test_add_run_download_failure_rolls_back(self, tmp_path: Path) -> None:
         sub_out = self._sub_with_runs(RUN_ID, self._NEW_RUN_ID)
@@ -507,18 +497,17 @@ class TestSubmissionsAddRun:
                         "endpoints_submission_cli.api_client.remove_run_from_submission"
                     ) as mock_rollback:
                         with patch("endpoints_submission_cli.github_ops.get_target_repo", return_value="org/repo"):
-                            with pytest.raises(SystemExit) as exc_info:
-                                app(
-                                    [
-                                        "submissions", "add-run",
-                                        "--submission-id", SUBMISSION_ID,
-                                        "--run-id", self._NEW_RUN_ID,
-                                        *_TOKEN_ARGS,
-                                    ],
-                                    exit_on_error=False,
-                                )
-                            assert exc_info.value.code == 1
-                            mock_rollback.assert_called_once_with(TOKEN, SUBMISSION_ID, self._NEW_RUN_ID)
+                            result = _runner.invoke(
+                                app,
+                                [
+                                    "submissions", "add-run",
+                                    "--submission-id", SUBMISSION_ID,
+                                    "--run-id", self._NEW_RUN_ID,
+                                    *_TOKEN_ARGS,
+                                ],
+                            )
+        assert result.exit_code == 1
+        mock_rollback.assert_called_once_with(TOKEN, SUBMISSION_ID, self._NEW_RUN_ID)
 
     def test_add_run_github_failure_is_warning(self, tmp_path: Path) -> None:
         sub_out = self._sub_with_runs(RUN_ID, self._NEW_RUN_ID)
@@ -549,7 +538,6 @@ class TestSubmissionsAddRun:
                                             "endpoints_submission_cli.github_ops.get_target_repo",
                                             return_value="org/repo",
                                         ):
-                                            # GitHub push failure is non-fatal → exits 0
                                             _run_app(
                                                 "submissions", "add-run",
                                                 "--submission-id", SUBMISSION_ID,
@@ -606,7 +594,6 @@ class TestSubmissionsRemoveRun:
                 "endpoints_submission_cli.api_client.remove_run_from_submission", return_value=sub_out
             ):
                 with patch("endpoints_submission_cli.github_ops.get_target_repo", return_value="org/repo"):
-                    # Empty run list → early return, no rebuild → exits 0
                     _run_app(
                         "submissions", "remove-run",
                         "--submission-id", SUBMISSION_ID,
@@ -621,17 +608,16 @@ class TestSubmissionsRemoveRun:
                 side_effect=APIError("not found"),
             ):
                 with patch("endpoints_submission_cli.github_ops.get_target_repo", return_value="org/repo"):
-                    with pytest.raises(SystemExit) as exc_info:
-                        app(
-                            [
-                                "submissions", "remove-run",
-                                "--submission-id", SUBMISSION_ID,
-                                "--run-id", self._REMOVED_RUN_ID,
-                                *_TOKEN_ARGS,
-                            ],
-                            exit_on_error=False,
-                        )
-                    assert exc_info.value.code == 1
+                    result = _runner.invoke(
+                        app,
+                        [
+                            "submissions", "remove-run",
+                            "--submission-id", SUBMISSION_ID,
+                            "--run-id", self._REMOVED_RUN_ID,
+                            *_TOKEN_ARGS,
+                        ],
+                    )
+        assert result.exit_code == 1
 
     def test_remove_run_download_failure_rolls_back(self, tmp_path: Path) -> None:
         sub_out = {**SUBMISSION_OUT, "run_ids": [RUN_ID]}
@@ -648,15 +634,14 @@ class TestSubmissionsRemoveRun:
                         "endpoints_submission_cli.api_client.add_run_to_submission"
                     ) as mock_rollback:
                         with patch("endpoints_submission_cli.github_ops.get_target_repo", return_value="org/repo"):
-                            with pytest.raises(SystemExit) as exc_info:
-                                app(
-                                    [
-                                        "submissions", "remove-run",
-                                        "--submission-id", SUBMISSION_ID,
-                                        "--run-id", self._REMOVED_RUN_ID,
-                                        *_TOKEN_ARGS,
-                                    ],
-                                    exit_on_error=False,
-                                )
-                            assert exc_info.value.code == 1
-                            mock_rollback.assert_called_once_with(TOKEN, SUBMISSION_ID, self._REMOVED_RUN_ID)
+                            result = _runner.invoke(
+                                app,
+                                [
+                                    "submissions", "remove-run",
+                                    "--submission-id", SUBMISSION_ID,
+                                    "--run-id", self._REMOVED_RUN_ID,
+                                    *_TOKEN_ARGS,
+                                ],
+                            )
+        assert result.exit_code == 1
+        mock_rollback.assert_called_once_with(TOKEN, SUBMISSION_ID, self._REMOVED_RUN_ID)

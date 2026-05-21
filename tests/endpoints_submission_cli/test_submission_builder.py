@@ -73,7 +73,6 @@ class TestBuildSubmissionFolder:
         yamls = list(sub_dir.rglob("point_*.yaml"))
         assert len(yamls) >= 1
         data = yaml.safe_load(yamls[0].read_text())
-        assert "concurrency" in data
         assert data["concurrency"] == 4
 
     def test_log_summary_created(self, run_archive: Path, tmp_path: Path) -> None:

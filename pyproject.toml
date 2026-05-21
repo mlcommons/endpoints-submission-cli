@@ -12,7 +12,6 @@ license = { text = "Apache-2.0" }
 authors = [{ name = "MLCommons", email = "arav@mlcommons.org" }]
 dependencies = [
     "click>=8.1",
-    "cyclopts>=4.0",
     "httpx>=0.25",
     "pydantic>=2.0",
     "rich>=13.0",

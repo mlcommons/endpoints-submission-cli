@@ -6,11 +6,11 @@ from __future__ import annotations
 
 import contextlib
 import json
+import sys
 import tempfile
 from pathlib import Path
-from typing import Annotated
 
-from cyclopts import App, Parameter
+import click
 from rich.console import Console
 
 from .. import api_client
@@ -20,7 +20,6 @@ from ..run_parser import build_archive, parse_run_folder
 
 __all__ = ["runs"]
 
-runs = App(name="runs", help="Manage benchmark runs.")
 _console = Console(stderr=True)
 
 
@@ -29,7 +28,12 @@ def _get_token(token: str | None) -> str:
         return api_client.get_token(token)
     except AuthError as exc:
         _console.print(f"[bold red]Auth error:[/bold red] {exc}")
-        raise SystemExit(1) from None
+        sys.exit(1)
+
+
+@click.group(name="runs")
+def runs() -> None:
+    """Manage benchmark runs."""
 
 
 # ---------------------------------------------------------------------------
@@ -37,27 +41,24 @@ def _get_token(token: str | None) -> str:
 # ---------------------------------------------------------------------------
 
 
-@runs.command(name="list")
-def runs_list(
-    *,
-    token: Annotated[
-        str | None,
-        Parameter(env_var="PRISM_USER_API_TOKEN", help="PRISM API key (mlc_...)."),
-    ] = None,
-    json: Annotated[
-        bool,
-        Parameter(name=["-j", "--json"], help="Output raw JSON."),
-    ] = False,
-) -> None:
+@runs.command("list")
+@click.option(
+    "--token",
+    envvar="PRISM_USER_API_TOKEN",
+    default=None,
+    help="PRISM API key (mlc_...).",
+)
+@click.option("-j", "--json", "as_json", is_flag=True, default=False, help="Output raw JSON.")
+def runs_list(token: str | None, as_json: bool) -> None:
     """List all runs for the authenticated user."""
     resolved_token = _get_token(token)
     try:
         run_list = api_client.list_runs(resolved_token)
     except APIError as exc:
         _console.print(f"[bold red]Error:[/bold red] {exc}")
-        raise SystemExit(1) from None
+        sys.exit(1)
 
-    if json:
+    if as_json:
         output_json(run_list)
     else:
         print_runs_table(run_list)
@@ -68,22 +69,27 @@ def runs_list(
 # ---------------------------------------------------------------------------
 
 
-@runs.command(name="create")
-def runs_create(
-    *,
-    path: Annotated[Path, Parameter(help="Path to the local run folder.")],
-    token: Annotated[
-        str | None,
-        Parameter(env_var="PRISM_USER_API_TOKEN", help="PRISM API key (mlc_...)."),
-    ] = None,
-    dry_run: Annotated[
-        bool,
-        Parameter(
-            name="--dry-run",
-            help="Print the parsed payload as JSON and exit without calling the API.",
-        ),
-    ] = False,
-) -> None:
+@runs.command("create")
+@click.option(
+    "--path",
+    "path",
+    required=True,
+    type=click.Path(path_type=Path),
+    help="Path to the local run folder.",
+)
+@click.option(
+    "--token",
+    envvar="PRISM_USER_API_TOKEN",
+    default=None,
+    help="PRISM API key (mlc_...).",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Print the parsed payload as JSON and exit without calling the API.",
+)
+def runs_create(path: Path, token: str | None, dry_run: bool) -> None:
     """Create a run from a local benchmark result folder.
 
     Parses system_info.json, config.yaml, and result_summary.json from PATH,
@@ -91,12 +97,11 @@ def runs_create(
     an archive.  If the archive upload fails the run record is deleted
     (rollback to clean state).
     """
-    # 1. Parse run folder
     try:
         payload = parse_run_folder(path)
     except RunFolderError as exc:
         _console.print(f"[bold red]Run folder error:[/bold red] {exc}")
-        raise SystemExit(1) from None
+        sys.exit(1)
 
     if dry_run:
         print(json.dumps(payload, indent=2, default=str))
@@ -104,16 +109,14 @@ def runs_create(
 
     resolved_token = _get_token(token)
 
-    # 2. POST /runs → get run_id
     try:
         run_out = api_client.create_run(resolved_token, payload)
     except APIError as exc:
         _console.print(f"[bold red]API error creating run:[/bold red] {exc}")
-        raise SystemExit(1) from None
+        sys.exit(1)
 
     run_id: str = run_out["id"]
 
-    # 3. Build .tar.gz archive and upload
     with tempfile.TemporaryDirectory() as tmp:
         archive_path = build_archive(path, Path(tmp) / f"{path.name}.tar.gz")
         try:
@@ -123,7 +126,6 @@ def runs_create(
                 f"[bold red]Archive upload failed:[/bold red] {exc}\n"
                 f"[yellow]Rolling back run {run_id}…[/yellow]"
             )
-            # Best-effort: delete any partial GCS object before removing the DB record.
             with contextlib.suppress(APIError):
                 api_client.delete_run_archive(resolved_token, run_id)
             try:
@@ -134,7 +136,7 @@ def runs_create(
                     f"[bold red]Rollback also failed:[/bold red] {rb_exc}\n"
                     f"Orphaned run ID: {run_id}"
                 )
-            raise SystemExit(1) from None
+            sys.exit(1)
 
     archive_uri = upload_result.get("archive_uri") if upload_result else None
     _console.print(f"[bold green]Run created:[/bold green] {run_id}")
@@ -147,22 +149,22 @@ def runs_create(
 # ---------------------------------------------------------------------------
 
 
-@runs.command(name="get")
-def runs_get(
-    *,
-    run_id: Annotated[str, Parameter(name="--run-id", help="Run UUID.")],
-    token: Annotated[
-        str | None,
-        Parameter(env_var="PRISM_USER_API_TOKEN", help="PRISM API key (mlc_...)."),
-    ] = None,
-) -> None:
+@runs.command("get")
+@click.option("--run-id", required=True, help="Run UUID.")
+@click.option(
+    "--token",
+    envvar="PRISM_USER_API_TOKEN",
+    default=None,
+    help="PRISM API key (mlc_...).",
+)
+def runs_get(run_id: str, token: str | None) -> None:
     """Get full details of a specific run."""
     resolved_token = _get_token(token)
     try:
         run = api_client.get_run(resolved_token, run_id)
     except APIError as exc:
         _console.print(f"[bold red]Error:[/bold red] {exc}")
-        raise SystemExit(1) from None
+        sys.exit(1)
 
     output_json(run)
 
@@ -172,15 +174,15 @@ def runs_get(
 # ---------------------------------------------------------------------------
 
 
-@runs.command(name="delete")
-def runs_delete(
-    *,
-    run_id: Annotated[str, Parameter(name="--run-id", help="Run UUID.")],
-    token: Annotated[
-        str | None,
-        Parameter(env_var="PRISM_USER_API_TOKEN", help="PRISM API key (mlc_...)."),
-    ] = None,
-) -> None:
+@runs.command("delete")
+@click.option("--run-id", required=True, help="Run UUID.")
+@click.option(
+    "--token",
+    envvar="PRISM_USER_API_TOKEN",
+    default=None,
+    help="PRISM API key (mlc_...).",
+)
+def runs_delete(run_id: str, token: str | None) -> None:
     """Delete a run and its stored archive.
 
     If the run is part of an active submission the API will reject the request.
@@ -192,8 +194,6 @@ def runs_delete(
     """
     resolved_token = _get_token(token)
 
-    # 1. Delete the GCS archive first (run record still exists, so auth works).
-    #    404 = no archive uploaded — treat as a no-op.
     try:
         api_client.delete_run_archive(resolved_token, run_id)
     except APIError as exc:
@@ -203,12 +203,11 @@ def runs_delete(
                 "Continuing to delete the run record."
             )
 
-    # 2. Delete the DB record.
     try:
         api_client.delete_run(resolved_token, run_id)
     except APIError as exc:
         _console.print(f"[bold red]Error deleting run:[/bold red] {exc}")
-        raise SystemExit(1) from None
+        sys.exit(1)
 
     _console.print(f"[bold green]Run deleted:[/bold green] {run_id}")
 
@@ -218,39 +217,39 @@ def runs_delete(
 # ---------------------------------------------------------------------------
 
 
-@runs.command(name="pin")
-def runs_pin(
-    *,
-    run_id: Annotated[str, Parameter(name="--run-id", help="Run UUID.")],
-    token: Annotated[
-        str | None,
-        Parameter(env_var="PRISM_USER_API_TOKEN", help="PRISM API key (mlc_...)."),
-    ] = None,
-) -> None:
+@runs.command("pin")
+@click.option("--run-id", required=True, help="Run UUID.")
+@click.option(
+    "--token",
+    envvar="PRISM_USER_API_TOKEN",
+    default=None,
+    help="PRISM API key (mlc_...).",
+)
+def runs_pin(run_id: str, token: str | None) -> None:
     """Pin a run to prevent expiry (sets expires_at = null)."""
     resolved_token = _get_token(token)
     try:
         api_client.pin_run(resolved_token, run_id)
     except APIError as exc:
         _console.print(f"[bold red]Error:[/bold red] {exc}")
-        raise SystemExit(1) from None
+        sys.exit(1)
     _console.print(f"[bold green]Run pinned:[/bold green] {run_id}")
 
 
-@runs.command(name="unpin")
-def runs_unpin(
-    *,
-    run_id: Annotated[str, Parameter(name="--run-id", help="Run UUID.")],
-    token: Annotated[
-        str | None,
-        Parameter(env_var="PRISM_USER_API_TOKEN", help="PRISM API key (mlc_...)."),
-    ] = None,
-) -> None:
+@runs.command("unpin")
+@click.option("--run-id", required=True, help="Run UUID.")
+@click.option(
+    "--token",
+    envvar="PRISM_USER_API_TOKEN",
+    default=None,
+    help="PRISM API key (mlc_...).",
+)
+def runs_unpin(run_id: str, token: str | None) -> None:
     """Unpin a run to restore normal expiry behaviour."""
     resolved_token = _get_token(token)
     try:
         api_client.unpin_run(resolved_token, run_id)
     except APIError as exc:
         _console.print(f"[bold red]Error:[/bold red] {exc}")
-        raise SystemExit(1) from None
+        sys.exit(1)
     _console.print(f"[bold green]Run unpinned:[/bold green] {run_id}")

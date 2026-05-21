@@ -86,12 +86,14 @@ def build_submission_folder(
 
     written_systems: set[str] = set()
     for (system_id, model), runs in groups.items():
+        all_system_runs = runs_by_system[system_id]
         if system_id not in written_systems:
             _write_system_description(
-                submission_dir, system_id, model, runs_by_system[system_id], division
+                submission_dir, system_id, model, all_system_runs, division
             )
             written_systems.add(system_id)
-        _write_pareto_entries(submission_dir, system_id, model, runs)
+        max_concurrency = max(_extract_concurrency(r["config"]) for r in all_system_runs)
+        _write_pareto_entries(submission_dir, system_id, model, runs, max_concurrency)
         _write_accuracy_placeholders(submission_dir, system_id, model)
 
     if _normalize_division(division) == "Standardized":
@@ -163,11 +165,19 @@ def _load_run_data(run_dir: Path, run_id: str) -> dict[str, Any]:
     config: dict[str, Any] = yaml.safe_load(config_path.read_text()) or {}
     result_summary: dict[str, Any] = json.loads(summary_path.read_text())
 
+    runtime_settings_path = base / "runtime_settings.json"
+    runtime_settings: dict[str, Any] = (
+        json.loads(runtime_settings_path.read_text())
+        if runtime_settings_path.exists()
+        else {}
+    )
+
     return {
         "run_id": run_id,
         "system_info": system_info,
         "config": config,
         "result_summary": result_summary,
+        "runtime_settings": runtime_settings,
     }
 
 
@@ -281,7 +291,12 @@ def _write_pareto_entries(
     system_id: str,
     model: str,
     runs: list[dict[str, Any]],
+    max_concurrency: int,
 ) -> None:
+    from submission_checker.models import classify_concurrency, compute_regions
+
+    regions = compute_regions(max(max_concurrency, 33))
+
     for run in runs:
         concurrency = _extract_concurrency(run["config"])
         model_dir = submission_dir / "pareto" / system_id / model
@@ -290,28 +305,39 @@ def _write_pareto_entries(
         points_dir.mkdir(parents=True, exist_ok=True)
         result_dir.mkdir(parents=True, exist_ok=True)
 
-        # point YAML
-        point_cfg = {
+        # Build point YAML from config.yaml + runtime_settings.json
+        cfg_settings = run["config"].get("settings", {}) or {}
+        load_pattern = cfg_settings.get("load_pattern", {}) or {}
+        rt_json = run.get("runtime_settings", {}) or {}
+        datasets = run["config"].get("datasets", []) or []
+        dataset_name = (
+            datasets[0].get("name", "") if datasets and isinstance(datasets[0], dict) else ""
+        )
+
+        runtime_settings_out: dict[str, Any] = {
+            **rt_json,
+            "load_pattern": load_pattern.get("type", "concurrency"),
+            "stream_all_chunks": True,
+        }
+
+        point_cfg: dict[str, Any] = {
             "concurrency": concurrency,
-            "dataset": _extract_dataset(run["config"]),
-            "runtime_settings": {
-                "load_pattern": "concurrency",
-                "min_duration_ms": _extract_min_duration_ms(run["config"]),
-                "stream_all_chunks": True,
-            },
+            "region": classify_concurrency(concurrency, regions),
+            "dataset": dataset_name,
+            "runtime_settings": runtime_settings_out,
         }
         (points_dir / f"point_{concurrency}.yaml").write_text(
             yaml.dump(point_cfg, default_flow_style=False), encoding="utf-8"
         )
 
-        # log summary — map result_summary fields to PointSummary schema
-        summary = _build_log_summary(run["result_summary"])
         (result_dir / "mlperf_endpoints_log_summary.json").write_text(
-            json.dumps(summary, indent=2), encoding="utf-8"
+            json.dumps(run["result_summary"], indent=2), encoding="utf-8"
         )
-        # detail log — empty object is acceptable
         (result_dir / "mlperf_endpoints_log_detail.json").write_text(
             "{}", encoding="utf-8"
+        )
+        (result_dir / "system_desc.json").write_text(
+            json.dumps(run["system_info"], indent=2), encoding="utf-8"
         )
 
 
@@ -332,40 +358,6 @@ def _write_accuracy_placeholders(
     (accuracy_dir / "accuracy_result.json").write_text(
         json.dumps(placeholder, indent=2), encoding="utf-8"
     )
-
-
-def _build_log_summary(result_summary: dict[str, Any]) -> dict[str, Any]:
-    """Map raw result_summary.json to mlperf_endpoints_log_summary.json format."""
-    ttft_raw = result_summary.get("ttft", {}) or {}
-    osl_raw = result_summary.get("output_sequence_lengths", {}) or {}
-
-    return {
-        "n_samples_issued": result_summary.get("n_samples_issued", 0),
-        "n_samples_completed": result_summary.get("n_samples_completed", 0),
-        "n_samples_failed": 0,
-        "duration_ns": float(result_summary.get("duration_ns", 0)),
-        "ttft": {
-            "total": float(ttft_raw.get("total", 0)),
-            "percentiles": ttft_raw.get("percentiles", {}),
-        },
-        "output_sequence_lengths": {
-            "total": float(osl_raw.get("total", 0)),
-            "percentiles": osl_raw.get("percentiles", {}),
-        },
-    }
-
-
-def _extract_dataset(config: dict[str, Any]) -> str:
-    datasets = config.get("datasets", []) or []
-    if datasets:
-        return datasets[0].get("name", "") if isinstance(datasets[0], dict) else str(datasets[0])
-    return ""
-
-
-def _extract_min_duration_ms(config: dict[str, Any]) -> int:
-    settings = config.get("settings", {}) or {}
-    runtime = settings.get("runtime", {}) or {}
-    return int(runtime.get("min_duration_ms", 600_000))
 
 
 def _normalize_division(division: str) -> str:

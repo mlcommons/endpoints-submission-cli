@@ -41,6 +41,7 @@ _DEFAULT_BASE_URL = "http://localhost:8080"
 # write=300: each write syscall can stall up to 5 min — handles large uploads on slow links.
 # read=120:  server must send the first response byte within 2 min after receiving the file.
 _UPLOAD_TIMEOUT = httpx.Timeout(connect=10.0, write=300.0, read=120.0, pool=5.0)
+_DOWNLOAD_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=5.0)
 _API_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=30.0, pool=5.0)
 
 
@@ -202,6 +203,7 @@ def download_run_archive(token: str, run_id: str, dest_dir: Path) -> Path:
             "GET",
             f"{_base_url()}/runs/{run_id}/archive",
             headers=_headers(token),
+            timeout=_DOWNLOAD_TIMEOUT,
         ) as r:
             r.raise_for_status()
             with open(dest, "wb") as fh:
@@ -308,6 +310,7 @@ def download_submission_archive(
             "GET",
             f"{_base_url()}/submissions/{submission_id}/archive",
             headers=_headers(token),
+            timeout=_DOWNLOAD_TIMEOUT,
         ) as r:
             r.raise_for_status()
             with open(dest, "wb") as fh:

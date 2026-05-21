@@ -2,20 +2,22 @@
 # SPDX-License-Identifier: Apache-2.0
 """Entry point for the endpoints-submission-cli tool."""
 
-from cyclopts import App
+import click
 
 from .commands.runs import runs
 from .commands.submissions import submissions
 
 __all__ = ["app", "main"]
 
-app = App(
-    name="endpoints-submission-cli",
-    help="MLPerf rolling submission CLI — manage benchmark runs and submissions.",
-    version_flags=["--version"],
-)
-app.command(runs)
-app.command(submissions)
+
+@click.group()
+@click.version_option(version="0.1.0")
+def app() -> None:
+    """MLPerf rolling submission CLI — manage benchmark runs and submissions."""
+
+
+app.add_command(runs)
+app.add_command(submissions)
 
 
 def main() -> None:
