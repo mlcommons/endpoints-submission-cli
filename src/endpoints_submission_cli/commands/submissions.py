@@ -10,6 +10,7 @@ from typing import Annotated
 
 from cyclopts import App, Parameter
 from rich.console import Console
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 
 from .. import api_client, github_ops
 from ..exceptions import (
@@ -111,6 +112,13 @@ def submissions_create(
             help="Target availability date (YYYY-MM-DD). Required for preview availability.",
         ),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        Parameter(
+            name="--dry-run",
+            help="Assemble folder, run checker, print layout — exit without submitting.",
+        ),
+    ] = False,
 ) -> None:
     """Create a new submission from one or more registered runs.
 
@@ -124,7 +132,16 @@ def submissions_create(
       7. PATCH submission with pr_url and pr_number.
     """
     resolved_token = _get_token(token)
-    target_repo = github_ops.get_target_repo()
+    if not dry_run:
+        target_repo = github_ops.get_target_repo()
+        _console.print("[cyan]Checking GitHub prerequisites…[/cyan]")
+        try:
+            repo_ok, repo_warning = github_ops.check_prerequisites(target_repo)
+        except GitHubError as exc:
+            _console.print(f"[bold red]GitHub prerequisite check failed:[/bold red] {exc}")
+            raise SystemExit(1) from None
+        if not repo_ok:
+            _console.print(f"[yellow]Warning:[/yellow] {repo_warning}")
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
@@ -132,15 +149,28 @@ def submissions_create(
         # 1. Download run archives
         _console.print("[cyan]Downloading run archives…[/cyan]")
         archives: list[tuple[str, Path]] = []
-        for run_id in run_ids:
-            try:
-                dest = api_client.download_run_archive(
-                    resolved_token, run_id, tmp_path / "archives"
-                )
-            except APIError as exc:
-                _console.print(f"[bold red]Failed to download run {run_id}:[/bold red] {exc}")
-                raise SystemExit(1) from None
-            archives.append((run_id, dest))
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            console=_console,
+        ) as progress:
+            task = progress.add_task("Downloading run archives", total=len(run_ids))
+            for run_id in run_ids:
+                progress.update(task, description=f"Downloading [cyan]{run_id[:8]}…[/cyan]")
+                try:
+                    dest = api_client.download_run_archive(
+                        resolved_token, run_id, tmp_path / "archives"
+                    )
+                except APIError as exc:
+                    progress.stop()
+                    _console.print(
+                        f"[bold red]Failed to download run {run_id}:[/bold red] {exc}"
+                    )
+                    raise SystemExit(1) from None
+                archives.append((run_id, dest))
+                progress.advance(task)
 
         # 2. Assemble submission folder
         _console.print("[cyan]Assembling submission folder…[/cyan]")
@@ -157,6 +187,15 @@ def submissions_create(
         except SubmissionCheckError as exc:
             _console.print(f"[bold red]Submission checker failed:[/bold red]\n{exc}")
             raise SystemExit(1) from None
+
+        if dry_run:
+            _console.print("[bold green]Checker passed.[/bold green] Folder layout:\n")
+            for path in sorted(submission_dir.rglob("*")):
+                indent = "  " * (len(path.relative_to(submission_dir).parts) - 1)
+                label = path.name + ("/" if path.is_dir() else "")
+                _console.print(f"[dim]{indent}[/dim]{label}")
+            _console.print("\n[dim](dry-run: no submission created)[/dim]")
+            return
 
         # 4. POST /submissions
         payload: dict = {
@@ -194,22 +233,28 @@ def submissions_create(
                 _console.print(f"[bold red]Rollback failed:[/bold red] {rb_exc}")
             raise SystemExit(1) from None
 
-        # 6. Create GitHub PR
+        # 6. Push submission branch and create GitHub PR
         _console.print("[cyan]Creating GitHub PR…[/cyan]")
         branch = f"submission-{submission_id}"
         try:
+            github_ops.prepare_submission_branch(
+                submission_dir, branch, target_repo, tmp_path / "gh"  # type: ignore[possibly-undefined]
+            )
             pr_url, pr_number = github_ops.create_pr(submission_id, branch, target_repo)
         except GitHubError as exc:
             _console.print(
-                f"[yellow]PR creation failed (submission {submission_id} exists in DB):"
-                f"[/yellow] {exc}\n"
-                "Retry with: endpoints-submission-cli submissions update "
-                f"--submission-id {submission_id} --pr-url <url> --pr-number <n>"
+                f"[bold red]PR creation failed:[/bold red] {exc}\n"
+                f"[yellow]Rolling back submission {submission_id}…[/yellow]"
             )
-            _console.print(
-                f"[bold green]Submission created (no PR yet):[/bold green] {submission_id}"
-            )
-            return
+            try:
+                api_client.withdraw_submission(resolved_token, submission_id)
+                _console.print("[green]Rollback successful — submission withdrawn.[/green]")
+            except APIError as rb_exc:
+                _console.print(
+                    f"[bold red]Rollback also failed:[/bold red] {rb_exc}\n"
+                    f"Orphaned submission ID: {submission_id}"
+                )
+            raise SystemExit(1) from None
 
         # 7. PATCH with pr_url, pr_number
         try:

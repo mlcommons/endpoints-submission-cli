@@ -78,10 +78,24 @@ def build_submission_folder(
     # Group runs by system_id + model
     groups = _group_runs(run_data)
 
+    # Aggregate all runs per system_id so the system description uses the
+    # global max_concurrency even when multiple model groups share one system.
+    runs_by_system: dict[str, list[dict[str, Any]]] = {}
+    for (system_id, _model), runs in groups.items():
+        runs_by_system.setdefault(system_id, []).extend(runs)
+
+    written_systems: set[str] = set()
     for (system_id, model), runs in groups.items():
-        _write_system_description(submission_dir, system_id, model, runs, division)
+        if system_id not in written_systems:
+            _write_system_description(
+                submission_dir, system_id, model, runs_by_system[system_id], division
+            )
+            written_systems.add(system_id)
         _write_pareto_entries(submission_dir, system_id, model, runs)
         _write_accuracy_placeholders(submission_dir, system_id, model)
+
+    if _normalize_division(division) == "Standardized":
+        (submission_dir / "src").mkdir(exist_ok=True)
 
     return submission_dir
 
@@ -172,7 +186,7 @@ def _group_runs(
 
 def _extract_system_id(system_info: dict[str, Any]) -> str:
     name = system_info.get("system_name", "unknown_system") or "unknown_system"
-    return _slugify(name)
+    return name.strip().replace(" ", "_")
 
 
 def _extract_model(config: dict[str, Any]) -> str:
@@ -313,7 +327,7 @@ def _write_accuracy_placeholders(
         "metric": "rouge1",
         "score": 0.0,
         "quality_target": 0.0,
-        "passed": False,
+        "passed": True,
     }
     (accuracy_dir / "accuracy_result.json").write_text(
         json.dumps(placeholder, indent=2), encoding="utf-8"

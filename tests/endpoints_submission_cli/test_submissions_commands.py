@@ -206,6 +206,14 @@ def _make_fake_archive(tmp_path: Path) -> Path:
 
 @pytest.mark.unit
 class TestSubmissionsCreate:
+    @pytest.fixture(autouse=True)
+    def _mock_gh_prereqs(self) -> pytest.FixtureRequest:
+        with patch(
+            "endpoints_submission_cli.github_ops.check_prerequisites",
+            return_value=(True, ""),
+        ):
+            yield
+
     def test_create_success(self, tmp_path: Path) -> None:
         fake_archive = _make_fake_archive(tmp_path)
         fake_sub_dir = tmp_path / "sub"
@@ -229,22 +237,23 @@ class TestSubmissionsCreate:
                                 return_value=fake_bundle,
                             ):
                                 with patch("endpoints_submission_cli.api_client.upload_submission_archive"):
-                                    with patch(
-                                        "endpoints_submission_cli.github_ops.create_pr",
-                                        return_value=(_PR_URL, _PR_NUMBER),
-                                    ):
-                                        with patch("endpoints_submission_cli.api_client.update_submission"):
-                                            with patch(
-                                                "endpoints_submission_cli.github_ops.get_target_repo",
-                                                return_value="org/repo",
-                                            ):
-                                                _run_app(
-                                                    "submissions", "create",
-                                                    "--division", "standardized",
-                                                    "--availability", "available",
-                                                    "--run-ids", RUN_ID,
-                                                    *_TOKEN_ARGS,
-                                                )
+                                    with patch("endpoints_submission_cli.github_ops.prepare_submission_branch"):
+                                        with patch(
+                                            "endpoints_submission_cli.github_ops.create_pr",
+                                            return_value=(_PR_URL, _PR_NUMBER),
+                                        ):
+                                            with patch("endpoints_submission_cli.api_client.update_submission"):
+                                                with patch(
+                                                    "endpoints_submission_cli.github_ops.get_target_repo",
+                                                    return_value="org/repo",
+                                                ):
+                                                    _run_app(
+                                                        "submissions", "create",
+                                                        "--division", "standardized",
+                                                        "--availability", "available",
+                                                        "--run-ids", RUN_ID,
+                                                        *_TOKEN_ARGS,
+                                                    )
         mock_create.assert_called_once()
 
     def test_create_download_failure_exits_1(self) -> None:
@@ -375,7 +384,7 @@ class TestSubmissionsCreate:
                                             assert exc_info.value.code == 1
                                             mock_withdraw.assert_called_once_with(TOKEN, SUBMISSION_ID)
 
-    def test_create_pr_failure_is_non_fatal(self, tmp_path: Path) -> None:
+    def test_create_pr_failure_rolls_back_and_exits_1(self, tmp_path: Path) -> None:
         fake_archive = _make_fake_archive(tmp_path)
         fake_sub_dir = tmp_path / "sub"
         fake_sub_dir.mkdir()
@@ -398,22 +407,31 @@ class TestSubmissionsCreate:
                                 return_value=fake_bundle,
                             ):
                                 with patch("endpoints_submission_cli.api_client.upload_submission_archive"):
-                                    with patch(
-                                        "endpoints_submission_cli.github_ops.create_pr",
-                                        side_effect=GitHubError("gh not found"),
-                                    ):
+                                    with patch("endpoints_submission_cli.github_ops.prepare_submission_branch"):
                                         with patch(
-                                            "endpoints_submission_cli.github_ops.get_target_repo",
-                                            return_value="org/repo",
+                                            "endpoints_submission_cli.github_ops.create_pr",
+                                            side_effect=GitHubError("gh not found"),
                                         ):
-                                            # PR failure is non-fatal → exits 0
-                                            _run_app(
-                                                "submissions", "create",
-                                                "--division", "standardized",
-                                                "--availability", "available",
-                                                "--run-ids", RUN_ID,
-                                                *_TOKEN_ARGS,
-                                            )
+                                            with patch(
+                                                "endpoints_submission_cli.github_ops.get_target_repo",
+                                                return_value="org/repo",
+                                            ):
+                                                with patch(
+                                                    "endpoints_submission_cli.api_client.withdraw_submission"
+                                                ) as mock_withdraw:
+                                                    with pytest.raises(SystemExit) as exc_info:
+                                                        app(
+                                                            [
+                                                                "submissions", "create",
+                                                                "--division", "standardized",
+                                                                "--availability", "available",
+                                                                "--run-ids", RUN_ID,
+                                                                *_TOKEN_ARGS,
+                                                            ],
+                                                            exit_on_error=False,
+                                                        )
+                                                    assert exc_info.value.code == 1
+                                                    mock_withdraw.assert_called_once_with(TOKEN, SUBMISSION_ID)
 
 
 @pytest.mark.unit
