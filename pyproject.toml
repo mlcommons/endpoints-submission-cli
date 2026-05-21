@@ -12,6 +12,8 @@ license = { text = "Apache-2.0" }
 authors = [{ name = "MLCommons", email = "arav@mlcommons.org" }]
 dependencies = [
     "click>=8.1",
+    "cyclopts>=4.0",
+    "httpx>=0.25",
     "pydantic>=2.0",
     "rich>=13.0",
     "pyyaml>=6.0",
@@ -19,11 +21,13 @@ dependencies = [
 
 [project.scripts]
 submission-checker = "submission_checker.cli:main"
+endpoints-submission-cli = "endpoints_submission_cli.main:main"
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
+    "pytest-mock>=3.0",
     "ruff>=0.4",
 ]
 docs = [
@@ -33,15 +37,26 @@ docs = [
 ]
 
 [tool.setuptools]
-packages = ["submission_checker", "submission_checker.models"]
+packages = [
+    "submission_checker",
+    "submission_checker.models",
+    "endpoints_submission_cli",
+    "endpoints_submission_cli.commands",
+]
 
 [tool.setuptools.package-dir]
 "submission_checker" = "src"
 "submission_checker.models" = "src/models"
+"endpoints_submission_cli" = "src/endpoints_submission_cli"
+"endpoints_submission_cli.commands" = "src/endpoints_submission_cli/commands"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--cov=submission_checker --cov-report=term-missing -v"
+markers = [
+    "unit: fast, isolated unit tests (no network, no subprocesses)",
+    "integration: tests that require a running API at http://localhost:8080",
+]
 
 [tool.coverage.run]
 source = ["src"]
@@ -72,4 +87,8 @@ ignore = [
 known-first-party = ["submission_checker"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["TCH"]  # test files don't need TYPE_CHECKING optimisation
+"tests/**" = [
+    "TCH",    # test files don't need TYPE_CHECKING optimisation
+    "E501",   # long patch() target strings are unavoidable in test files
+    "SIM117", # deeply-nested with-patch blocks are intentional for clarity
+]
