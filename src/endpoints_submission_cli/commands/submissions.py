@@ -317,12 +317,12 @@ def submissions_create(
                 )
             sys.exit(1)
 
-        # 7. PATCH with pr_url, pr_number
+        # 7. PATCH with pr_url, pr_number, status
         try:
             api_client.update_submission(
                 resolved_token,
                 submission_id,
-                {"pr_url": pr_url, "pr_number": pr_number},
+                {"pr_url": pr_url, "pr_number": pr_number, "status": "REVIEW_PENDING"},
             )
         except APIError as exc:
             _console.print(f"[yellow]Warning: PATCH pr_url failed (retryable):[/yellow] {exc}")
@@ -375,67 +375,23 @@ def submissions_get(submission_id: str, token: str | None, as_json: bool) -> Non
     default=None,
     help="PRISM API key (mlc_...).",
 )
-@click.option("--status", default=None)
-@click.option("--run-ids", "run_ids", multiple=True)
-@click.option("--availability-qualified-at", default=None)
-@click.option("--compliance-passed-at", default=None)
-@click.option("--first-published-at", default=None)
-@click.option("--peer-review-started-at", default=None)
-@click.option("--objection-resolution-started-at", default=None)
-@click.option("--finalized-at", default=None)
-@click.option("--pr-url", default=None)
-@click.option("--pr-number", type=int, default=None)
-@click.option("--archive-uri", default=None)
-@click.option("--publication-cycle", default=None)
-@click.option("--target-availability-date", default=None)
-def submissions_update(  # noqa: PLR0913
+@click.option("--run-ids", "run_ids", multiple=True, help="Replace run UUID list. Repeatable.")
+@click.option("--target-availability-date", default=None, help="Target availability date (YYYY-MM-DD).")
+def submissions_update(
     submission_id: str,
     token: str | None,
-    status: str | None,
     run_ids: tuple[str, ...],
-    availability_qualified_at: str | None,
-    compliance_passed_at: str | None,
-    first_published_at: str | None,
-    peer_review_started_at: str | None,
-    objection_resolution_started_at: str | None,
-    finalized_at: str | None,
-    pr_url: str | None,
-    pr_number: int | None,
-    archive_uri: str | None,
-    publication_cycle: str | None,
     target_availability_date: str | None,
 ) -> None:
-    """Update one or more fields on an existing submission.
+    """Update run IDs or target availability date on an existing submission.
 
     Only the fields you provide are changed.
     """
     resolved_token = _get_token(token)
 
     patch: dict = {}
-    if status is not None:
-        patch["status"] = status
     if run_ids:
         patch["run_ids"] = list(run_ids)
-    if availability_qualified_at is not None:
-        patch["availability_qualified_at"] = availability_qualified_at
-    if compliance_passed_at is not None:
-        patch["compliance_passed_at"] = compliance_passed_at
-    if first_published_at is not None:
-        patch["first_published_at"] = first_published_at
-    if peer_review_started_at is not None:
-        patch["peer_review_started_at"] = peer_review_started_at
-    if objection_resolution_started_at is not None:
-        patch["objection_resolution_started_at"] = objection_resolution_started_at
-    if finalized_at is not None:
-        patch["finalized_at"] = finalized_at
-    if pr_url is not None:
-        patch["pr_url"] = pr_url
-    if pr_number is not None:
-        patch["pr_number"] = pr_number
-    if archive_uri is not None:
-        patch["archive_uri"] = archive_uri
-    if publication_cycle is not None:
-        patch["publication_cycle"] = publication_cycle
     if target_availability_date is not None:
         patch["target_availability_date"] = target_availability_date
 

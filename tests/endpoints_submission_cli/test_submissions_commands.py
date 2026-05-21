@@ -87,32 +87,31 @@ class TestSubmissionsGet:
 
 @pytest.mark.unit
 class TestSubmissionsUpdate:
-    def test_update_status(self) -> None:
-        updated = {**SUBMISSION_OUT, "status": "REVIEW_PENDING"}
+    def test_update_run_ids(self) -> None:
+        updated = {**SUBMISSION_OUT, "run_ids": [RUN_ID]}
         with patch("endpoints_submission_cli.api_client.update_submission", return_value=updated) as mock_patch:
             with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
                 _run_app(
                     "submissions", "update",
                     "--submission-id", SUBMISSION_ID,
-                    "--status", "REVIEW_PENDING",
+                    "--run-ids", RUN_ID,
                     *_TOKEN_ARGS,
                 )
-        mock_patch.assert_called_once_with(TOKEN, SUBMISSION_ID, {"status": "REVIEW_PENDING"})
+        mock_patch.assert_called_once_with(TOKEN, SUBMISSION_ID, {"run_ids": [RUN_ID]})
 
-    def test_update_pr_fields(self) -> None:
-        updated = {**SUBMISSION_OUT, "pr_url": _PR_URL, "pr_number": _PR_NUMBER}
+    def test_update_target_availability_date(self) -> None:
+        updated = {**SUBMISSION_OUT, "target_availability_date": "2026-06-01"}
         with patch("endpoints_submission_cli.api_client.update_submission", return_value=updated) as mock_patch:
             with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
                 _run_app(
                     "submissions", "update",
                     "--submission-id", SUBMISSION_ID,
-                    "--pr-url", _PR_URL,
-                    "--pr-number", str(_PR_NUMBER),
+                    "--target-availability-date", "2026-06-01",
                     *_TOKEN_ARGS,
                 )
-        call_kwargs = mock_patch.call_args[0][2]
-        assert call_kwargs["pr_url"] == _PR_URL
-        assert call_kwargs["pr_number"] == _PR_NUMBER
+        mock_patch.assert_called_once_with(
+            TOKEN, SUBMISSION_ID, {"target_availability_date": "2026-06-01"}
+        )
 
     def test_update_no_fields_is_noop(self) -> None:
         with patch("endpoints_submission_cli.api_client.update_submission") as mock_patch:
@@ -128,7 +127,7 @@ class TestSubmissionsUpdate:
                     [
                         "submissions", "update",
                         "--submission-id", SUBMISSION_ID,
-                        "--status", "REVIEW_PENDING",
+                        "--run-ids", RUN_ID,
                         *_TOKEN_ARGS,
                     ],
                 )

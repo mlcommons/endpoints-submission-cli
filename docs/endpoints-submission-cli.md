@@ -72,14 +72,14 @@ Two additional environment variables control where the CLI talks to:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `MLPERF_API_BASE_URL(for testing purpose)` | `http://localhost:8080` | Base URL of the PRISM Submission API |
-| `MLPERF_SUBMISSION_REPO` | `mlcommons/inference_results_rolling` | GitHub repository for submission PRs |
+| `MLPERF_SUBMISSION_REPO` | `MLCommons-Systems/test-endpoints-submission-repo` | GitHub repository for submission PRs |
 
 Add these to your shell profile for persistent configuration:
 
 ```bash
 export PRISM_USER_API_TOKEN=mlc_your_token_here
 export MLPERF_API_BASE_URL=https://api.mlcommons.org
-export MLPERF_SUBMISSION_REPO=mlcommons/inference_results_rolling
+export MLPERF_SUBMISSION_REPO=MLCommons-Systems/test-endpoints-submission-repo
 ```
 
 The `submissions create`, `submissions withdraw`, `submissions add-run`, and
@@ -264,7 +264,7 @@ runs. This command runs the full automated workflow:
 4. Register the submission with the API (`POST /submissions`).
 5. Upload the submission bundle.
 6. Create a GitHub PR in the target repository.
-7. Store the PR URL and number on the submission record.
+7. Store the PR URL, PR number, and set status to `REVIEW_PENDING` on the submission record.
 
 ```bash
 endpoints-submission-cli submissions create \
@@ -289,14 +289,8 @@ endpoints-submission-cli submissions create \
 | `--target-availability-date DATE` | no | `YYYY-MM-DD`; required when availability is `preview` |
 
 **If the GitHub PR step fails** the submission record and uploaded bundle still
-exist. Retry the PR step manually:
-
-```bash
-endpoints-submission-cli submissions update \
-  --submission-id $SUB_ID \
-  --pr-url https://github.com/org/repo/pull/N \
-  --pr-number N
-```
+exist. Retry the PR step manually with `gh pr create` on the submission branch,
+then contact MLCommons to update the PR linkage.
 
 ---
 
@@ -313,36 +307,23 @@ endpoints-submission-cli submissions get \
 
 ### submissions update
 
-Patch one or more fields on an existing submission. Only the flags you provide
-are changed.
+Update the run list or target availability date on an existing submission. Only
+the flags you provide are changed.
 
 ```bash
 endpoints-submission-cli submissions update \
   --submission-id SUB_ID \
   [--token TOKEN] \
-  [--status STATUS] \
-  [--pr-url URL] \
-  [--pr-number N] \
-  [--publication-cycle CYCLE] \
-  [--target-availability-date DATE] \
-  [--archive-uri URI] \
-  [--availability-qualified-at DATETIME] \
-  [--compliance-passed-at DATETIME] \
-  [--first-published-at DATETIME] \
-  [--peer-review-started-at DATETIME] \
-  [--objection-resolution-started-at DATETIME] \
-  [--finalized-at DATETIME]
+  [--run-ids RUN_ID] \
+  [--target-availability-date DATE]
 ```
 
 | Flag | Description |
 |------|-------------|
 | `--submission-id` | Submission UUID (required) |
-| `--status` | Override lifecycle status |
-| `--pr-url` | GitHub PR URL |
-| `--pr-number` | GitHub PR number |
-| `--publication-cycle` | Target publication cycle |
-| `--target-availability-date` | Target availability date (YYYY-MM-DD) |
-| All `*-at` flags | ISO-8601 timestamp for the corresponding lifecycle event |
+| `--token TOKEN` | API token |
+| `--run-ids RUN_ID` | Replace the run UUID list. Repeatable — pass once per run. |
+| `--target-availability-date DATE` | Target availability date (`YYYY-MM-DD`) |
 
 Providing no optional flags prints a warning and makes no API call.
 
@@ -411,7 +392,7 @@ to the submission record.
 |----------|----------|---------|-------------|
 | `PRISM_USER_API_TOKEN` | yes* | — | API key for the PRISM Submission API (`mlc_…`). Can be passed per-command with `--token` instead. |
 | `MLPERF_API_BASE_URL` | no | `http://localhost:8080` | Base URL of the PRISM Submission API. |
-| `MLPERF_SUBMISSION_REPO` | no | `mlcommons/inference_results_rolling` | Target GitHub repository for submission PRs (`org/repo` format). |
+| `MLPERF_SUBMISSION_REPO` | no | `MLCommons-Systems/test-endpoints-submission-repo` | Target GitHub repository for submission PRs (`org/repo` format). |
 
 \* Required unless `--token` is passed.
 
@@ -428,13 +409,14 @@ to the submission record.
 
 ## Run folder layout
 
-`runs create` expects a directory containing these three files:
+`runs create` expects a directory containing these files:
 
 ```
 <run-folder>/
-├── system_info.json      # Hardware and software description
-├── config.yaml           # Benchmark configuration (model, concurrency, endpoints, …)
-└── result_summary.json   # Aggregated performance metrics
+├── system_info.json        # Hardware and software description (required)
+├── config.yaml             # Benchmark configuration (model, concurrency, endpoints, …) (required)
+├── result_summary.json     # Aggregated performance metrics (required)
+└── runtime_settings.json   # Inference server runtime settings (optional)
 ```
 
 **`system_info.json`** — hardware description:
@@ -474,6 +456,16 @@ endpoint_config:
   "n_samples_completed": 2000,
   "ttft": { "avg": 80900000, "percentiles": { "50": 80500000, "99": 200000000 } },
   "output_sequence_lengths": { "avg": 50.0 }
+}
+```
+
+**`runtime_settings.json`** *(optional)* — inference server runtime settings used
+as the base for the `runtime_settings` block in each `point_<N>.yaml`:
+
+```json
+{
+  "max_num_seqs": 256,
+  "tensor_parallel_size": 8
 }
 ```
 
