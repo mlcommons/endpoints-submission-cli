@@ -385,27 +385,154 @@ def submissions_update(
 ) -> None:
     """Update run IDs or target availability date on an existing submission.
 
-    Only the fields you provide are changed.
+    Providing --run-ids triggers a full rebuild (download → build → checker → upload → PR update).
+    Providing only --target-availability-date is a DB-only PATCH with no rebuild.
     """
     resolved_token = _get_token(token)
 
-    patch: dict = {}
-    if run_ids:
-        patch["run_ids"] = list(run_ids)
-    if target_availability_date is not None:
-        patch["target_availability_date"] = target_availability_date
-
-    if not patch:
+    if not run_ids and target_availability_date is None:
         _console.print("[yellow]Nothing to update — provide at least one field.[/yellow]")
         return
 
+    # Date-only path: no rebuild needed
+    if not run_ids:
+        try:
+            sub_out = api_client.update_submission(
+                resolved_token, submission_id, {"target_availability_date": target_availability_date}
+            )
+        except APIError as exc:
+            _console.print(f"[bold red]Error:[/bold red] {exc}")
+            sys.exit(1)
+        print_submission_detail(sub_out)
+        return
+
+    # Run-IDs path: full rebuild
+    desired_run_ids = list(run_ids)
+    target_repo = github_ops.get_target_repo()
+
     try:
-        sub_out = api_client.update_submission(resolved_token, submission_id, patch)
+        current_sub = api_client.get_submission(resolved_token, submission_id)
     except APIError as exc:
-        _console.print(f"[bold red]Error:[/bold red] {exc}")
+        _console.print(f"[bold red]Error fetching submission:[/bold red] {exc}")
         sys.exit(1)
 
-    print_submission_detail(sub_out)
+    original_run_ids: list[str] = current_sub.get("run_ids", [])
+    division: str = current_sub.get("division", "standardized")
+    pr_number: int | None = current_sub.get("pr_number")
+
+    added = [r for r in desired_run_ids if r not in original_run_ids]
+    removed = [r for r in original_run_ids if r not in desired_run_ids]
+    if added:
+        _console.print(f"[cyan]Adding {len(added)} run(s): {', '.join(r[:8] for r in added)}…[/cyan]")
+    if removed:
+        _console.print(f"[cyan]Removing {len(removed)} run(s): {', '.join(r[:8] for r in removed)}…[/cyan]")
+
+    if not added and not removed:
+        if target_availability_date is not None:
+            try:
+                sub_out = api_client.update_submission(
+                    resolved_token, submission_id,
+                    {"target_availability_date": target_availability_date},
+                )
+            except APIError as exc:
+                _console.print(f"[bold red]Error:[/bold red] {exc}")
+                sys.exit(1)
+            print_submission_detail(sub_out)
+        else:
+            _console.print("[yellow]Run list unchanged. Nothing to do.[/yellow]")
+        return
+
+    # PATCH DB with new run list (and optional date in one call)
+    patch: dict = {"run_ids": desired_run_ids}
+    if target_availability_date is not None:
+        patch["target_availability_date"] = target_availability_date
+    try:
+        api_client.update_submission(resolved_token, submission_id, patch)
+    except APIError as exc:
+        _console.print(f"[bold red]Error updating submission:[/bold red] {exc}")
+        sys.exit(1)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+
+        # Download all desired archives
+        _console.print(f"[cyan]Downloading {len(desired_run_ids)} run archive(s)…[/cyan]")
+        archives: list[tuple[str, Path]] = []
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            console=_console,
+        ) as progress:
+            task = progress.add_task("Downloading run archives", total=len(desired_run_ids))
+            for rid in desired_run_ids:
+                progress.update(task, description=f"Downloading [cyan]{rid[:8]}…[/cyan]")
+                try:
+                    dest = api_client.download_run_archive(
+                        resolved_token, rid, tmp_path / "archives"
+                    )
+                except APIError as exc:
+                    progress.stop()
+                    _console.print(f"[bold red]Failed to download run {rid}:[/bold red] {exc}")
+                    _rollback_update(resolved_token, submission_id, original_run_ids)
+                    sys.exit(1)
+                archives.append((rid, dest))
+                progress.advance(task)
+
+        # Assemble submission folder
+        _console.print("[cyan]Assembling submission folder…[/cyan]")
+        try:
+            submission_dir = build_submission_folder(archives, division, tmp_path / "bundle")
+        except SubmissionBuildError as exc:
+            _console.print(f"[bold red]Build error:[/bold red] {exc}")
+            _rollback_update(resolved_token, submission_id, original_run_ids)
+            sys.exit(1)
+
+        # Run Submission Checker
+        _console.print("[cyan]Running Submission Checker…[/cyan]")
+        try:
+            _run_submission_checker(submission_dir)
+        except SubmissionCheckError as exc:
+            _console.print(f"[bold red]Submission checker failed:[/bold red]\n{exc}")
+            _rollback_update(resolved_token, submission_id, original_run_ids)
+            sys.exit(1)
+
+        # Upload bundle
+        _console.print("[cyan]Uploading submission bundle…[/cyan]")
+        archive_path = create_bundle_archive(submission_dir, tmp_path / "bundle.tar.gz")
+        try:
+            api_client.upload_submission_archive(resolved_token, submission_id, archive_path)
+        except APIError as exc:
+            _console.print(f"[bold red]Bundle upload failed:[/bold red] {exc}")
+            _rollback_update(resolved_token, submission_id, original_run_ids)
+            sys.exit(1)
+
+        # Update PR branch
+        if pr_number:
+            _console.print("[cyan]Updating GitHub PR…[/cyan]")
+            _parts = []
+            if added:
+                _parts.append(f"add {', '.join(r[:8] for r in added)}")
+            if removed:
+                _parts.append(f"remove {', '.join(r[:8] for r in removed)}")
+            _commit_msg = f"update: {'; '.join(_parts)} ({len(desired_run_ids)} runs total)"
+            try:
+                github_ops.update_pr_branch(
+                    pr_number,
+                    submission_dir,
+                    target_repo,
+                    tmp_path / "gh",
+                    _commit_msg,
+                    branch=f"submission-{submission_id}",
+                )
+            except GitHubError as exc:
+                _console.print(
+                    f"[yellow]GitHub push failed (blob updated, DB updated):[/yellow] {exc}\n"
+                    f"Re-run [bold]submissions update[/bold] to retry."
+                )
+
+    _console.print(f"[bold green]Submission {submission_id} updated.[/bold green]")
 
 
 # ---------------------------------------------------------------------------
@@ -726,5 +853,13 @@ def _rollback_remove_run(token: str, submission_id: str, run_id: str) -> None:
     _console.print(f"[yellow]Rolling back: re-adding run {run_id} to record…[/yellow]")
     try:
         api_client.add_run_to_submission(token, submission_id, run_id)
+    except APIError as exc:
+        _console.print(f"[bold red]Rollback failed:[/bold red] {exc}")
+
+
+def _rollback_update(token: str, submission_id: str, original_run_ids: list[str]) -> None:
+    _console.print(f"[yellow]Rolling back: restoring {len(original_run_ids)} run(s)…[/yellow]")
+    try:
+        api_client.update_submission(token, submission_id, {"run_ids": original_run_ids})
     except APIError as exc:
         _console.print(f"[bold red]Rollback failed:[/bold red] {exc}")

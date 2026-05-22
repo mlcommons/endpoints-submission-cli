@@ -87,19 +87,101 @@ class TestSubmissionsGet:
 
 @pytest.mark.unit
 class TestSubmissionsUpdate:
-    def test_update_run_ids(self) -> None:
-        updated = {**SUBMISSION_OUT, "run_ids": [RUN_ID]}
-        with patch("endpoints_submission_cli.api_client.update_submission", return_value=updated) as mock_patch:
-            with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
-                _run_app(
-                    "submissions", "update",
-                    "--submission-id", SUBMISSION_ID,
-                    "--run-ids", RUN_ID,
-                    *_TOKEN_ARGS,
-                )
+    _OLD_RUN_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+
+    def test_update_run_ids(self, tmp_path: Path) -> None:
+        """--run-ids triggers full rebuild pipeline; update_submission called with new run list."""
+        current_sub = {**SUBMISSION_OUT, "run_ids": [self._OLD_RUN_ID], "pr_number": _PR_NUMBER}
+        updated_sub = {**SUBMISSION_OUT, "run_ids": [RUN_ID]}
+        fake_archive = _make_fake_archive(tmp_path)
+        fake_sub_dir = tmp_path / "sub"
+        fake_sub_dir.mkdir()
+        fake_bundle = tmp_path / "bundle.tar.gz"
+        fake_bundle.write_bytes(b"bundle")
+
+        with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
+            with patch("endpoints_submission_cli.api_client.get_submission", return_value=current_sub):
+                with patch(
+                    "endpoints_submission_cli.api_client.update_submission", return_value=updated_sub
+                ) as mock_patch:
+                    with patch("endpoints_submission_cli.api_client.download_run_archive", return_value=fake_archive):
+                        with patch(
+                            "endpoints_submission_cli.commands.submissions.build_submission_folder",
+                            return_value=fake_sub_dir,
+                        ):
+                            with patch("endpoints_submission_cli.commands.submissions._run_submission_checker"):
+                                with patch(
+                                    "endpoints_submission_cli.commands.submissions.create_bundle_archive",
+                                    return_value=fake_bundle,
+                                ):
+                                    with patch("endpoints_submission_cli.api_client.upload_submission_archive"):
+                                        with patch("endpoints_submission_cli.github_ops.update_pr_branch"):
+                                            with patch(
+                                                "endpoints_submission_cli.github_ops.get_target_repo",
+                                                return_value="org/repo",
+                                            ):
+                                                _run_app(
+                                                    "submissions", "update",
+                                                    "--submission-id", SUBMISSION_ID,
+                                                    "--run-ids", RUN_ID,
+                                                    *_TOKEN_ARGS,
+                                                )
         mock_patch.assert_called_once_with(TOKEN, SUBMISSION_ID, {"run_ids": [RUN_ID]})
 
+    def test_update_run_ids_download_failure_rolls_back(self, tmp_path: Path) -> None:
+        """Download failure rolls back the DB PATCH with original run IDs."""
+        current_sub = {**SUBMISSION_OUT, "run_ids": [self._OLD_RUN_ID]}
+        updated_sub = {**SUBMISSION_OUT, "run_ids": [RUN_ID]}
+
+        with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
+            with patch("endpoints_submission_cli.api_client.get_submission", return_value=current_sub):
+                with patch(
+                    "endpoints_submission_cli.api_client.update_submission", return_value=updated_sub
+                ) as mock_patch:
+                    with patch(
+                        "endpoints_submission_cli.api_client.download_run_archive",
+                        side_effect=APIError("not found"),
+                    ):
+                        with patch("endpoints_submission_cli.github_ops.get_target_repo", return_value="org/repo"):
+                            result = _runner.invoke(
+                                app,
+                                [
+                                    "submissions", "update",
+                                    "--submission-id", SUBMISSION_ID,
+                                    "--run-ids", RUN_ID,
+                                    *_TOKEN_ARGS,
+                                ],
+                            )
+        assert result.exit_code == 1
+        # First call: PATCH forward; second call: rollback with original run IDs
+        assert mock_patch.call_count == 2
+        mock_patch.assert_any_call(TOKEN, SUBMISSION_ID, {"run_ids": [RUN_ID]})
+        mock_patch.assert_any_call(TOKEN, SUBMISSION_ID, {"run_ids": [self._OLD_RUN_ID]})
+
+    def test_update_run_ids_no_change_applies_date_only(self) -> None:
+        """When desired run list equals current, skip rebuild and apply date patch only."""
+        current_sub = {**SUBMISSION_OUT, "run_ids": [RUN_ID]}
+        updated_sub = {**SUBMISSION_OUT, "target_availability_date": "2026-06-01"}
+
+        with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
+            with patch("endpoints_submission_cli.api_client.get_submission", return_value=current_sub):
+                with patch(
+                    "endpoints_submission_cli.api_client.update_submission", return_value=updated_sub
+                ) as mock_patch:
+                    with patch("endpoints_submission_cli.github_ops.get_target_repo", return_value="org/repo"):
+                        _run_app(
+                            "submissions", "update",
+                            "--submission-id", SUBMISSION_ID,
+                            "--run-ids", RUN_ID,
+                            "--target-availability-date", "2026-06-01",
+                            *_TOKEN_ARGS,
+                        )
+        mock_patch.assert_called_once_with(
+            TOKEN, SUBMISSION_ID, {"target_availability_date": "2026-06-01"}
+        )
+
     def test_update_target_availability_date(self) -> None:
+        """--target-availability-date only triggers a DB-only PATCH (no rebuild)."""
         updated = {**SUBMISSION_OUT, "target_availability_date": "2026-06-01"}
         with patch("endpoints_submission_cli.api_client.update_submission", return_value=updated) as mock_patch:
             with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
@@ -120,6 +202,7 @@ class TestSubmissionsUpdate:
         mock_patch.assert_not_called()
 
     def test_update_api_error_exits_1(self) -> None:
+        """Date-only PATCH API error exits with code 1."""
         with patch("endpoints_submission_cli.api_client.update_submission", side_effect=APIError("500")):
             with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
                 result = _runner.invoke(
@@ -127,7 +210,7 @@ class TestSubmissionsUpdate:
                     [
                         "submissions", "update",
                         "--submission-id", SUBMISSION_ID,
-                        "--run-ids", RUN_ID,
+                        "--target-availability-date", "2026-06-01",
                         *_TOKEN_ARGS,
                     ],
                 )

@@ -307,8 +307,7 @@ endpoints-submission-cli submissions get \
 
 ### submissions update
 
-Update the run list or target availability date on an existing submission. Only
-the flags you provide are changed.
+Update the run list or target availability date on an existing submission.
 
 ```bash
 endpoints-submission-cli submissions update \
@@ -322,8 +321,29 @@ endpoints-submission-cli submissions update \
 |------|-------------|
 | `--submission-id` | Submission UUID (required) |
 | `--token TOKEN` | API token |
-| `--run-ids RUN_ID` | Replace the run UUID list. Repeatable — pass once per run. |
+| `--run-ids RUN_ID` | Set the complete run UUID list. Repeatable — pass once per run. Runs not listed are removed. |
 | `--target-availability-date DATE` | Target availability date (`YYYY-MM-DD`) |
+
+**When `--run-ids` is provided** the command runs a full rebuild:
+
+1. GET current submission to determine the division, PR number, and existing run list.
+2. Log added / removed runs.
+3. PATCH the DB with the new run list (and optional date in the same call).
+4. Download all desired run archives (with progress bar).
+5. Assemble the submission folder and run the Submission Checker — rollback and abort on errors.
+6. Upload the updated bundle.
+7. Push a new commit to the submission's PR branch.
+
+**Rollback:** if any step after the DB PATCH fails, the run list is automatically restored to its
+original value.
+
+**PR branch update strategy:** same as `add-run` — `points/` and `accuracy/` replaced entirely,
+log files replaced per-point, `system_desc.json` preserved from the PR branch (seeded for new
+points), `systems/`, `src/`, and `documentation/` preserved from the PR branch. Commit message
+format: `update: add <ids>; remove <ids> (<N> runs total)`.
+
+**When only `--target-availability-date` is provided** (no `--run-ids`) the command is a
+DB-only PATCH — no download or rebuild occurs.
 
 Providing no optional flags prints a warning and makes no API call.
 
