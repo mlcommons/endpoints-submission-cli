@@ -362,7 +362,15 @@ checker, upload) the run is automatically removed from the submission record
 before exiting.
 
 **GitHub:** if the push fails the bundle is already updated in blob storage and
-the DB is consistent. Re-push manually with `git push` on the PR branch.
+the DB is consistent. Re-run the command to retry.
+
+**PR branch update strategy:** `points/` and `accuracy/` are replaced entirely
+from the freshly assembled run data. Within `results/`, log files
+(`mlperf_endpoints_log_*.json`) are replaced per-point while
+`system_desc.json` is preserved from the PR branch so manual corrections
+survive — newly added points get `system_desc.json` seeded from the run archive.
+`systems/`, `src/`, and `documentation/` are preserved from the PR branch;
+`systems/` is seeded from the fresh build only if absent.
 
 ---
 
@@ -383,6 +391,11 @@ and a warning is printed.
 
 **Rollback:** if a step fails after removal, the run is automatically re-added
 to the submission record.
+
+**PR branch update strategy:** same as `add-run` — `points/` and `accuracy/`
+replaced, log files replaced per-point, `system_desc.json` preserved, point
+dirs for removed runs deleted. `systems/`, `src/`, and `documentation/`
+preserved from the PR branch.
 
 ---
 

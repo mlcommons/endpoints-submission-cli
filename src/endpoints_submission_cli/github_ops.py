@@ -19,6 +19,7 @@ from .exceptions import GitHubError
 __all__ = [
     "check_prerequisites",
     "prepare_submission_branch",
+    "update_pr_branch",
     "create_pr",
     "checkout_pr",
     "commit_and_push",
@@ -152,6 +153,101 @@ def create_pr(
     return pr_url, pr_number
 
 
+def update_pr_branch(
+    pr_number: int,
+    submission_dir: Path,
+    target_repo: str,
+    work_dir: Path,
+    message: str,
+    branch: str,
+) -> None:
+    """Clone target_repo, check out an existing PR branch, copy in the updated
+    submission_dir, commit, and push.
+
+    Uses ``git fetch + git checkout`` instead of ``gh pr checkout`` to avoid a
+    known incompatibility between shallow clones and ``gh pr checkout``'s tracking
+    branch setup (``fatal: cannot set up tracking information``).
+
+    Args:
+        pr_number: GitHub PR number (unused after the branch name is known, kept
+            for call-site clarity).
+        submission_dir: Assembled org-level submission directory to copy in.
+        target_repo: ``owner/repo`` slug.
+        work_dir: Directory in which to create the local clone.
+        message: Git commit message.
+        branch: Name of the existing remote branch to check out (e.g.
+            ``"submission-<uuid>"``).
+
+    Raises:
+        GitHubError: If any git/gh command fails.
+    """
+    repo_dir = work_dir / "repo"
+    _run(["gh", "repo", "clone", target_repo, str(repo_dir), "--", "--depth", "1"])
+    # Fetch only the PR branch (shallow) then create a local tracking branch.
+    # This avoids the 'cannot set up tracking information' error that gh pr checkout
+    # triggers on shallow clones.
+    _run(["git", "fetch", "--depth", "1", "origin", branch], cwd=repo_dir)
+    _run(["git", "checkout", "-b", branch, "FETCH_HEAD"], cwd=repo_dir)
+
+    repo_org_dir = repo_dir / submission_dir.name   # e.g. repo_dir / "NVIDIA"
+
+    if repo_org_dir.exists():
+        fresh_pareto = submission_dir / "pareto"
+        repo_pareto = repo_org_dir / "pareto"
+
+        for fresh_model_dir in fresh_pareto.glob("*/*"):  # <system_id>/<model>
+            rel = fresh_model_dir.relative_to(fresh_pareto)
+            repo_model_dir = repo_pareto / rel
+            repo_model_dir.mkdir(parents=True, exist_ok=True)
+
+            # points/ and accuracy/ — replace entirely from fresh build
+            for subdir_name in ("points", "accuracy"):
+                dest = repo_model_dir / subdir_name
+                if dest.exists():
+                    shutil.rmtree(dest)
+                src = fresh_model_dir / subdir_name
+                if src.exists():
+                    shutil.copytree(src, dest)
+
+            # results/ — surgical per-point update
+            fresh_results = fresh_model_dir / "results"
+            repo_results = repo_model_dir / "results"
+            if fresh_results.exists():
+                repo_results.mkdir(exist_ok=True)
+                # Remove point dirs no longer present in fresh build
+                fresh_point_names = {p.name for p in fresh_results.iterdir() if p.is_dir()}
+                for repo_point in list(repo_results.iterdir()):
+                    if repo_point.is_dir() and repo_point.name not in fresh_point_names:
+                        shutil.rmtree(repo_point)
+                # Update each point: replace log files, preserve system_desc.json
+                for fresh_point in fresh_results.iterdir():
+                    if not fresh_point.is_dir():
+                        continue
+                    repo_point = repo_results / fresh_point.name
+                    is_new_point = not repo_point.exists()
+                    repo_point.mkdir(exist_ok=True)
+                    for src_file in fresh_point.iterdir():
+                        if src_file.name != "system_desc.json":
+                            shutil.copy2(src_file, repo_point / src_file.name)
+                    # system_desc.json: preserve PR version; seed only for new points
+                    repo_sysdesc = repo_point / "system_desc.json"
+                    if is_new_point or not repo_sysdesc.exists():
+                        fresh_sysdesc = fresh_point / "system_desc.json"
+                        if fresh_sysdesc.exists():
+                            shutil.copy2(fresh_sysdesc, repo_sysdesc)
+            elif repo_results.exists():
+                shutil.rmtree(repo_results)
+
+        # systems/ — preserve PR version; seed from fresh build if absent
+        if not (repo_org_dir / "systems").exists():
+            shutil.copytree(submission_dir / "systems", repo_org_dir / "systems")
+    else:
+        # Org dir not yet on the PR branch — full copy (first push edge case).
+        shutil.copytree(submission_dir, repo_org_dir)
+
+    commit_and_push(repo_dir, message)
+
+
 def checkout_pr(pr_number: int, cwd: Path) -> None:
     """Check out the PR branch in the given working directory.
 
@@ -162,16 +258,19 @@ def checkout_pr(pr_number: int, cwd: Path) -> None:
 
 
 def commit_and_push(cwd: Path, message: str) -> None:
-    """Stage all changes, commit, and push to the current branch.
+    """Stage all changes, commit (if any), and push to the current branch.
 
     Uses ``--set-upstream origin HEAD`` so new branches without a remote
-    tracking ref are pushed correctly.
+    tracking ref are pushed correctly. Skips the commit when the working tree
+    is clean after staging (e.g. re-building an identical submission).
 
     Raises:
         GitHubError: If any git command fails.
     """
     _run(["git", "add", "."], cwd=cwd)
-    _run(["git", "commit", "-m", message], cwd=cwd)
+    status = _run(["git", "status", "--porcelain"], cwd=cwd)
+    if status.stdout.strip():
+        _run(["git", "commit", "-m", message], cwd=cwd)
     _run(["git", "push", "--set-upstream", "origin", "HEAD"], cwd=cwd)
 
 

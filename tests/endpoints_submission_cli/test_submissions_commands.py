@@ -452,18 +452,17 @@ class TestSubmissionsAddRun:
                                 return_value=fake_bundle,
                             ):
                                 with patch("endpoints_submission_cli.api_client.upload_submission_archive"):
-                                    with patch("endpoints_submission_cli.github_ops.checkout_pr"):
-                                        with patch("endpoints_submission_cli.github_ops.commit_and_push"):
-                                            with patch(
-                                                "endpoints_submission_cli.github_ops.get_target_repo",
-                                                return_value="org/repo",
-                                            ):
-                                                _run_app(
-                                                    "submissions", "add-run",
-                                                    "--submission-id", SUBMISSION_ID,
-                                                    "--run-id", self._NEW_RUN_ID,
-                                                    *_TOKEN_ARGS,
-                                                )
+                                    with patch("endpoints_submission_cli.github_ops.update_pr_branch"):
+                                        with patch(
+                                            "endpoints_submission_cli.github_ops.get_target_repo",
+                                            return_value="org/repo",
+                                        ):
+                                            _run_app(
+                                                "submissions", "add-run",
+                                                "--submission-id", SUBMISSION_ID,
+                                                "--run-id", self._NEW_RUN_ID,
+                                                *_TOKEN_ARGS,
+                                            )
 
     def test_add_run_api_error_exits_1(self) -> None:
         with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
@@ -530,7 +529,7 @@ class TestSubmissionsAddRun:
                             ):
                                 with patch("endpoints_submission_cli.api_client.upload_submission_archive"):
                                     with patch(
-                                        "endpoints_submission_cli.github_ops.checkout_pr",
+                                        "endpoints_submission_cli.github_ops.update_pr_branch",
                                         side_effect=GitHubError("gh failed"),
                                     ):
                                         with patch(
@@ -572,18 +571,17 @@ class TestSubmissionsRemoveRun:
                                 return_value=fake_bundle,
                             ):
                                 with patch("endpoints_submission_cli.api_client.upload_submission_archive"):
-                                    with patch("endpoints_submission_cli.github_ops.checkout_pr"):
-                                        with patch("endpoints_submission_cli.github_ops.commit_and_push"):
-                                            with patch(
-                                                "endpoints_submission_cli.github_ops.get_target_repo",
-                                                return_value="org/repo",
-                                            ):
-                                                _run_app(
-                                                    "submissions", "remove-run",
-                                                    "--submission-id", SUBMISSION_ID,
-                                                    "--run-id", self._REMOVED_RUN_ID,
-                                                    *_TOKEN_ARGS,
-                                                )
+                                    with patch("endpoints_submission_cli.github_ops.update_pr_branch"):
+                                        with patch(
+                                            "endpoints_submission_cli.github_ops.get_target_repo",
+                                            return_value="org/repo",
+                                        ):
+                                            _run_app(
+                                                "submissions", "remove-run",
+                                                "--submission-id", SUBMISSION_ID,
+                                                "--run-id", self._REMOVED_RUN_ID,
+                                                *_TOKEN_ARGS,
+                                            )
 
     def test_remove_run_no_runs_left(self) -> None:
         sub_out = {**SUBMISSION_OUT, "run_ids": []}

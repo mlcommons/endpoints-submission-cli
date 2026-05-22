@@ -475,14 +475,14 @@ def submissions_add_run(submission_id: str, run_id: str, token: str | None) -> N
 
     Workflow:
       1. POST /submissions/{id}/runs/{run_id}
-      2. gh pr checkout → pull latest PR branch
-      3. Download new run archive
-      4. Rebuild submission folder, run Submission Checker
+      2. Download all run archives (with progress)
+      3. Rebuild submission folder
+      4. Run Submission Checker — rollback and abort on errors
       5. Upload updated bundle
-      6. Commit and push to PR branch
-      7. PATCH submission with new archive_uri
+      6. Clone repo, check out PR branch, copy files, push
     """
     resolved_token = _get_token(token)
+    target_repo = github_ops.get_target_repo()
 
     try:
         sub_out = api_client.add_run_to_submission(resolved_token, submission_id, run_id)
@@ -493,23 +493,43 @@ def submissions_add_run(submission_id: str, run_id: str, token: str | None) -> N
     pr_number = sub_out.get("pr_number")
     all_run_ids: list[str] = sub_out.get("run_ids", [])
 
-    _console.print(f"[cyan]Rebuilding submission bundle with {len(all_run_ids)} run(s)…[/cyan]")
+    _console.print(
+        f"[cyan]Rebuilding submission with {len(all_run_ids)} run(s) "
+        f"(added [bold]{run_id[:8]}…[/bold])…[/cyan]"
+    )
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
 
+        # 1. Download all run archives
+        _console.print("[cyan]Downloading run archives…[/cyan]")
         archives: list[tuple[str, Path]] = []
-        for rid in all_run_ids:
-            try:
-                dest = api_client.download_run_archive(
-                    resolved_token, rid, tmp_path / "archives"
-                )
-            except APIError as exc:
-                _console.print(f"[bold red]Failed to download run {rid}:[/bold red] {exc}")
-                _rollback_add_run(resolved_token, submission_id, run_id)
-                sys.exit(1)
-            archives.append((rid, dest))
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            console=_console,
+        ) as progress:
+            task = progress.add_task("Downloading run archives", total=len(all_run_ids))
+            for rid in all_run_ids:
+                progress.update(task, description=f"Downloading [cyan]{rid[:8]}…[/cyan]")
+                try:
+                    dest = api_client.download_run_archive(
+                        resolved_token, rid, tmp_path / "archives"
+                    )
+                except APIError as exc:
+                    progress.stop()
+                    _console.print(
+                        f"[bold red]Failed to download run {rid}:[/bold red] {exc}"
+                    )
+                    _rollback_add_run(resolved_token, submission_id, run_id)
+                    sys.exit(1)
+                archives.append((rid, dest))
+                progress.advance(task)
 
+        # 2. Assemble submission folder
+        _console.print("[cyan]Assembling submission folder…[/cyan]")
         division = sub_out.get("division", "standardized")
         try:
             submission_dir = build_submission_folder(archives, division, tmp_path / "bundle")
@@ -518,6 +538,8 @@ def submissions_add_run(submission_id: str, run_id: str, token: str | None) -> N
             _rollback_add_run(resolved_token, submission_id, run_id)
             sys.exit(1)
 
+        # 3. Run Submission Checker
+        _console.print("[cyan]Running Submission Checker…[/cyan]")
         try:
             _run_submission_checker(submission_dir)
         except SubmissionCheckError as exc:
@@ -525,6 +547,8 @@ def submissions_add_run(submission_id: str, run_id: str, token: str | None) -> N
             _rollback_add_run(resolved_token, submission_id, run_id)
             sys.exit(1)
 
+        # 4. Upload updated bundle
+        _console.print("[cyan]Uploading submission bundle…[/cyan]")
         archive_path = create_bundle_archive(submission_dir, tmp_path / "bundle.tar.gz")
         try:
             api_client.upload_submission_archive(resolved_token, submission_id, archive_path)
@@ -533,14 +557,22 @@ def submissions_add_run(submission_id: str, run_id: str, token: str | None) -> N
             _rollback_add_run(resolved_token, submission_id, run_id)
             sys.exit(1)
 
+        # 5. Update PR branch (clone → checkout → copy files → push)
         if pr_number:
+            _console.print("[cyan]Updating GitHub PR…[/cyan]")
             try:
-                github_ops.checkout_pr(pr_number, tmp_path)
-                github_ops.commit_and_push(tmp_path, f"update: add run {run_id}")
+                github_ops.update_pr_branch(
+                    pr_number,
+                    submission_dir,
+                    target_repo,
+                    tmp_path / "gh",
+                    f"update: add run {run_id[:8]}",
+                    branch=f"submission-{submission_id}",
+                )
             except GitHubError as exc:
                 _console.print(
                     f"[yellow]GitHub push failed (blob updated, DB updated):[/yellow] {exc}\n"
-                    "Retry: git push on the PR branch."
+                    f"Re-run [bold]submissions add-run[/bold] to retry."
                 )
 
     _console.print(f"[bold green]Run {run_id} added to submission {submission_id}.[/bold green]")
@@ -563,11 +595,16 @@ def submissions_add_run(submission_id: str, run_id: str, token: str | None) -> N
 def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -> None:
     """Remove a run from an existing submission and update the GitHub PR.
 
-    Workflow mirrors add-run: removes the run from the API record, rebuilds
-    the submission folder, re-runs the checker, uploads the updated bundle,
-    and pushes a new commit to the PR branch.
+    Workflow:
+      1. DELETE /submissions/{id}/runs/{run_id}
+      2. Download remaining run archives (with progress)
+      3. Rebuild submission folder
+      4. Run Submission Checker — rollback and abort on errors
+      5. Upload updated bundle
+      6. Clone repo, check out PR branch, copy files, push
     """
     resolved_token = _get_token(token)
+    target_repo = github_ops.get_target_repo()
 
     try:
         sub_out = api_client.remove_run_from_submission(resolved_token, submission_id, run_id)
@@ -585,23 +622,43 @@ def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -
         )
         return
 
-    _console.print(f"[cyan]Rebuilding submission bundle with {len(all_run_ids)} run(s)…[/cyan]")
+    _console.print(
+        f"[cyan]Rebuilding submission with {len(all_run_ids)} remaining run(s) "
+        f"(removed [bold]{run_id[:8]}…[/bold])…[/cyan]"
+    )
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
 
+        # 1. Download remaining run archives
+        _console.print("[cyan]Downloading run archives…[/cyan]")
         archives: list[tuple[str, Path]] = []
-        for rid in all_run_ids:
-            try:
-                dest = api_client.download_run_archive(
-                    resolved_token, rid, tmp_path / "archives"
-                )
-            except APIError as exc:
-                _console.print(f"[bold red]Failed to download run {rid}:[/bold red] {exc}")
-                _rollback_remove_run(resolved_token, submission_id, run_id)
-                sys.exit(1)
-            archives.append((rid, dest))
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            console=_console,
+        ) as progress:
+            task = progress.add_task("Downloading run archives", total=len(all_run_ids))
+            for rid in all_run_ids:
+                progress.update(task, description=f"Downloading [cyan]{rid[:8]}…[/cyan]")
+                try:
+                    dest = api_client.download_run_archive(
+                        resolved_token, rid, tmp_path / "archives"
+                    )
+                except APIError as exc:
+                    progress.stop()
+                    _console.print(
+                        f"[bold red]Failed to download run {rid}:[/bold red] {exc}"
+                    )
+                    _rollback_remove_run(resolved_token, submission_id, run_id)
+                    sys.exit(1)
+                archives.append((rid, dest))
+                progress.advance(task)
 
+        # 2. Assemble submission folder
+        _console.print("[cyan]Assembling submission folder…[/cyan]")
         division = sub_out.get("division", "standardized")
         try:
             submission_dir = build_submission_folder(archives, division, tmp_path / "bundle")
@@ -610,6 +667,8 @@ def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -
             _rollback_remove_run(resolved_token, submission_id, run_id)
             sys.exit(1)
 
+        # 3. Run Submission Checker
+        _console.print("[cyan]Running Submission Checker…[/cyan]")
         try:
             _run_submission_checker(submission_dir)
         except SubmissionCheckError as exc:
@@ -617,6 +676,8 @@ def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -
             _rollback_remove_run(resolved_token, submission_id, run_id)
             sys.exit(1)
 
+        # 4. Upload updated bundle
+        _console.print("[cyan]Uploading submission bundle…[/cyan]")
         archive_path = create_bundle_archive(submission_dir, tmp_path / "bundle.tar.gz")
         try:
             api_client.upload_submission_archive(resolved_token, submission_id, archive_path)
@@ -625,14 +686,22 @@ def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -
             _rollback_remove_run(resolved_token, submission_id, run_id)
             sys.exit(1)
 
+        # 5. Update PR branch (clone → checkout → copy files → push)
         if pr_number:
+            _console.print("[cyan]Updating GitHub PR…[/cyan]")
             try:
-                github_ops.checkout_pr(pr_number, tmp_path)
-                github_ops.commit_and_push(tmp_path, f"update: remove run {run_id}")
+                github_ops.update_pr_branch(
+                    pr_number,
+                    submission_dir,
+                    target_repo,
+                    tmp_path / "gh",
+                    f"update: remove run {run_id[:8]}",
+                    branch=f"submission-{submission_id}",
+                )
             except GitHubError as exc:
                 _console.print(
                     f"[yellow]GitHub push failed (blob updated, DB updated):[/yellow] {exc}\n"
-                    "Retry: git push on the PR branch."
+                    f"Re-run [bold]submissions remove-run[/bold] to retry."
                 )
 
     _console.print(
