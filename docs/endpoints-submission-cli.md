@@ -168,13 +168,16 @@ Parse a local run folder, register a run record with the API, and upload the
 folder as a compressed archive.
 
 ```bash
-endpoints-submission-cli runs create --path PATH [--token TOKEN]
+endpoints-submission-cli runs create --path PATH [--token TOKEN] [--expires-at DATETIME] [--pinned] [--dry-run]
 ```
 
 | Flag | Description |
 |------|-------------|
 | `--path PATH` | Path to the local run folder (required) |
 | `--token TOKEN` | API token |
+| `--expires-at DATETIME` | Expiry datetime in ISO 8601 format (e.g. `2026-01-01T00:00:00`). Defaults to server policy. |
+| `--pinned` | Pin the run immediately to prevent automatic expiry. |
+| `--dry-run` | Print the parsed API payload as JSON and exit without calling the API. |
 
 The folder must contain exactly these three files (see [Run folder layout](#run-folder-layout)):
 
@@ -287,6 +290,8 @@ endpoints-submission-cli submissions create \
 | `--early-publish` | no | Request early publication (default: false) |
 | `--publication-cycle CYCLE` | no | Target cycle, e.g. `2025-04-C1` |
 | `--target-availability-date DATE` | no | `YYYY-MM-DD`; required when availability is `preview` |
+| `--embargo-date DATETIME` | no | Embargo datetime in ISO 8601 format (e.g. `2025-12-01T00:00:00`) |
+| `--dry-run` | no | Assemble folder, run checker, print layout — exit without submitting |
 
 **If the GitHub PR step fails** the submission record and uploaded bundle still
 exist. Retry the PR step manually with `gh pr create` on the submission branch,
@@ -323,27 +328,39 @@ endpoints-submission-cli submissions update \
 | `--token TOKEN` | API token |
 | `--run-ids RUN_ID` | Set the complete run UUID list. Repeatable — pass once per run. Runs not listed are removed. |
 | `--target-availability-date DATE` | Target availability date (`YYYY-MM-DD`) |
+| `--publication-cycle CYCLE` | Publication cycle (e.g. `2025-04-C1`) |
+| `--embargo-date DATETIME` | Embargo datetime in ISO 8601 format (e.g. `2025-12-01T00:00:00`) |
 
 **When `--run-ids` is provided** the command runs a full rebuild:
 
-1. GET current submission to determine the division, PR number, and existing run list.
-2. Log added / removed runs.
-3. PATCH the DB with the new run list (and optional date in the same call).
-4. Download all desired run archives (with progress bar).
-5. Assemble the submission folder and run the Submission Checker — rollback and abort on errors.
-6. Upload the updated bundle.
-7. Push a new commit to the submission's PR branch.
+1. Check GitHub prerequisites (`gh` installed and authenticated).
+2. GET current submission to determine the division, PR number, and existing run list.
+3. Log added / removed runs.
+4. PATCH the DB with the new run list (and any metadata fields in the same call).
+5. Download all desired run archives (with progress bar).
+6. Assemble the submission folder and run the Submission Checker — rollback and abort on errors.
+7. Clone the submission repository, check out the existing PR branch, and apply the surgical merge — rollback and abort on errors.
+8. Upload the merged bundle to blob storage (`POST /submissions/{id}/archive`) — rollback and abort on errors.
+9. Push the merged branch to the GitHub PR.
 
-**Rollback:** if any step after the DB PATCH fails, the run list is automatically restored to its
-original value.
+**Rollback:** if any step 5–8 fails after the DB PATCH, the run list is automatically restored to
+its original value. The GitHub push (step 9) is non-fatal — if it fails, blob storage and the DB
+are already consistent; re-run `submissions update` to retry.
 
-**PR branch update strategy:** same as `add-run` — `points/` and `accuracy/` replaced entirely,
-log files replaced per-point, `system_desc.json` preserved from the PR branch (seeded for new
-points), `systems/`, `src/`, and `documentation/` preserved from the PR branch. Commit message
-format: `update: add <ids>; remove <ids> (<N> runs total)`.
+**GitHub PR branch file update strategy:** The CLI clones the submission repository and checks out
+the existing PR branch. It then compares the fresh build against what is already on the branch —
+only generated content is overwritten; files that may have been manually edited by reviewers are
+preserved. `points/` and `accuracy/` are replaced entirely; log files are replaced per-point;
+`system_desc.json` is preserved from the PR branch (seeded for new points); `systems/`, `src/`,
+and `documentation/` are preserved from the PR branch. Commit message format:
+`update: add <ids>; remove <ids> (<N> runs total)`.
 
-**When only `--target-availability-date` is provided** (no `--run-ids`) the command is a
-DB-only PATCH — no download or rebuild occurs.
+> **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the
+> fresh build with reviewer-edited files (`system_desc.json`, `systems/`) preserved from the PR
+> branch. Blob storage and the GitHub PR branch always contain identical content.
+
+**When only metadata flags are provided** (no `--run-ids`) the command is a DB-only PATCH —
+no download, rebuild, archive upload, or GitHub push occurs.
 
 Providing no optional flags prints a warning and makes no API call.
 
@@ -377,20 +394,32 @@ endpoints-submission-cli submissions add-run \
   [--token TOKEN]
 ```
 
-**Rollback:** if any step after the API registration fails (download, build,
-checker, upload) the run is automatically removed from the submission record
-before exiting.
+**Pipeline:**
 
-**GitHub:** if the push fails the bundle is already updated in blob storage and
-the DB is consistent. Re-run the command to retry.
+1. Check GitHub prerequisites (`gh` installed and authenticated).
+2. `POST /submissions/{id}/runs/{run_id}` — register the addition.
+3. Download all run archives (including the newly added run).
+4. Rebuild the submission folder.
+5. Run the Submission Checker — rollback and abort on errors.
+6. Clone the submission repository, check out the existing PR branch, and apply the surgical merge — rollback and abort on errors.
+7. Upload the merged bundle to blob storage (`POST /submissions/{id}/archive`) — rollback and abort on errors.
+8. Push the merged branch to the GitHub PR.
 
-**PR branch update strategy:** `points/` and `accuracy/` are replaced entirely
-from the freshly assembled run data. Within `results/`, log files
-(`mlperf_endpoints_log_*.json`) are replaced per-point while
-`system_desc.json` is preserved from the PR branch so manual corrections
-survive — newly added points get `system_desc.json` seeded from the run archive.
-`systems/`, `src/`, and `documentation/` are preserved from the PR branch;
-`systems/` is seeded from the fresh build only if absent.
+**Rollback:** if any step 3–7 fails after registration, the run is automatically removed from the
+submission record before exiting. The GitHub push (step 8) is non-fatal — if it fails, blob
+storage and the DB are already consistent; re-run `submissions add-run` to retry.
+
+**GitHub PR branch file update strategy:** The CLI clones the submission repository and checks
+out the existing PR branch. It then compares the fresh build against what is already on the
+branch — only generated content is overwritten; files that may have been manually edited by
+reviewers are preserved. `points/` and `accuracy/` are replaced entirely; log files
+(`mlperf_endpoints_log_*.json`) are replaced per-point; `system_desc.json` is preserved from
+the PR branch (seeded for new points); `systems/`, `src/`, and `documentation/` are preserved
+from the PR branch; `systems/` is seeded from the fresh build only if absent.
+
+> **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the
+> fresh build with reviewer-edited files (`system_desc.json`, `systems/`) preserved from the PR
+> branch. Blob storage and the GitHub PR branch always contain identical content.
 
 ---
 
@@ -406,16 +435,34 @@ endpoints-submission-cli submissions remove-run \
   [--token TOKEN]
 ```
 
-If the submission has no runs left after removal the rebuild step is skipped
-and a warning is printed.
+**Pipeline:**
 
-**Rollback:** if a step fails after removal, the run is automatically re-added
-to the submission record.
+1. Check GitHub prerequisites (`gh` installed and authenticated).
+2. `DELETE /submissions/{id}/runs/{run_id}` — register the removal.
+3. Download remaining run archives — skipped if no runs remain.
+4. Rebuild the submission folder — skipped if no runs remain.
+5. Run the Submission Checker — rollback and abort on errors; skipped if no runs remain.
+6. Clone the submission repository, check out the existing PR branch, and apply the surgical merge — rollback and abort on errors; skipped if no runs remain.
+7. Upload the merged bundle to blob storage (`POST /submissions/{id}/archive`) — rollback and abort on errors; skipped if no runs remain.
+8. Push the merged branch to the GitHub PR — skipped if no runs remain.
 
-**PR branch update strategy:** same as `add-run` — `points/` and `accuracy/`
-replaced, log files replaced per-point, `system_desc.json` preserved, point
-dirs for removed runs deleted. `systems/`, `src/`, and `documentation/`
-preserved from the PR branch.
+If no runs remain after removal, steps 3–8 are skipped and a warning is printed.
+
+**Rollback:** if any step 3–7 fails after removal, the run is automatically re-added to the
+submission record. The GitHub push (step 8) is non-fatal — if it fails, blob storage and the DB
+are already consistent; re-run `submissions remove-run` to retry.
+
+**GitHub PR branch file update strategy:** The CLI clones the submission repository and checks
+out the existing PR branch. It then compares the fresh build against what is already on the
+branch — only generated content is overwritten; files that may have been manually edited by
+reviewers are preserved. `points/` and `accuracy/` are replaced entirely; log files are
+replaced per-point; `system_desc.json` is preserved from the PR branch; point dirs for the
+removed run are deleted; `systems/`, `src/`, and `documentation/` are preserved from the PR
+branch.
+
+> **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the
+> fresh build with reviewer-edited files (`system_desc.json`, `systems/`) preserved from the PR
+> branch. Blob storage and the GitHub PR branch always contain identical content.
 
 ---
 

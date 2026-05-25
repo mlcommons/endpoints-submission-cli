@@ -165,6 +165,11 @@ def submissions_list(token: str | None, as_json: bool) -> None:
     help="Target availability date (YYYY-MM-DD). Required for preview availability.",
 )
 @click.option(
+    "--embargo-date",
+    default=None,
+    help="Embargo datetime in ISO 8601 format (e.g. 2025-12-01T00:00:00).",
+)
+@click.option(
     "--dry-run",
     is_flag=True,
     default=False,
@@ -178,6 +183,7 @@ def submissions_create(
     early_publish: bool,
     publication_cycle: str | None,
     target_availability_date: str | None,
+    embargo_date: str | None,
     dry_run: bool,
 ) -> None:
     """Create a new submission from one or more registered runs.
@@ -269,6 +275,8 @@ def submissions_create(
             payload["publication_cycle"] = publication_cycle
         if target_availability_date:
             payload["target_availability_date"] = target_availability_date
+        if embargo_date:
+            payload["embargo_date"] = embargo_date
 
         try:
             sub_out = api_client.create_submission(resolved_token, payload)
@@ -377,28 +385,39 @@ def submissions_get(submission_id: str, token: str | None, as_json: bool) -> Non
 )
 @click.option("--run-ids", "run_ids", multiple=True, help="Replace run UUID list. Repeatable.")
 @click.option("--target-availability-date", default=None, help="Target availability date (YYYY-MM-DD).")
+@click.option("--publication-cycle", default=None, help="Publication cycle (e.g. 2025-04-C1).")
+@click.option("--embargo-date", default=None, help="Embargo datetime in ISO 8601 format (e.g. 2025-12-01T00:00:00).")
 def submissions_update(
     submission_id: str,
     token: str | None,
     run_ids: tuple[str, ...],
     target_availability_date: str | None,
+    publication_cycle: str | None,
+    embargo_date: str | None,
 ) -> None:
-    """Update run IDs or target availability date on an existing submission.
+    """Update fields on an existing submission.
 
     Providing --run-ids triggers a full rebuild (download → build → checker → upload → PR update).
-    Providing only --target-availability-date is a DB-only PATCH with no rebuild.
+    All other flags are DB-only PATCHes with no rebuild.
     """
     resolved_token = _get_token(token)
 
-    if not run_ids and target_availability_date is None:
+    if not run_ids and target_availability_date is None and publication_cycle is None and embargo_date is None:
         _console.print("[yellow]Nothing to update — provide at least one field.[/yellow]")
         return
 
-    # Date-only path: no rebuild needed
+    # Date/metadata-only path: no rebuild needed
     if not run_ids:
+        patch: dict = {}
+        if target_availability_date is not None:
+            patch["target_availability_date"] = target_availability_date
+        if publication_cycle is not None:
+            patch["publication_cycle"] = publication_cycle
+        if embargo_date is not None:
+            patch["embargo_date"] = embargo_date
         try:
             sub_out = api_client.update_submission(
-                resolved_token, submission_id, {"target_availability_date": target_availability_date}
+                resolved_token, submission_id, patch
             )
         except APIError as exc:
             _console.print(f"[bold red]Error:[/bold red] {exc}")
@@ -409,6 +428,14 @@ def submissions_update(
     # Run-IDs path: full rebuild
     desired_run_ids = list(run_ids)
     target_repo = github_ops.get_target_repo()
+    _console.print("[cyan]Checking GitHub prerequisites…[/cyan]")
+    try:
+        repo_ok, repo_warning = github_ops.check_prerequisites(target_repo)
+    except GitHubError as exc:
+        _console.print(f"[bold red]GitHub prerequisite check failed:[/bold red] {exc}")
+        sys.exit(1)
+    if not repo_ok:
+        _console.print(f"[yellow]Warning:[/yellow] {repo_warning}")
 
     try:
         current_sub = api_client.get_submission(resolved_token, submission_id)
@@ -428,12 +455,16 @@ def submissions_update(
         _console.print(f"[cyan]Removing {len(removed)} run(s): {', '.join(r[:8] for r in removed)}…[/cyan]")
 
     if not added and not removed:
-        if target_availability_date is not None:
+        if target_availability_date is not None or publication_cycle is not None or embargo_date is not None:
+            metadata_patch: dict = {}
+            if target_availability_date is not None:
+                metadata_patch["target_availability_date"] = target_availability_date
+            if publication_cycle is not None:
+                metadata_patch["publication_cycle"] = publication_cycle
+            if embargo_date is not None:
+                metadata_patch["embargo_date"] = embargo_date
             try:
-                sub_out = api_client.update_submission(
-                    resolved_token, submission_id,
-                    {"target_availability_date": target_availability_date},
-                )
+                sub_out = api_client.update_submission(resolved_token, submission_id, metadata_patch)
             except APIError as exc:
                 _console.print(f"[bold red]Error:[/bold red] {exc}")
                 sys.exit(1)
@@ -442,10 +473,14 @@ def submissions_update(
             _console.print("[yellow]Run list unchanged. Nothing to do.[/yellow]")
         return
 
-    # PATCH DB with new run list (and optional date in one call)
+    # PATCH DB with new run list (and any metadata fields) in one call
     patch: dict = {"run_ids": desired_run_ids}
     if target_availability_date is not None:
         patch["target_availability_date"] = target_availability_date
+    if publication_cycle is not None:
+        patch["publication_cycle"] = publication_cycle
+    if embargo_date is not None:
+        patch["embargo_date"] = embargo_date
     try:
         api_client.update_submission(resolved_token, submission_id, patch)
     except APIError as exc:
@@ -498,9 +533,35 @@ def submissions_update(
             _rollback_update(resolved_token, submission_id, original_run_ids)
             sys.exit(1)
 
-        # Upload bundle
+        # Build commit message before merge (needed by commit_and_push)
+        _parts = []
+        if added:
+            _parts.append(f"add {', '.join(r[:8] for r in added)}")
+        if removed:
+            _parts.append(f"remove {', '.join(r[:8] for r in removed)}")
+        _commit_msg = f"update: {'; '.join(_parts)} ({len(desired_run_ids)} runs total)"
+
+        # Merge fresh build with existing PR branch content (fatal — rollback on failure)
+        upload_source = submission_dir
+        repo_dir = None
+        if pr_number:
+            _console.print("[cyan]Preparing PR branch merge…[/cyan]")
+            try:
+                repo_dir, merged_org_dir = github_ops.prepare_pr_branch_merge(
+                    submission_dir,
+                    target_repo,
+                    tmp_path / "gh",
+                    branch=f"submission-{submission_id}",
+                )
+                upload_source = merged_org_dir
+            except GitHubError as exc:
+                _console.print(f"[bold red]PR branch merge failed:[/bold red] {exc}")
+                _rollback_update(resolved_token, submission_id, original_run_ids)
+                sys.exit(1)
+
+        # Upload merged bundle to blob storage
         _console.print("[cyan]Uploading submission bundle…[/cyan]")
-        archive_path = create_bundle_archive(submission_dir, tmp_path / "bundle.tar.gz")
+        archive_path = create_bundle_archive(upload_source, tmp_path / "bundle.tar.gz")
         try:
             api_client.upload_submission_archive(resolved_token, submission_id, archive_path)
         except APIError as exc:
@@ -508,24 +569,11 @@ def submissions_update(
             _rollback_update(resolved_token, submission_id, original_run_ids)
             sys.exit(1)
 
-        # Update PR branch
-        if pr_number:
+        # Push merged branch to GitHub (non-fatal)
+        if pr_number and repo_dir:
             _console.print("[cyan]Updating GitHub PR…[/cyan]")
-            _parts = []
-            if added:
-                _parts.append(f"add {', '.join(r[:8] for r in added)}")
-            if removed:
-                _parts.append(f"remove {', '.join(r[:8] for r in removed)}")
-            _commit_msg = f"update: {'; '.join(_parts)} ({len(desired_run_ids)} runs total)"
             try:
-                github_ops.update_pr_branch(
-                    pr_number,
-                    submission_dir,
-                    target_repo,
-                    tmp_path / "gh",
-                    _commit_msg,
-                    branch=f"submission-{submission_id}",
-                )
+                github_ops.commit_and_push(repo_dir, _commit_msg)
             except GitHubError as exc:
                 _console.print(
                     f"[yellow]GitHub push failed (blob updated, DB updated):[/yellow] {exc}\n"
@@ -601,15 +649,24 @@ def submissions_add_run(submission_id: str, run_id: str, token: str | None) -> N
     """Add a run to an existing submission and update the GitHub PR.
 
     Workflow:
-      1. POST /submissions/{id}/runs/{run_id}
-      2. Download all run archives (with progress)
-      3. Rebuild submission folder
-      4. Run Submission Checker — rollback and abort on errors
-      5. Upload updated bundle
-      6. Clone repo, check out PR branch, copy files, push
+      1. Check GitHub prerequisites (gh installed and authenticated)
+      2. POST /submissions/{id}/runs/{run_id}
+      3. Download all run archives (with progress)
+      4. Rebuild submission folder
+      5. Run Submission Checker — rollback and abort on errors
+      6. Upload updated bundle to blob storage
+      7. Clone repo, check out existing PR branch, surgically update files, push
     """
     resolved_token = _get_token(token)
     target_repo = github_ops.get_target_repo()
+    _console.print("[cyan]Checking GitHub prerequisites…[/cyan]")
+    try:
+        repo_ok, repo_warning = github_ops.check_prerequisites(target_repo)
+    except GitHubError as exc:
+        _console.print(f"[bold red]GitHub prerequisite check failed:[/bold red] {exc}")
+        sys.exit(1)
+    if not repo_ok:
+        _console.print(f"[yellow]Warning:[/yellow] {repo_warning}")
 
     try:
         sub_out = api_client.add_run_to_submission(resolved_token, submission_id, run_id)
@@ -674,9 +731,27 @@ def submissions_add_run(submission_id: str, run_id: str, token: str | None) -> N
             _rollback_add_run(resolved_token, submission_id, run_id)
             sys.exit(1)
 
-        # 4. Upload updated bundle
+        # 4. Merge fresh build with existing PR branch content (fatal — rollback on failure)
+        upload_source = submission_dir
+        repo_dir = None
+        if pr_number:
+            _console.print("[cyan]Preparing PR branch merge…[/cyan]")
+            try:
+                repo_dir, merged_org_dir = github_ops.prepare_pr_branch_merge(
+                    submission_dir,
+                    target_repo,
+                    tmp_path / "gh",
+                    branch=f"submission-{submission_id}",
+                )
+                upload_source = merged_org_dir
+            except GitHubError as exc:
+                _console.print(f"[bold red]PR branch merge failed:[/bold red] {exc}")
+                _rollback_add_run(resolved_token, submission_id, run_id)
+                sys.exit(1)
+
+        # 5. Upload merged bundle to blob storage
         _console.print("[cyan]Uploading submission bundle…[/cyan]")
-        archive_path = create_bundle_archive(submission_dir, tmp_path / "bundle.tar.gz")
+        archive_path = create_bundle_archive(upload_source, tmp_path / "bundle.tar.gz")
         try:
             api_client.upload_submission_archive(resolved_token, submission_id, archive_path)
         except APIError as exc:
@@ -684,18 +759,11 @@ def submissions_add_run(submission_id: str, run_id: str, token: str | None) -> N
             _rollback_add_run(resolved_token, submission_id, run_id)
             sys.exit(1)
 
-        # 5. Update PR branch (clone → checkout → copy files → push)
-        if pr_number:
+        # 6. Push merged branch to GitHub (non-fatal)
+        if pr_number and repo_dir:
             _console.print("[cyan]Updating GitHub PR…[/cyan]")
             try:
-                github_ops.update_pr_branch(
-                    pr_number,
-                    submission_dir,
-                    target_repo,
-                    tmp_path / "gh",
-                    f"update: add run {run_id[:8]}",
-                    branch=f"submission-{submission_id}",
-                )
+                github_ops.commit_and_push(repo_dir, f"update: add run {run_id[:8]}")
             except GitHubError as exc:
                 _console.print(
                     f"[yellow]GitHub push failed (blob updated, DB updated):[/yellow] {exc}\n"
@@ -723,15 +791,24 @@ def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -
     """Remove a run from an existing submission and update the GitHub PR.
 
     Workflow:
-      1. DELETE /submissions/{id}/runs/{run_id}
-      2. Download remaining run archives (with progress)
-      3. Rebuild submission folder
-      4. Run Submission Checker — rollback and abort on errors
-      5. Upload updated bundle
-      6. Clone repo, check out PR branch, copy files, push
+      1. Check GitHub prerequisites (gh installed and authenticated)
+      2. DELETE /submissions/{id}/runs/{run_id}
+      3. Download remaining run archives (with progress) — skipped if no runs remain
+      4. Rebuild submission folder — skipped if no runs remain
+      5. Run Submission Checker — rollback and abort on errors; skipped if no runs remain
+      6. Upload updated bundle to blob storage — skipped if no runs remain
+      7. Clone repo, check out existing PR branch, surgically update files, push — skipped if no runs remain
     """
     resolved_token = _get_token(token)
     target_repo = github_ops.get_target_repo()
+    _console.print("[cyan]Checking GitHub prerequisites…[/cyan]")
+    try:
+        repo_ok, repo_warning = github_ops.check_prerequisites(target_repo)
+    except GitHubError as exc:
+        _console.print(f"[bold red]GitHub prerequisite check failed:[/bold red] {exc}")
+        sys.exit(1)
+    if not repo_ok:
+        _console.print(f"[yellow]Warning:[/yellow] {repo_warning}")
 
     try:
         sub_out = api_client.remove_run_from_submission(resolved_token, submission_id, run_id)
@@ -803,9 +880,27 @@ def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -
             _rollback_remove_run(resolved_token, submission_id, run_id)
             sys.exit(1)
 
-        # 4. Upload updated bundle
+        # 4. Merge fresh build with existing PR branch content (fatal — rollback on failure)
+        upload_source = submission_dir
+        repo_dir = None
+        if pr_number:
+            _console.print("[cyan]Preparing PR branch merge…[/cyan]")
+            try:
+                repo_dir, merged_org_dir = github_ops.prepare_pr_branch_merge(
+                    submission_dir,
+                    target_repo,
+                    tmp_path / "gh",
+                    branch=f"submission-{submission_id}",
+                )
+                upload_source = merged_org_dir
+            except GitHubError as exc:
+                _console.print(f"[bold red]PR branch merge failed:[/bold red] {exc}")
+                _rollback_remove_run(resolved_token, submission_id, run_id)
+                sys.exit(1)
+
+        # 5. Upload merged bundle to blob storage
         _console.print("[cyan]Uploading submission bundle…[/cyan]")
-        archive_path = create_bundle_archive(submission_dir, tmp_path / "bundle.tar.gz")
+        archive_path = create_bundle_archive(upload_source, tmp_path / "bundle.tar.gz")
         try:
             api_client.upload_submission_archive(resolved_token, submission_id, archive_path)
         except APIError as exc:
@@ -813,18 +908,11 @@ def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -
             _rollback_remove_run(resolved_token, submission_id, run_id)
             sys.exit(1)
 
-        # 5. Update PR branch (clone → checkout → copy files → push)
-        if pr_number:
+        # 6. Push merged branch to GitHub (non-fatal)
+        if pr_number and repo_dir:
             _console.print("[cyan]Updating GitHub PR…[/cyan]")
             try:
-                github_ops.update_pr_branch(
-                    pr_number,
-                    submission_dir,
-                    target_repo,
-                    tmp_path / "gh",
-                    f"update: remove run {run_id[:8]}",
-                    branch=f"submission-{submission_id}",
-                )
+                github_ops.commit_and_push(repo_dir, f"update: remove run {run_id[:8]}")
             except GitHubError as exc:
                 _console.print(
                     f"[yellow]GitHub push failed (blob updated, DB updated):[/yellow] {exc}\n"

@@ -19,6 +19,7 @@ from .exceptions import GitHubError
 __all__ = [
     "check_prerequisites",
     "prepare_submission_branch",
+    "prepare_pr_branch_merge",
     "update_pr_branch",
     "create_pr",
     "checkout_pr",
@@ -153,30 +154,31 @@ def create_pr(
     return pr_url, pr_number
 
 
-def update_pr_branch(
-    pr_number: int,
+def prepare_pr_branch_merge(
     submission_dir: Path,
     target_repo: str,
     work_dir: Path,
-    message: str,
     branch: str,
-) -> None:
-    """Clone target_repo, check out an existing PR branch, copy in the updated
-    submission_dir, commit, and push.
+) -> tuple[Path, Path]:
+    """Clone target_repo, check out branch, and apply the surgical merge of submission_dir.
+
+    Does NOT commit or push — call ``commit_and_push(repo_dir, message)`` afterward.
 
     Uses ``git fetch + git checkout`` instead of ``gh pr checkout`` to avoid a
     known incompatibility between shallow clones and ``gh pr checkout``'s tracking
     branch setup (``fatal: cannot set up tracking information``).
 
     Args:
-        pr_number: GitHub PR number (unused after the branch name is known, kept
-            for call-site clarity).
-        submission_dir: Assembled org-level submission directory to copy in.
+        submission_dir: Assembled org-level submission directory (fresh build).
         target_repo: ``owner/repo`` slug.
         work_dir: Directory in which to create the local clone.
-        message: Git commit message.
-        branch: Name of the existing remote branch to check out (e.g.
-            ``"submission-<uuid>"``).
+        branch: Name of the existing remote branch to check out.
+
+    Returns:
+        ``(repo_dir, merged_org_dir)`` — the clone root and the org-level directory
+        inside it after the merge has been applied. ``merged_org_dir`` is the source
+        to use for the blob storage archive so that blob storage and the GitHub PR
+        branch always contain identical content.
 
     Raises:
         GitHubError: If any git/gh command fails.
@@ -189,7 +191,7 @@ def update_pr_branch(
     _run(["git", "fetch", "--depth", "1", "origin", branch], cwd=repo_dir)
     _run(["git", "checkout", "-b", branch, "FETCH_HEAD"], cwd=repo_dir)
 
-    repo_org_dir = repo_dir / submission_dir.name   # e.g. repo_dir / "NVIDIA"
+    repo_org_dir = repo_dir / submission_dir.name  # e.g. repo_dir / "NVIDIA"
 
     if repo_org_dir.exists():
         fresh_pareto = submission_dir / "pareto"
@@ -245,6 +247,35 @@ def update_pr_branch(
         # Org dir not yet on the PR branch — full copy (first push edge case).
         shutil.copytree(submission_dir, repo_org_dir)
 
+    return repo_dir, repo_org_dir
+
+
+def update_pr_branch(
+    pr_number: int,
+    submission_dir: Path,
+    target_repo: str,
+    work_dir: Path,
+    message: str,
+    branch: str,
+) -> None:
+    """Clone target_repo, check out an existing PR branch, apply the surgical merge,
+    commit, and push.
+
+    Delegates merge logic to ``prepare_pr_branch_merge``; call that directly when
+    you need the merged content before uploading to blob storage.
+
+    Args:
+        pr_number: GitHub PR number (kept for call-site clarity).
+        submission_dir: Assembled org-level submission directory to copy in.
+        target_repo: ``owner/repo`` slug.
+        work_dir: Directory in which to create the local clone.
+        message: Git commit message.
+        branch: Name of the existing remote branch to check out.
+
+    Raises:
+        GitHubError: If any git/gh command fails.
+    """
+    repo_dir, _ = prepare_pr_branch_merge(submission_dir, target_repo, work_dir, branch)
     commit_and_push(repo_dir, message)
 
 
