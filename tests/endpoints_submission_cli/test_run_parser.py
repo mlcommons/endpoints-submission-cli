@@ -7,15 +7,12 @@ from __future__ import annotations
 import json
 import tarfile
 from pathlib import Path
-from unittest.mock import patch
-
 import pytest
 import yaml
 
 from endpoints_submission_cli.exceptions import RunFolderError
 from endpoints_submission_cli.run_parser import (
     build_archive,
-    get_git_commit_hash,
     parse_run_folder,
 )
 
@@ -122,6 +119,24 @@ class TestParseRunFolder:
         payload = parse_run_folder(folder)
         assert payload["started_at"] == payload["finished_at"]
 
+    def test_benchmark_version_from_git_sha(self, tmp_path: Path) -> None:
+        folder = tmp_path / "run_with_sha"
+        folder.mkdir()
+        (folder / "system_info.json").write_text("{}")
+        (folder / "config.yaml").write_text(yaml.dump({"name": "x"}))
+        (folder / "result_summary.json").write_text(json.dumps({"git_sha": "abc123"}))
+        payload = parse_run_folder(folder)
+        assert payload["benchmark_version"] == "abc123"
+
+    def test_benchmark_version_unknown_when_no_git_sha(self, tmp_path: Path) -> None:
+        folder = tmp_path / "run_no_sha"
+        folder.mkdir()
+        (folder / "system_info.json").write_text("{}")
+        (folder / "config.yaml").write_text(yaml.dump({"name": "x"}))
+        (folder / "result_summary.json").write_text("{}")
+        payload = parse_run_folder(folder)
+        assert payload["benchmark_version"] == "unknown"
+
     def test_google_sample_run(self, sample_google_run_dir: Path) -> None:
         """Parse a real Google sample run folder."""
         if not sample_google_run_dir.exists():
@@ -132,25 +147,6 @@ class TestParseRunFolder:
         assert payload["system_info"]["system_name"]
         assert payload["config"]
         assert payload["result_summary"]["n_samples_completed"] > 0
-
-
-@pytest.mark.unit
-class TestGetGitCommitHash:
-    def test_returns_hash_in_git_repo(self) -> None:
-        # The test runner is in a git repo
-        result = get_git_commit_hash(Path("."))
-        assert result != "unknown"
-        assert len(result) >= 7
-
-    def test_returns_unknown_outside_repo(self, tmp_path: Path) -> None:
-        result = get_git_commit_hash(tmp_path)
-        # May or may not be in a repo; just check it's a string
-        assert isinstance(result, str)
-
-    def test_returns_unknown_on_git_error(self, tmp_path: Path) -> None:
-        with patch("subprocess.run", side_effect=FileNotFoundError):
-            result = get_git_commit_hash(tmp_path)
-        assert result == "unknown"
 
 
 @pytest.mark.unit

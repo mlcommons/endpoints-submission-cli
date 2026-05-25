@@ -31,7 +31,7 @@ from endpoints_submission_cli.api_client import (
     upload_submission_archive,
     withdraw_submission,
 )
-from endpoints_submission_cli.exceptions import APIError, AuthError
+from endpoints_submission_cli.exceptions import APIError, ArchiveError, AuthError
 
 RUN_ID = "d5d9873e-5eca-4f8d-a487-4be1cb8b440c"
 SUBMISSION_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
@@ -153,13 +153,17 @@ class TestUploadRunArchive:
             with pytest.raises(APIError):
                 upload_run_archive(TOKEN, RUN_ID, archive)
 
+    def test_missing_file_raises_archive_error(self, tmp_path: Path) -> None:
+        archive = tmp_path / "nonexistent.tar.gz"
+        with pytest.raises(ArchiveError):
+            upload_run_archive(TOKEN, RUN_ID, archive)
+
 
 @pytest.mark.unit
 class TestDeleteRunArchive:
     def test_delete_ok(self) -> None:
         resp = _mock_response(204)
         resp.json.side_effect = Exception("no body")
-        resp.status_code = 204
         with patch("httpx.delete", return_value=resp):
             delete_run_archive(TOKEN, RUN_ID)
 
@@ -172,7 +176,6 @@ class TestDownloadRunArchive:
         mock_stream.__exit__ = MagicMock(return_value=False)
         mock_stream.raise_for_status = MagicMock()
         mock_stream.iter_bytes = MagicMock(return_value=[b"data1", b"data2"])
-        mock_stream.status_code = 200
 
         with patch("httpx.stream", return_value=mock_stream):
             result = download_run_archive(TOKEN, RUN_ID, tmp_path)
@@ -242,16 +245,20 @@ class TestAddRemoveRunSubmission:
 
 
 @pytest.mark.unit
-class TestUploadDownloadSubmissionArchive:
+class TestUploadDeleteSubmissionArchive:
     def test_upload_ok(self, tmp_path: Path) -> None:
         archive = tmp_path / "bundle.tar.gz"
         archive.write_bytes(b"bundle")
         with patch("httpx.post", return_value=_mock_response(200, {})):
             upload_submission_archive(TOKEN, SUBMISSION_ID, archive)
 
+    def test_missing_file_raises_archive_error(self, tmp_path: Path) -> None:
+        archive = tmp_path / "nonexistent.tar.gz"
+        with pytest.raises(ArchiveError):
+            upload_submission_archive(TOKEN, SUBMISSION_ID, archive)
+
     def test_delete_ok(self) -> None:
         resp = _mock_response(204)
-        resp.status_code = 204
         resp.json.side_effect = Exception("no body")
         with patch("httpx.delete", return_value=resp):
             delete_submission_archive(TOKEN, SUBMISSION_ID)

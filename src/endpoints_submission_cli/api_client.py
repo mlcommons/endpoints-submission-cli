@@ -6,11 +6,11 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import httpx
 
-from .exceptions import APIError, AuthError
+from .exceptions import APIError, ArchiveError, AuthError
 
 __all__ = [
     "get_token",
@@ -32,17 +32,15 @@ __all__ = [
     "remove_run_from_submission",
     "upload_submission_archive",
     "delete_submission_archive",
-    "download_submission_archive",
 ]
 
 _DEFAULT_BASE_URL = "http://localhost:8080"
 
-# Per-operation idle timeouts (not wall-clock totals).
-# write=300: each write syscall can stall up to 5 min — handles large uploads on slow links.
-# read=120:  server must send the first response byte within 2 min after receiving the file.
-_UPLOAD_TIMEOUT = httpx.Timeout(connect=10.0, write=300.0, read=120.0, pool=5.0)
-_DOWNLOAD_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=5.0)
-_API_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=30.0, pool=5.0)
+# All values are per-operation idle timeouts (time without a byte transferred), not wall-clock totals.
+# A slow-but-steady transfer never times out; only a stalled connection does.
+_UPLOAD_TIMEOUT = httpx.Timeout(connect=10.0, write=300.0, read=120.0, pool=5.0)   # write: each chunk send; read: wait for server ack after full upload
+_DOWNLOAD_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=5.0)  # read: gap between received bytes; accommodates large archives on slow links
+_API_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=30.0, pool=5.0)        # standard JSON calls; no large payloads expected
 
 
 def _base_url() -> str:
@@ -63,14 +61,16 @@ def _headers(token: str) -> dict[str, str]:
     return {"X-API-Key": token}
 
 
-def _raise_status(exc: httpx.HTTPStatusError) -> None:
+# Translates an httpx HTTP error (4xx/5xx response) into our own APIError/AuthError.
+def _raise_status(exc: httpx.HTTPStatusError) -> NoReturn:
     if exc.response.status_code in (401, 403):
         raise AuthError(f"Authentication failed (HTTP {exc.response.status_code})") from exc
-    body = exc.response.text[:500]
+    body = exc.response.text[:500]  # truncate to avoid dumping full HTML/JSON error pages into logs
     raise APIError(f"API error {exc.response.status_code}: {body}") from exc
 
 
-def _raise_request(exc: httpx.RequestError) -> None:
+# Translates an httpx network/transport error (timeout, connection refused, DNS failure, etc.)
+def _raise_request(exc: httpx.RequestError) -> NoReturn:
     raise APIError(f"Request failed: {type(exc).__name__}: {exc}") from exc
 
 
@@ -179,11 +179,12 @@ def upload_run_archive(token: str, run_id: str, archive_path: Path) -> dict[str,
             )
             r.raise_for_status()
             return r.json()
+    except OSError as exc:
+        raise ArchiveError(f"Failed to open run archive for upload: {archive_path}") from exc
     except httpx.HTTPStatusError as exc:
         _raise_status(exc)
     except httpx.RequestError as exc:
         _raise_request(exc)
-    return {}  # unreachable
 
 
 def delete_run_archive(token: str, run_id: str) -> None:
@@ -287,11 +288,12 @@ def upload_submission_archive(
             )
             r.raise_for_status()
             return r.json()
+    except OSError as exc:
+        raise ArchiveError(f"Failed to open submission archive for upload: {archive_path}") from exc
     except httpx.HTTPStatusError as exc:
         _raise_status(exc)
     except httpx.RequestError as exc:
         _raise_request(exc)
-    return {}  # unreachable
 
 
 def delete_submission_archive(token: str, submission_id: str) -> None:
@@ -321,3 +323,5 @@ def download_submission_archive(
     except httpx.RequestError as exc:
         _raise_request(exc)
     return dest
+
+

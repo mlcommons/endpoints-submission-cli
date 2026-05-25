@@ -84,12 +84,23 @@ def runs_list(token: str | None, as_json: bool) -> None:
     help="PRISM API key (mlc_...).",
 )
 @click.option(
+    "--expires-at",
+    default=None,
+    help="Expiry datetime in ISO 8601 format (e.g. 2026-01-01T00:00:00). Defaults to server policy.",
+)
+@click.option(
+    "--pinned",
+    is_flag=True,
+    default=False,
+    help="Pin the run immediately to prevent automatic expiry.",
+)
+@click.option(
     "--dry-run",
     is_flag=True,
     default=False,
     help="Print the parsed payload as JSON and exit without calling the API.",
 )
-def runs_create(path: Path, token: str | None, dry_run: bool) -> None:
+def runs_create(path: Path, token: str | None, expires_at: str | None, pinned: bool, dry_run: bool) -> None:
     """Create a run from a local benchmark result folder.
 
     Parses system_info.json, config.yaml, and result_summary.json from PATH,
@@ -102,6 +113,11 @@ def runs_create(path: Path, token: str | None, dry_run: bool) -> None:
     except RunFolderError as exc:
         _console.print(f"[bold red]Run folder error:[/bold red] {exc}")
         sys.exit(1)
+
+    if expires_at is not None:
+        payload["expires_at"] = expires_at
+    if pinned:
+        payload["pinned"] = True
 
     if dry_run:
         print(json.dumps(payload, indent=2, default=str))
@@ -117,6 +133,9 @@ def runs_create(path: Path, token: str | None, dry_run: bool) -> None:
 
     run_id: str = run_out["id"]
 
+    # At this point the run record exists in the DB but has no archive yet.
+    # If the upload fails we must roll back by deleting the run record so we
+    # don't leave an orphaned entry with no associated data.
     with tempfile.TemporaryDirectory() as tmp:
         archive_path = build_archive(path, Path(tmp) / f"{path.name}.tar.gz")
         try:
@@ -126,8 +145,11 @@ def runs_create(path: Path, token: str | None, dry_run: bool) -> None:
                 f"[bold red]Archive upload failed:[/bold red] {exc}\n"
                 f"[yellow]Rolling back run {run_id}…[/yellow]"
             )
+            # Step 1: attempt to delete the partial archive from storage (best-effort,
+            # ignore failure — storage may not have received anything).
             with contextlib.suppress(APIError):
                 api_client.delete_run_archive(resolved_token, run_id)
+            # Step 2: delete the run DB record to restore clean state.
             try:
                 api_client.delete_run(resolved_token, run_id)
                 _console.print("[green]Rollback successful — run deleted.[/green]")

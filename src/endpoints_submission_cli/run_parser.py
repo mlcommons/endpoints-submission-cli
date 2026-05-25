@@ -13,7 +13,6 @@ Run folder layout expected by this parser:
 from __future__ import annotations
 
 import json
-import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -22,7 +21,7 @@ import yaml
 
 from .exceptions import RunFolderError
 
-__all__ = ["parse_run_folder", "get_git_commit_hash", "build_archive"]
+__all__ = ["parse_run_folder", "build_archive"]
 
 _REQUIRED_FILES = ("system_info.json", "config.yaml", "result_summary.json")
 
@@ -51,11 +50,7 @@ def parse_run_folder(path: Path) -> dict[str, Any]:
     result_summary = _load_json(path / "result_summary.json")
 
     started_at, finished_at = _extract_timestamps(result_summary)
-    # Prefer the git_sha embedded in result_summary (the benchmark tool's commit).
-    # Fall back to the git hash of the repo containing the run folder.
-    benchmark_version = (
-        result_summary.get("git_sha") or get_git_commit_hash(path) or "unknown"
-    )
+    benchmark_version = result_summary.get("git_sha") or "unknown"
 
     return {
         "benchmark_version": benchmark_version,
@@ -105,24 +100,6 @@ def _extract_timestamps(result_summary: dict[str, Any]) -> tuple[datetime, datet
     finished_at = now_utc
     started_at = finished_at - timedelta(seconds=duration_s)
     return started_at, finished_at
-
-
-def get_git_commit_hash(path: Path) -> str:
-    """Return the git commit hash of the repo containing *path*.
-
-    Returns ``"unknown"`` if git is not available or *path* is not in a repo.
-    """
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=path,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return result.stdout.strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return "unknown"
 
 
 def build_archive(folder: Path, dest: Path | None = None) -> Path:
