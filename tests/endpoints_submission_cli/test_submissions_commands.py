@@ -89,6 +89,14 @@ class TestSubmissionsGet:
 class TestSubmissionsUpdate:
     _OLD_RUN_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
 
+    @pytest.fixture(autouse=True)
+    def _mock_gh_prereqs(self) -> pytest.FixtureRequest:
+        with patch(
+            "endpoints_submission_cli.github_ops.check_prerequisites",
+            return_value=(True, ""),
+        ):
+            yield
+
     def test_update_run_ids(self, tmp_path: Path) -> None:
         """--run-ids triggers full rebuild pipeline; update_submission called with new run list."""
         current_sub = {**SUBMISSION_OUT, "run_ids": [self._OLD_RUN_ID], "pr_number": _PR_NUMBER}
@@ -98,6 +106,7 @@ class TestSubmissionsUpdate:
         fake_sub_dir.mkdir()
         fake_bundle = tmp_path / "bundle.tar.gz"
         fake_bundle.write_bytes(b"bundle")
+        fake_repo_dir = tmp_path / "repo"
 
         with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
             with patch("endpoints_submission_cli.api_client.get_submission", return_value=current_sub):
@@ -115,18 +124,63 @@ class TestSubmissionsUpdate:
                                     return_value=fake_bundle,
                                 ):
                                     with patch("endpoints_submission_cli.api_client.upload_submission_archive"):
-                                        with patch("endpoints_submission_cli.github_ops.update_pr_branch"):
-                                            with patch(
-                                                "endpoints_submission_cli.github_ops.get_target_repo",
-                                                return_value="org/repo",
-                                            ):
-                                                _run_app(
-                                                    "submissions", "update",
-                                                    "--submission-id", SUBMISSION_ID,
-                                                    "--run-ids", RUN_ID,
-                                                    *_TOKEN_ARGS,
-                                                )
+                                        with patch(
+                                            "endpoints_submission_cli.github_ops.prepare_pr_branch_merge",
+                                            return_value=(fake_repo_dir, fake_sub_dir),
+                                        ):
+                                            with patch("endpoints_submission_cli.github_ops.commit_and_push"):
+                                                with patch(
+                                                    "endpoints_submission_cli.github_ops.get_target_repo",
+                                                    return_value="org/repo",
+                                                ):
+                                                    _run_app(
+                                                        "submissions", "update",
+                                                        "--submission-id", SUBMISSION_ID,
+                                                        "--run-ids", RUN_ID,
+                                                        *_TOKEN_ARGS,
+                                                    )
         mock_patch.assert_called_once_with(TOKEN, SUBMISSION_ID, {"run_ids": [RUN_ID]})
+
+    def test_update_run_ids_merge_failure_rolls_back(self, tmp_path: Path) -> None:
+        """PR branch merge failure rolls back the DB PATCH with original run IDs."""
+        current_sub = {**SUBMISSION_OUT, "run_ids": [self._OLD_RUN_ID], "pr_number": _PR_NUMBER}
+        updated_sub = {**SUBMISSION_OUT, "run_ids": [RUN_ID]}
+        fake_archive = _make_fake_archive(tmp_path)
+        fake_sub_dir = tmp_path / "sub"
+        fake_sub_dir.mkdir()
+
+        with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
+            with patch("endpoints_submission_cli.api_client.get_submission", return_value=current_sub):
+                with patch(
+                    "endpoints_submission_cli.api_client.update_submission", return_value=updated_sub
+                ) as mock_patch:
+                    with patch("endpoints_submission_cli.api_client.download_run_archive", return_value=fake_archive):
+                        with patch(
+                            "endpoints_submission_cli.commands.submissions.build_submission_folder",
+                            return_value=fake_sub_dir,
+                        ):
+                            with patch("endpoints_submission_cli.commands.submissions._run_submission_checker"):
+                                with patch(
+                                    "endpoints_submission_cli.github_ops.prepare_pr_branch_merge",
+                                    side_effect=GitHubError("clone failed"),
+                                ):
+                                    with patch(
+                                        "endpoints_submission_cli.github_ops.get_target_repo",
+                                        return_value="org/repo",
+                                    ):
+                                        result = _runner.invoke(
+                                            app,
+                                            [
+                                                "submissions", "update",
+                                                "--submission-id", SUBMISSION_ID,
+                                                "--run-ids", RUN_ID,
+                                                *_TOKEN_ARGS,
+                                            ],
+                                        )
+        assert result.exit_code == 1
+        assert mock_patch.call_count == 2
+        mock_patch.assert_any_call(TOKEN, SUBMISSION_ID, {"run_ids": [RUN_ID]})
+        mock_patch.assert_any_call(TOKEN, SUBMISSION_ID, {"run_ids": [self._OLD_RUN_ID]})
 
     def test_update_run_ids_download_failure_rolls_back(self, tmp_path: Path) -> None:
         """Download failure rolls back the DB PATCH with original run IDs."""
@@ -511,6 +565,14 @@ class TestSubmissionsCreate:
 class TestSubmissionsAddRun:
     _NEW_RUN_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 
+    @pytest.fixture(autouse=True)
+    def _mock_gh_prereqs(self) -> pytest.FixtureRequest:
+        with patch(
+            "endpoints_submission_cli.github_ops.check_prerequisites",
+            return_value=(True, ""),
+        ):
+            yield
+
     def _sub_with_runs(self, *run_ids: str) -> dict:
         return {**SUBMISSION_OUT, "run_ids": list(run_ids)}
 
@@ -521,6 +583,7 @@ class TestSubmissionsAddRun:
         fake_sub_dir.mkdir()
         fake_bundle = tmp_path / "bundle.tar.gz"
         fake_bundle.write_bytes(b"bundle")
+        fake_repo_dir = tmp_path / "repo"
 
         with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
             with patch("endpoints_submission_cli.api_client.add_run_to_submission", return_value=sub_out):
@@ -535,17 +598,21 @@ class TestSubmissionsAddRun:
                                 return_value=fake_bundle,
                             ):
                                 with patch("endpoints_submission_cli.api_client.upload_submission_archive"):
-                                    with patch("endpoints_submission_cli.github_ops.update_pr_branch"):
-                                        with patch(
-                                            "endpoints_submission_cli.github_ops.get_target_repo",
-                                            return_value="org/repo",
-                                        ):
-                                            _run_app(
-                                                "submissions", "add-run",
-                                                "--submission-id", SUBMISSION_ID,
-                                                "--run-id", self._NEW_RUN_ID,
-                                                *_TOKEN_ARGS,
-                                            )
+                                    with patch(
+                                        "endpoints_submission_cli.github_ops.prepare_pr_branch_merge",
+                                        return_value=(fake_repo_dir, fake_sub_dir),
+                                    ):
+                                        with patch("endpoints_submission_cli.github_ops.commit_and_push"):
+                                            with patch(
+                                                "endpoints_submission_cli.github_ops.get_target_repo",
+                                                return_value="org/repo",
+                                            ):
+                                                _run_app(
+                                                    "submissions", "add-run",
+                                                    "--submission-id", SUBMISSION_ID,
+                                                    "--run-id", self._NEW_RUN_ID,
+                                                    *_TOKEN_ARGS,
+                                                )
 
     def test_add_run_api_error_exits_1(self) -> None:
         with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
@@ -591,12 +658,14 @@ class TestSubmissionsAddRun:
         mock_rollback.assert_called_once_with(TOKEN, SUBMISSION_ID, self._NEW_RUN_ID)
 
     def test_add_run_github_failure_is_warning(self, tmp_path: Path) -> None:
+        """Push failure after successful merge and upload is a warning — exits 0."""
         sub_out = self._sub_with_runs(RUN_ID, self._NEW_RUN_ID)
         fake_archive = _make_fake_archive(tmp_path)
         fake_sub_dir = tmp_path / "sub"
         fake_sub_dir.mkdir()
         fake_bundle = tmp_path / "bundle.tar.gz"
         fake_bundle.write_bytes(b"bundle")
+        fake_repo_dir = tmp_path / "repo"
 
         with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
             with patch("endpoints_submission_cli.api_client.add_run_to_submission", return_value=sub_out):
@@ -612,24 +681,74 @@ class TestSubmissionsAddRun:
                             ):
                                 with patch("endpoints_submission_cli.api_client.upload_submission_archive"):
                                     with patch(
-                                        "endpoints_submission_cli.github_ops.update_pr_branch",
-                                        side_effect=GitHubError("gh failed"),
+                                        "endpoints_submission_cli.github_ops.prepare_pr_branch_merge",
+                                        return_value=(fake_repo_dir, fake_sub_dir),
                                     ):
                                         with patch(
-                                            "endpoints_submission_cli.github_ops.get_target_repo",
-                                            return_value="org/repo",
+                                            "endpoints_submission_cli.github_ops.commit_and_push",
+                                            side_effect=GitHubError("push failed"),
                                         ):
-                                            _run_app(
+                                            with patch(
+                                                "endpoints_submission_cli.github_ops.get_target_repo",
+                                                return_value="org/repo",
+                                            ):
+                                                _run_app(
+                                                    "submissions", "add-run",
+                                                    "--submission-id", SUBMISSION_ID,
+                                                    "--run-id", self._NEW_RUN_ID,
+                                                    *_TOKEN_ARGS,
+                                                )
+
+    def test_add_run_merge_failure_rolls_back(self, tmp_path: Path) -> None:
+        """PR branch merge failure rolls back the run registration."""
+        sub_out = self._sub_with_runs(RUN_ID, self._NEW_RUN_ID)
+        fake_archive = _make_fake_archive(tmp_path)
+        fake_sub_dir = tmp_path / "sub"
+        fake_sub_dir.mkdir()
+
+        with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
+            with patch("endpoints_submission_cli.api_client.add_run_to_submission", return_value=sub_out):
+                with patch("endpoints_submission_cli.api_client.download_run_archive", return_value=fake_archive):
+                    with patch(
+                        "endpoints_submission_cli.commands.submissions.build_submission_folder",
+                        return_value=fake_sub_dir,
+                    ):
+                        with patch("endpoints_submission_cli.commands.submissions._run_submission_checker"):
+                            with patch(
+                                "endpoints_submission_cli.github_ops.prepare_pr_branch_merge",
+                                side_effect=GitHubError("clone failed"),
+                            ):
+                                with patch(
+                                    "endpoints_submission_cli.api_client.remove_run_from_submission"
+                                ) as mock_rollback:
+                                    with patch(
+                                        "endpoints_submission_cli.github_ops.get_target_repo",
+                                        return_value="org/repo",
+                                    ):
+                                        result = _runner.invoke(
+                                            app,
+                                            [
                                                 "submissions", "add-run",
                                                 "--submission-id", SUBMISSION_ID,
                                                 "--run-id", self._NEW_RUN_ID,
                                                 *_TOKEN_ARGS,
-                                            )
+                                            ],
+                                        )
+        assert result.exit_code == 1
+        mock_rollback.assert_called_once_with(TOKEN, SUBMISSION_ID, self._NEW_RUN_ID)
 
 
 @pytest.mark.unit
 class TestSubmissionsRemoveRun:
     _REMOVED_RUN_ID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+
+    @pytest.fixture(autouse=True)
+    def _mock_gh_prereqs(self) -> pytest.FixtureRequest:
+        with patch(
+            "endpoints_submission_cli.github_ops.check_prerequisites",
+            return_value=(True, ""),
+        ):
+            yield
 
     def test_remove_run_success(self, tmp_path: Path) -> None:
         sub_out = {**SUBMISSION_OUT, "run_ids": [RUN_ID]}
@@ -638,6 +757,7 @@ class TestSubmissionsRemoveRun:
         fake_sub_dir.mkdir()
         fake_bundle = tmp_path / "bundle.tar.gz"
         fake_bundle.write_bytes(b"bundle")
+        fake_repo_dir = tmp_path / "repo"
 
         with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
             with patch(
@@ -654,17 +774,21 @@ class TestSubmissionsRemoveRun:
                                 return_value=fake_bundle,
                             ):
                                 with patch("endpoints_submission_cli.api_client.upload_submission_archive"):
-                                    with patch("endpoints_submission_cli.github_ops.update_pr_branch"):
-                                        with patch(
-                                            "endpoints_submission_cli.github_ops.get_target_repo",
-                                            return_value="org/repo",
-                                        ):
-                                            _run_app(
-                                                "submissions", "remove-run",
-                                                "--submission-id", SUBMISSION_ID,
-                                                "--run-id", self._REMOVED_RUN_ID,
-                                                *_TOKEN_ARGS,
-                                            )
+                                    with patch(
+                                        "endpoints_submission_cli.github_ops.prepare_pr_branch_merge",
+                                        return_value=(fake_repo_dir, fake_sub_dir),
+                                    ):
+                                        with patch("endpoints_submission_cli.github_ops.commit_and_push"):
+                                            with patch(
+                                                "endpoints_submission_cli.github_ops.get_target_repo",
+                                                return_value="org/repo",
+                                            ):
+                                                _run_app(
+                                                    "submissions", "remove-run",
+                                                    "--submission-id", SUBMISSION_ID,
+                                                    "--run-id", self._REMOVED_RUN_ID,
+                                                    *_TOKEN_ARGS,
+                                                )
 
     def test_remove_run_no_runs_left(self) -> None:
         sub_out = {**SUBMISSION_OUT, "run_ids": []}
@@ -723,5 +847,45 @@ class TestSubmissionsRemoveRun:
                                     *_TOKEN_ARGS,
                                 ],
                             )
+        assert result.exit_code == 1
+        mock_rollback.assert_called_once_with(TOKEN, SUBMISSION_ID, self._REMOVED_RUN_ID)
+
+    def test_remove_run_merge_failure_rolls_back(self, tmp_path: Path) -> None:
+        """PR branch merge failure rolls back the run removal."""
+        sub_out = {**SUBMISSION_OUT, "run_ids": [RUN_ID]}
+        fake_archive = _make_fake_archive(tmp_path)
+        fake_sub_dir = tmp_path / "sub"
+        fake_sub_dir.mkdir()
+
+        with patch("endpoints_submission_cli.api_client.get_token", return_value=TOKEN):
+            with patch(
+                "endpoints_submission_cli.api_client.remove_run_from_submission", return_value=sub_out
+            ):
+                with patch("endpoints_submission_cli.api_client.download_run_archive", return_value=fake_archive):
+                    with patch(
+                        "endpoints_submission_cli.commands.submissions.build_submission_folder",
+                        return_value=fake_sub_dir,
+                    ):
+                        with patch("endpoints_submission_cli.commands.submissions._run_submission_checker"):
+                            with patch(
+                                "endpoints_submission_cli.github_ops.prepare_pr_branch_merge",
+                                side_effect=GitHubError("clone failed"),
+                            ):
+                                with patch(
+                                    "endpoints_submission_cli.api_client.add_run_to_submission"
+                                ) as mock_rollback:
+                                    with patch(
+                                        "endpoints_submission_cli.github_ops.get_target_repo",
+                                        return_value="org/repo",
+                                    ):
+                                        result = _runner.invoke(
+                                            app,
+                                            [
+                                                "submissions", "remove-run",
+                                                "--submission-id", SUBMISSION_ID,
+                                                "--run-id", self._REMOVED_RUN_ID,
+                                                *_TOKEN_ARGS,
+                                            ],
+                                        )
         assert result.exit_code == 1
         mock_rollback.assert_called_once_with(TOKEN, SUBMISSION_ID, self._REMOVED_RUN_ID)

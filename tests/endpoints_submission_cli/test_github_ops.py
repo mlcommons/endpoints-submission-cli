@@ -13,17 +13,23 @@ import pytest
 from endpoints_submission_cli.exceptions import GitHubError
 from endpoints_submission_cli.github_ops import (
     _parse_pr_number,
+    check_prerequisites,
     checkout_pr,
     close_pr,
     commit_and_push,
     create_pr,
     get_target_repo,
+    prepare_pr_branch_merge,
+    update_pr_branch,
 )
 
 
-def _completed(stdout: str = "", returncode: int = 0) -> subprocess.CompletedProcess:
+def _completed(
+    stdout: str = "", returncode: int = 0, stderr: str = ""
+) -> subprocess.CompletedProcess:
     cp = MagicMock(spec=subprocess.CompletedProcess)
     cp.stdout = stdout
+    cp.stderr = stderr
     cp.returncode = returncode
     return cp
 
@@ -99,6 +105,142 @@ class TestClosePr:
         err = subprocess.CalledProcessError(1, ["gh"], stderr="auth error")
         with patch("subprocess.run", side_effect=err), pytest.raises(GitHubError):
             close_pr(42, "org/repo")
+
+
+@pytest.mark.unit
+class TestCheckPrerequisites:
+    def test_success(self) -> None:
+        with patch("subprocess.run", return_value=_completed()):
+            ok, warning = check_prerequisites("org/repo")
+        assert ok
+        assert warning == ""
+
+    def test_repo_unreachable_returns_false_with_warning(self) -> None:
+        call_count = 0
+
+        def _side_effect(cmd, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 3:
+                return _completed(returncode=1, stdout="not found")
+            return _completed()
+
+        with patch("subprocess.run", side_effect=_side_effect):
+            ok, warning = check_prerequisites("org/repo")
+        assert not ok
+        assert "org/repo" in warning
+
+    def test_gh_not_installed_raises(self) -> None:
+        with patch("subprocess.run", side_effect=FileNotFoundError):
+            with pytest.raises(GitHubError, match="not found"):
+                check_prerequisites("org/repo")
+
+    def test_auth_failure_raises(self) -> None:
+        err = subprocess.CalledProcessError(1, ["gh"], stderr="not logged in")
+        call_count = 0
+
+        def _side_effect(cmd, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                raise err
+            return _completed()
+
+        with patch("subprocess.run", side_effect=_side_effect):
+            with pytest.raises(GitHubError):
+                check_prerequisites("org/repo")
+
+
+@pytest.mark.unit
+class TestPreparePrBranchMerge:
+    def test_returns_repo_dir_and_org_dir(self, tmp_path: Path) -> None:
+        submission_dir = tmp_path / "ORG"
+        submission_dir.mkdir()
+        work_dir = tmp_path / "work"
+        (work_dir / "repo").mkdir(parents=True)
+
+        with patch("subprocess.run", return_value=_completed()):
+            repo_dir, org_dir = prepare_pr_branch_merge(
+                submission_dir, "org/repo", work_dir, branch="submission-abc"
+            )
+
+        assert repo_dir == work_dir / "repo"
+        assert org_dir == work_dir / "repo" / "ORG"
+
+    def test_fresh_org_dir_copies_entire_tree(self, tmp_path: Path) -> None:
+        submission_dir = tmp_path / "ORG"
+        (submission_dir / "systems").mkdir(parents=True)
+        work_dir = tmp_path / "work"
+        (work_dir / "repo").mkdir(parents=True)
+
+        with patch("subprocess.run", return_value=_completed()):
+            _, org_dir = prepare_pr_branch_merge(
+                submission_dir, "org/repo", work_dir, branch="sub-x"
+            )
+
+        assert org_dir.exists()
+
+    def test_clone_failure_raises(self, tmp_path: Path) -> None:
+        err = subprocess.CalledProcessError(1, ["gh"], stderr="auth error")
+        submission_dir = tmp_path / "ORG"
+        submission_dir.mkdir()
+        with patch("subprocess.run", side_effect=err):
+            with pytest.raises(GitHubError):
+                prepare_pr_branch_merge(
+                    submission_dir, "org/repo", tmp_path / "work", branch="sub-x"
+                )
+
+    def test_fetch_failure_raises(self, tmp_path: Path) -> None:
+        submission_dir = tmp_path / "ORG"
+        submission_dir.mkdir()
+        call_count = 0
+
+        def _side_effect(cmd, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                raise subprocess.CalledProcessError(1, cmd, stderr="fetch error")
+            return _completed()
+
+        with patch("subprocess.run", side_effect=_side_effect):
+            with pytest.raises(GitHubError):
+                prepare_pr_branch_merge(
+                    submission_dir, "org/repo", tmp_path / "work", branch="sub-x"
+                )
+
+
+@pytest.mark.unit
+class TestUpdatePrBranch:
+    def test_delegates_to_prepare_and_push(self, tmp_path: Path) -> None:
+        submission_dir = tmp_path / "ORG"
+        submission_dir.mkdir()
+        fake_repo_dir = tmp_path / "repo"
+
+        with patch(
+            "endpoints_submission_cli.github_ops.prepare_pr_branch_merge",
+            return_value=(fake_repo_dir, fake_repo_dir / "ORG"),
+        ) as mock_merge:
+            with patch("endpoints_submission_cli.github_ops.commit_and_push") as mock_push:
+                update_pr_branch(
+                    42, submission_dir, "org/repo", tmp_path / "work", "test msg", branch="sub-x"
+                )
+
+        mock_merge.assert_called_once_with(
+            submission_dir, "org/repo", tmp_path / "work", "sub-x"
+        )
+        mock_push.assert_called_once_with(fake_repo_dir, "test msg")
+
+    def test_merge_failure_propagates(self, tmp_path: Path) -> None:
+        submission_dir = tmp_path / "ORG"
+        submission_dir.mkdir()
+        with patch(
+            "endpoints_submission_cli.github_ops.prepare_pr_branch_merge",
+            side_effect=GitHubError("clone failed"),
+        ):
+            with pytest.raises(GitHubError, match="clone failed"):
+                update_pr_branch(
+                    42, submission_dir, "org/repo", tmp_path / "work", "msg", branch="sub-x"
+                )
 
 
 @pytest.mark.unit
