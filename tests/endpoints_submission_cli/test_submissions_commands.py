@@ -382,7 +382,6 @@ class TestSubmissionsCreate:
                                                     _run_app(
                                                         "submissions", "create",
                                                         "--division", "standardized",
-                                                        "--scenario", "cop",
                                                         "--availability", "available",
                                                         "--run-ids", RUN_ID,
                                                         *_TOKEN_ARGS,
@@ -401,7 +400,6 @@ class TestSubmissionsCreate:
                         [
                             "submissions", "create",
                             "--division", "standardized",
-                            "--scenario", "cop",
                             "--availability", "available",
                             "--run-ids", RUN_ID,
                             *_TOKEN_ARGS,
@@ -432,7 +430,6 @@ class TestSubmissionsCreate:
                                 [
                                     "submissions", "create",
                                     "--division", "standardized",
-                                    "--scenario", "cop",
                                     "--availability", "available",
                                     "--run-ids", RUN_ID,
                                     *_TOKEN_ARGS,
@@ -462,7 +459,6 @@ class TestSubmissionsCreate:
                                     [
                                         "submissions", "create",
                                         "--division", "standardized",
-                                        "--scenario", "cop",
                                         "--availability", "available",
                                         "--run-ids", RUN_ID,
                                         *_TOKEN_ARGS,
@@ -508,7 +504,6 @@ class TestSubmissionsCreate:
                                                 [
                                                     "submissions", "create",
                                                     "--division", "standardized",
-                                                    "--scenario", "cop",
                                                     "--availability", "available",
                                                     "--run-ids", RUN_ID,
                                                     *_TOKEN_ARGS,
@@ -557,7 +552,6 @@ class TestSubmissionsCreate:
                                                         [
                                                             "submissions", "create",
                                                             "--division", "standardized",
-                                                            "--scenario", "cop",
                                                             "--availability", "available",
                                                             "--run-ids", RUN_ID,
                                                             *_TOKEN_ARGS,

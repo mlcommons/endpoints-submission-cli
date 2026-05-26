@@ -142,12 +142,6 @@ def submissions_list(token: str | None, as_json: bool) -> None:
     help="Submission division (standardized|serviced|rdi).",
 )
 @click.option(
-    "--scenario",
-    required=True,
-    type=click.Choice(["cop", "con"], case_sensitive=False),
-    help="Scenario: cop (Client-on-Premises) or con (Client-over-Network).",
-)
-@click.option(
     "--availability",
     required=True,
     help="Availability status (available|preview|rdi).",
@@ -184,7 +178,6 @@ def submissions_list(token: str | None, as_json: bool) -> None:
 def submissions_create(
     token: str | None,
     division: str,
-    scenario: str,
     availability: str,
     run_ids: tuple[str, ...],
     early_publish: bool,
@@ -274,7 +267,6 @@ def submissions_create(
         # 4. POST /submissions
         payload: dict = {
             "division": division,
-            "scenario": scenario,
             "availability": availability,
             "run_ids": run_ids_list,
             "early_publish": early_publish,
