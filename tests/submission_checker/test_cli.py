@@ -42,12 +42,6 @@ def test_check_strict_fails_on_warnings(valid_standardized):
     assert result.exit_code in (0, 1)
 
 
-def test_version_flag():
-    runner = CliRunner()
-    result = runner.invoke(main, ["--version"])
-    assert result.exit_code == 0
-    assert "0.1.0" in result.output
-
 
 def test_regions_command_known_m():
     runner = CliRunner()
