@@ -3,12 +3,12 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "submission-checker"
+name = "endpoints-submission-cli"
 version = "0.1.0"
-description = "CLI tool for validating MLPerf submissions"
+description = "CLI tool for managing MLPerf endpoint submissions"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
 authors = [{ name = "MLCommons", email = "arav@mlcommons.org" }]
 dependencies = [
     "click>=8.1",
@@ -19,7 +19,6 @@ dependencies = [
 ]
 
 [project.scripts]
-submission-checker = "submission_checker.cli:main"
 endpoints-submission-cli = "endpoints_submission_cli.main:main"
 
 [project.optional-dependencies]
@@ -37,17 +36,12 @@ docs = [
 
 [tool.setuptools]
 packages = [
-    "submission_checker",
-    "submission_checker.models",
     "endpoints_submission_cli",
     "endpoints_submission_cli.commands",
 ]
 
 [tool.setuptools.package-dir]
-"submission_checker" = "src"
-"submission_checker.models" = "src/models"
-"endpoints_submission_cli" = "src/endpoints_submission_cli"
-"endpoints_submission_cli.commands" = "src/endpoints_submission_cli/commands"
+"" = "src"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
