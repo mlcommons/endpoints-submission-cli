@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import yaml
 
-from submission_checker.loader import (
+from submission_checker.models.loader import (
     load_accuracy_result,
     load_result_summary,
     load_point_config,

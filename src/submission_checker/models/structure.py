@@ -6,7 +6,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, PrivateAttr, computed_field, model_validator
 
-from .models import CheckResult, Division, err, ok
+from .file import Division
+from .results import CheckResult, err, ok
 
 
 class SubmissionDir(BaseModel):

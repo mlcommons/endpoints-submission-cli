@@ -15,14 +15,8 @@ __all__ = [
 import yaml
 from pydantic import ValidationError
 
-from .models import (
-    AccuracyResult,
-    CheckResult,
-    PointConfig,
-    PointSummary,
-    Severity,
-    SystemDescription,
-)
+from .file import AccuracyResult, PointConfig, PointSummary, SystemDescription
+from .results import CheckResult, Severity
 
 
 def _load_json(path: Path) -> tuple[dict | None, str | None]:

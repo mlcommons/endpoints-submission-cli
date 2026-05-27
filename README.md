@@ -1,3 +1,12 @@
+# MLCommons Endpoints Submission Tools
+
+This repository contains two tools:
+
+- **`submission-checker`** — validates a submission folder against the §9.1 automated compliance rules (see below).
+- **`endpoints-submission-cli`** — CLI for registering benchmark runs and creating rolling submissions via the PRISM API. See [docs/endpoints-submission-cli.md](docs/endpoints-submission-cli.md) for full usage.
+
+---
+
 # submission-checker
 
 CLI tool for validating MLPerf Endpoints submissions against the §9.1 automated compliance checks.

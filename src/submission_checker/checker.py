@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 __all__ = ["SubmissionChecker"]
 
-from .loader import (
+from .models.loader import (
     load_accuracy_result,
     load_point_config,
     load_result_summary,
@@ -29,10 +29,10 @@ from .models import (
     SystemDescription,
     compute_regions,
 )
+from .models import ModelDir, SrcDir, SubmissionDir, SystemPareto
 from .models import err as _err
 from .models import ok as _ok
 from .models import warn as _warn
-from .structure import ModelDir, SrcDir, SubmissionDir, SystemPareto
 
 if TYPE_CHECKING:
     from pathlib import Path
