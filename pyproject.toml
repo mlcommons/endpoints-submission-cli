@@ -38,6 +38,10 @@ docs = [
 packages = [
     "endpoints_submission_cli",
     "endpoints_submission_cli.commands",
+    "endpoints_submission_cli.commands.runs",
+    "endpoints_submission_cli.commands.submissions",
+    "endpoints_submission_cli.runs",
+    "endpoints_submission_cli.submissions",
 ]
 
 [tool.setuptools.package-dir]
@@ -45,7 +49,7 @@ packages = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=submission_checker --cov-report=term-missing -v"
+addopts = "--cov=src --cov-report=term-missing -v"
 markers = [
     "unit: fast, isolated unit tests (no network, no subprocesses)",
     "integration: tests that require a running API at http://localhost:8080",
