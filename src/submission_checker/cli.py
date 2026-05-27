@@ -19,7 +19,7 @@ _SEVERITY_STYLE: dict[Severity, str] = {
 
 
 @click.group()
-@click.version_option(package_name="submission-checker")
+@click.version_option(package_name="endpoints-submission-cli")
 def main() -> None:
     """MLPerf Endpoints submission checker — validate a submission directory."""
 
