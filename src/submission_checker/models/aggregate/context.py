@@ -29,12 +29,10 @@ class ModelContext(BaseModel):
     system_desc: SystemDescription
     model_dir: Path
     regions: Regions
-    points_dir: Path
-    accuracy_dir: Path
     all_point_count: int
     valid_points: list[tuple[Path, PointConfig]]
     loaded_points: list[tuple[PointConfig, PointSummary]]
-    accuracy_result: AccuracyResult | None = None
+    accuracy_results: list[AccuracyResult | None] = []
 
     @model_validator(mode="after")
     def _check_point_count(self) -> ModelContext:
@@ -45,17 +43,17 @@ class ModelContext(BaseModel):
                 err(
                     "point-count",
                     f"Only {n} measurement point(s) — minimum {_MIN_POINTS} required",
-                    self.points_dir,
+                    self.model_dir,
                     "#2, #8",
                 )
             )
         else:
             self._check_results.append(
-                ok("point-count", f"Point count OK: {n}", self.points_dir, "#2, #8")
+                ok("point-count", f"Point count OK: {n}", self.model_dir, "#2, #8")
             )
         if n > _MAX_POINTS:
             self._check_results.append(
-                err("point-cap", f"{n} points exceed the {_MAX_POINTS}-point cap", self.points_dir, "#2, #8")
+                err("point-cap", f"{n} points exceed the {_MAX_POINTS}-point cap", self.model_dir, "#2, #8")
             )
         return self
 
@@ -77,7 +75,7 @@ class ModelContext(BaseModel):
                     ok(
                         rule,
                         f"{label} region covered: {sorted(matching)} (range {bounds})",
-                        self.points_dir,
+                        self.model_dir,
                         "#3–6",
                     )
                 )
@@ -86,7 +84,7 @@ class ModelContext(BaseModel):
                     err(
                         rule,
                         f"No point in {label} region (concurrency {bounds})",
-                        self.points_dir,
+                        self.model_dir,
                         "#3–6",
                     )
                 )
@@ -140,28 +138,30 @@ class ModelContext(BaseModel):
 
     @model_validator(mode="after")
     def _check_accuracy(self) -> ModelContext:
-        """§15: accuracy score must meet or exceed the benchmark quality_target."""
-        if self.accuracy_result is None:
-            return self  # file missing/invalid already reported by checker.py
-        accuracy = self.accuracy_result
-        json_path = self.accuracy_dir / "accuracy_result.json"
-        if accuracy.passed:
+        """§15: all per-run accuracy scores must meet or exceed their benchmark quality_target."""
+        valid_results = [r for r in self.accuracy_results if r is not None]
+        if not valid_results:
+            return self  # all missing/invalid already reported by checker.py
+        all_passed = all(r.passed for r in valid_results)
+        failed = [r for r in valid_results if not r.passed]
+        if all_passed:
             self._check_results.append(
                 ok(
                     "accuracy-gate",
-                    f"Accuracy gate PASSED: {accuracy.metric} = {accuracy.score:.4f}"
-                    f" ≥ target {accuracy.quality_target:.4f}",
-                    json_path,
+                    f"Accuracy gate PASSED for all {len(valid_results)} run(s)",
+                    self.model_dir,
                     "#15",
                 )
             )
         else:
+            detail = "; ".join(
+                f"{r.metric}={r.score:.4f} < {r.quality_target:.4f}" for r in failed
+            )
             self._check_results.append(
                 err(
                     "accuracy-gate",
-                    f"Accuracy gate FAILED: {accuracy.metric} = {accuracy.score:.4f}"
-                    f" < target {accuracy.quality_target:.4f}",
-                    json_path,
+                    f"Accuracy gate FAILED for {len(failed)} run(s): {detail}",
+                    self.model_dir,
                     "#15",
                 )
             )

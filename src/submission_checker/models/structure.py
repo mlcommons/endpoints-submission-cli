@@ -2,135 +2,41 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from pydantic import BaseModel, PrivateAttr, computed_field, model_validator
 
-from .file import Division
 from .results import CheckResult, err, ok
 
 
-class SubmissionDir(BaseModel):
-    """Validates the top-level submission directory: systems/ and pareto/ must exist."""
-
-    _check_results: list[CheckResult] = PrivateAttr(default_factory=list)
-
-    root: Path
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def systems_dir(self) -> Path:
-        return self.root / "systems"
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def pareto_dir(self) -> Path:
-        return self.root / "pareto"
-
-    @model_validator(mode="after")
-    def _check_required_dirs(self) -> SubmissionDir:
-        for name in ("systems", "pareto"):
-            path = self.root / name
-            if path.is_dir():
-                self._check_results.append(
-                    ok("required-dir", f"Found required directory: {name}/", path, "#1")
-                )
-            else:
-                self._check_results.append(
-                    err("required-dir", f"Missing required directory: {name}/", path, "#1")
-                )
-        return self
-
-
-class SrcDir(BaseModel):
-    """Validates src/ exists for Standardized division submissions (§2.2.1)."""
-
-    _check_results: list[CheckResult] = PrivateAttr(default_factory=list)
-
-    root: Path
-    division: Division
-
-    @model_validator(mode="after")
-    def _check_src(self) -> SrcDir:
-        if self.division != Division.STANDARDIZED:
-            return self
-        src_dir = self.root / "src"
-        if src_dir.is_dir():
-            self._check_results.append(
-                ok("src-dir", "src/ present (required for Standardized division)", src_dir, "#1")
-            )
-        else:
-            self._check_results.append(
-                err(
-                    "src-dir",
-                    "Missing src/ directory (required for Standardized division)",
-                    src_dir,
-                    "#1",
-                )
-            )
-        return self
-
-
-class SystemPareto(BaseModel):
-    """Validates pareto/<system_id>/ exists."""
-
-    _check_results: list[CheckResult] = PrivateAttr(default_factory=list)
-
-    pareto_dir: Path
-    system_id: str
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def system_dir(self) -> Path:
-        return self.pareto_dir / self.system_id
-
-    @model_validator(mode="after")
-    def _check_dir_exists(self) -> SystemPareto:
-        path = self.pareto_dir / self.system_id
-        if path.is_dir():
-            self._check_results.append(
-                ok("pareto-dir-exists", f"Found pareto/{self.system_id}/", path, "#1")
-            )
-        else:
-            self._check_results.append(
-                err("pareto-dir-exists", f"No pareto/{self.system_id}/ directory found", path, "#1")
-            )
-        return self
-
-
 class ModelDir(BaseModel):
-    """Validates points/, results/, and accuracy/ exist under a benchmark-model directory."""
+    """Validates a <model>/ directory: sweep CSVs and at least one r<N>/ run dir."""
 
     _check_results: list[CheckResult] = PrivateAttr(default_factory=list)
 
     root: Path
-    system_id: str
-    benchmark_model: str
+    system_name: str
+    model_name: str
 
     @computed_field  # type: ignore[prop-decorator]
     @property
-    def points_dir(self) -> Path:
-        return self.root / "points"
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def results_dir(self) -> Path:
-        return self.root / "results"
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def accuracy_dir(self) -> Path:
-        return self.root / "accuracy"
+    def run_dirs(self) -> list[Path]:
+        if not self.root.is_dir():
+            return []
+        return sorted(
+            d for d in self.root.iterdir() if d.is_dir() and re.match(r"^r\d+$", d.name)
+        )
 
     @model_validator(mode="after")
-    def _check_subdirs(self) -> ModelDir:
-        for name in ("points", "results", "accuracy"):
-            path = self.root / name
-            if path.is_dir():
+    def _check_sweep_files(self) -> ModelDir:
+        for fname in ("sweep_summary.csv", "sweep_distributions.csv"):
+            path = self.root / fname
+            if path.is_file():
                 self._check_results.append(
                     ok(
-                        "pareto-subdir",
-                        f"Found {name}/ in pareto/{self.system_id}/{self.benchmark_model}/",
+                        "model-sweep-file",
+                        f"Found {fname} in {self.system_name}/{self.model_name}/",
                         path,
                         "#1",
                     )
@@ -138,10 +44,82 @@ class ModelDir(BaseModel):
             else:
                 self._check_results.append(
                     err(
-                        "pareto-subdir",
-                        f"Missing {name}/ in pareto/{self.system_id}/{self.benchmark_model}/",
+                        "model-sweep-file",
+                        f"Missing {fname} in {self.system_name}/{self.model_name}/",
                         path,
                         "#1",
                     )
                 )
+        return self
+
+
+class RunDir(BaseModel):
+    """Validates an r<N>/ run directory: required files for a self-contained pareto point."""
+
+    _check_results: list[CheckResult] = PrivateAttr(default_factory=list)
+
+    root: Path
+    system_name: str
+    model_name: str
+
+    @model_validator(mode="after")
+    def _check_run_files(self) -> RunDir:
+        label = f"{self.system_name}/{self.model_name}/{self.root.name}"
+
+        point_yaml = self.root / "point.yaml"
+        if point_yaml.is_file():
+            self._check_results.append(
+                ok("run-point-config", f"Found point.yaml in {label}/", point_yaml, "#1")
+            )
+        else:
+            self._check_results.append(
+                err("run-point-config", f"Missing point.yaml in {label}/", point_yaml, "#1")
+            )
+
+        accuracy_dir = self.root / "accuracy"
+        if accuracy_dir.is_dir():
+            self._check_results.append(
+                ok("run-accuracy-dir", f"Found accuracy/ in {label}/", accuracy_dir, "#1")
+            )
+        else:
+            self._check_results.append(
+                err("run-accuracy-dir", f"Missing accuracy/ in {label}/", accuracy_dir, "#1")
+            )
+
+        for fname in ("mlperf_endpoints_log_summary.json", "mlperf_endpoints_log_detail.json"):
+            path = self.root / fname
+            if path.is_file():
+                self._check_results.append(
+                    ok("run-result-files", f"Found {fname} in {label}/", path, "#1")
+                )
+            else:
+                self._check_results.append(
+                    err("run-result-files", f"Missing {fname} in {label}/", path, "#1")
+                )
+
+        for fname, rule in (("run_metadata.json", "run-metadata"), ("report.txt", "run-report")):
+            path = self.root / fname
+            if path.is_file():
+                self._check_results.append(ok(rule, f"Found {fname} in {label}/", path, "#1"))
+            else:
+                self._check_results.append(
+                    err(rule, f"Missing {fname} in {label}/", path, "#1")
+                )
+
+        src_dir = self.root / "src"
+        impl_dirs = [d for d in src_dir.iterdir() if d.is_dir()] if src_dir.is_dir() else []
+        if src_dir.is_dir() and impl_dirs:
+            self._check_results.append(
+                ok("run-src-dir", f"Found src/<impl>/ in {label}/", src_dir, "#1")
+            )
+        else:
+            self._check_results.append(
+                err(
+                    "run-src-dir",
+                    f"Missing src/<implementation>/ in {label}/ (src/ must exist with at least one implementation subdirectory)",
+                    src_dir,
+                    "#1",
+                )
+            )
+
         return self

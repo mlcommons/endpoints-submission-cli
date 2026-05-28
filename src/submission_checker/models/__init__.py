@@ -13,7 +13,7 @@ from .file import (
 )
 from .regions import MIN_DURATION_MS, RegionBounds, Regions, classify_concurrency, compute_regions
 from .results import CheckResult, Report, Severity, err, ok, warn
-from .structure import ModelDir, SrcDir, SubmissionDir, SystemPareto
+from .structure import ModelDir, RunDir
 
 __all__ = [
     "AccuracyResult",
@@ -31,12 +31,10 @@ __all__ = [
     "RegionBounds",
     "Regions",
     "Report",
+    "RunDir",
     "RuntimeSettings",
     "Severity",
-    "SrcDir",
-    "SubmissionDir",
     "SystemDescription",
-    "SystemPareto",
     "classify_concurrency",
     "compute_regions",
     "err",

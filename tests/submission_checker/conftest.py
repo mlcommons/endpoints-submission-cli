@@ -29,6 +29,7 @@ from submission_checker.models import (
     SystemDescription,
     compute_regions,
 )
+import json
 
 # ---------------------------------------------------------------------------
 # Shared constants
@@ -119,24 +120,19 @@ def _model_ctx(
     loaded_points: list[tuple[PointConfig, PointSummary]] | None = None,
     system_desc: SystemDescription | None = None,
     model_name: str = "llama3-70b",
-    accuracy_result: AccuracyResult | None = None,
+    accuracy_results: list[AccuracyResult | None] | None = None,
 ) -> ModelContext:
     model_dir = tmp_path / model_name
     model_dir.mkdir(exist_ok=True)
-    (model_dir / "points").mkdir(exist_ok=True)
-    (model_dir / "results").mkdir(exist_ok=True)
-    (model_dir / "accuracy").mkdir(exist_ok=True)
     return ModelContext(
         system_id="test-sys",
         system_desc=system_desc or _system_desc(benchmark_model=model_name),
         model_dir=model_dir,
         regions=_REGIONS,
-        points_dir=model_dir / "points",
-        accuracy_dir=model_dir / "accuracy",
         all_point_count=all_point_count,
         valid_points=valid_points or [],
         loaded_points=loaded_points or [],
-        accuracy_result=accuracy_result,
+        accuracy_results=accuracy_results or [],
     )
 
 TEST_SUBMISSIONS = Path(__file__).parent.parent.parent / "test_submissions"

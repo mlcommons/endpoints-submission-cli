@@ -323,6 +323,10 @@ def _build_submission(
     write_results: bool = True,
     write_accuracy: bool = True,
     write_accuracy_json: bool = True,
+    write_sweep_files: bool = True,
+    write_run_metadata: bool = True,
+    write_report: bool = True,
+    write_src: bool = True,
     accuracy_data: dict | None = None,
     model: str = "llama3-70b",
 ) -> Path:
@@ -331,34 +335,46 @@ def _build_submission(
     desc["benchmark_model"] = model
     concs = concurrencies if concurrencies is not None else _CONCURRENCIES
 
-    systems_dir = root / "systems"
-    systems_dir.mkdir(parents=True)
-    (systems_dir / f"{system_id}.json").write_text(json.dumps(desc))
+    system_dir = root / system_id
+    system_dir.mkdir(parents=True)
+    (system_dir / "system_desc.json").write_text(json.dumps(desc))
 
-    pareto_dir = root / "pareto"
-    model_dir = pareto_dir / system_id / model
-    points_dir = model_dir / "points"
-    results_dir = model_dir / "results"
-    accuracy_dir = model_dir / "accuracy"
-    for d in (points_dir, results_dir, accuracy_dir):
-        d.mkdir(parents=True)
+    model_dir = system_dir / model
+    model_dir.mkdir(parents=True)
+
+    if write_sweep_files:
+        (model_dir / "sweep_summary.csv").write_text("concurrency,qps\n")
+        (model_dir / "sweep_distributions.csv").write_text("concurrency,percentile\n")
 
     if write_runs:
         for c in concs:
-            (points_dir / f"point_{c}.yaml").write_text(yaml.dump(_make_run_yaml(c)))
+            run_dir = model_dir / f"r{c}"
+            run_dir.mkdir(parents=True)
 
-    if write_results:
-        for c in concs:
-            result_dir = results_dir / f"point_{c}"
-            result_dir.mkdir(parents=True)
-            (result_dir / "mlperf_endpoints_log_summary.json").write_text(json.dumps(_SUMMARY))
-            (result_dir / "mlperf_endpoints_log_detail.json").write_text("{}")
+            (run_dir / "point.yaml").write_text(yaml.dump(_make_run_yaml(c)))
 
-    if write_accuracy:
-        (accuracy_dir / "accuracy.txt").write_text("ROUGE-1: 0.45")
-    if write_accuracy_json:
-        data = accuracy_data if accuracy_data is not None else _ACCURACY
-        (accuracy_dir / "accuracy_result.json").write_text(json.dumps(data))
+            if write_results:
+                (run_dir / "mlperf_endpoints_log_summary.json").write_text(json.dumps(_SUMMARY))
+                (run_dir / "mlperf_endpoints_log_detail.json").write_text("{}")
+
+            if write_run_metadata:
+                (run_dir / "run_metadata.json").write_text("{}")
+
+            if write_report:
+                (run_dir / "report.txt").write_text(f"Run r{c}\n")
+
+            if write_src:
+                src_dir = run_dir / "src" / "vllm"
+                src_dir.mkdir(parents=True)
+                (src_dir / ".gitkeep").write_text("")
+
+            acc_dir = run_dir / "accuracy"
+            acc_dir.mkdir()
+            if write_accuracy:
+                (acc_dir / "accuracy.txt").write_text("ROUGE-1: 0.45")
+            if write_accuracy_json:
+                data = accuracy_data if accuracy_data is not None else _ACCURACY
+                (acc_dir / "accuracy_result.json").write_text(json.dumps(data))
 
     return root
 
@@ -371,67 +387,49 @@ class TestCheckerEdgeCases:
         report = _check(tmp_path / "does_not_exist")
         assert _errors(report, "path-exists")
 
-    def test_missing_required_dirs_early_exit(self, tmp_path):
-        """SubmissionDir structure errors cause early return from run()."""
-        # Only systems/ present — pareto/ missing → structure error → early exit
-        (tmp_path / "systems").mkdir()
+    def test_no_system_dirs_early_exit(self, tmp_path):
+        """system-dir-present error when no directories contain system_desc.json."""
+        # Only docs/ present — no system_desc.json anywhere
+        (tmp_path / "docs").mkdir()
         report = _check(tmp_path)
-        assert _errors(report, "required-dir")
+        assert _errors(report, "system-dir-present")
         # Should not have processed any systems
-        assert not any(r.rule == "system-description-present" for r in report.results)
-
-    def test_no_system_json_files(self, tmp_path):
-        """system-description-present error when systems/ has no *.json files."""
-        (tmp_path / "systems").mkdir()
-        (tmp_path / "pareto").mkdir()
-        report = _check(tmp_path)
-        assert _errors(report, "system-description-present")
+        assert not any(r.rule == "system-description-valid" for r in report.results)
 
     def test_invalid_system_json(self, tmp_path):
-        """system-description-valid error when system JSON is malformed."""
-        (tmp_path / "systems").mkdir()
-        (tmp_path / "pareto").mkdir()
-        (tmp_path / "systems" / "bad-sys.json").write_text("{bad json")
+        """system-description-valid error when system_desc.json is malformed."""
+        sys_dir = tmp_path / "test-sys"
+        sys_dir.mkdir()
+        (sys_dir / "system_desc.json").write_text("{bad json")
         report = _check(tmp_path)
         assert _errors(report, "system-description-valid")
 
-    def test_missing_pareto_system_dir_early_exit(self, tmp_path):
-        """pareto-dir-exists error when pareto/<system_id>/ is absent."""
-        (tmp_path / "systems").mkdir()
-        (tmp_path / "pareto").mkdir()
-        (tmp_path / "systems" / "test-sys.json").write_text(json.dumps(_SYSTEM_DESC))
-        report = _check(tmp_path)
-        assert _errors(report, "pareto-dir-exists")
-
-    def test_empty_pareto_system_dir(self, tmp_path):
-        """benchmark-model-dir error when pareto/<system_id>/ has no subdirectories."""
-        (tmp_path / "systems").mkdir()
-        (tmp_path / "systems" / "test-sys.json").write_text(json.dumps(_SYSTEM_DESC))
-        pareto_sys = tmp_path / "pareto" / "test-sys"
-        pareto_sys.mkdir(parents=True)
+    def test_no_model_dirs_early_exit(self, tmp_path):
+        """benchmark-model-dir error when system dir has no model subdirectories."""
+        sys_dir = tmp_path / "test-sys"
+        sys_dir.mkdir()
+        (sys_dir / "system_desc.json").write_text(json.dumps(_SYSTEM_DESC))
+        # No model subdirs
         report = _check(tmp_path)
         assert _errors(report, "benchmark-model-dir")
 
-    def test_missing_model_subdirs_early_exit(self, tmp_path):
-        """pareto-subdir error when points/ or results/ or accuracy/ is absent."""
-        (tmp_path / "systems").mkdir()
-        (tmp_path / "systems" / "test-sys.json").write_text(json.dumps(_SYSTEM_DESC))
-        model_dir = tmp_path / "pareto" / "test-sys" / "llama3-70b"
-        # Only points/ present — results/ and accuracy/ missing
-        (model_dir / "points").mkdir(parents=True)
+    def test_docs_dir_not_treated_as_model(self, tmp_path):
+        """docs/ inside a system dir is not treated as a model directory."""
+        sys_dir = tmp_path / "test-sys"
+        sys_dir.mkdir()
+        (sys_dir / "system_desc.json").write_text(json.dumps(_SYSTEM_DESC))
+        (sys_dir / "docs").mkdir()  # should be ignored as a model dir
         report = _check(tmp_path)
-        assert _errors(report, "pareto-subdir")
-        # Should not attempt to list point_*.yaml (early exit after structure errors)
-        assert not any(r.rule == "measurement-points-present" for r in report.results)
+        assert _errors(report, "benchmark-model-dir")
 
-    def test_no_point_yamls(self, tmp_path):
-        """measurement-points-present error when points/ has no point_*.yaml files."""
-        root = _build_submission(tmp_path, write_runs=False, write_results=False)
+    def test_no_run_dirs(self, tmp_path):
+        """measurement-points-present error when model dir has no r<N>/ directories."""
+        root = _build_submission(tmp_path, write_runs=False)
         report = _check(root)
         assert _errors(report, "measurement-points-present")
 
     def test_missing_result_log(self, tmp_path):
-        """result-file-present error when results/point_<N>/ log is absent."""
+        """result-file-present error when mlperf_endpoints_log_summary.json is absent."""
         root = _build_submission(tmp_path, write_results=False)
         report = _check(root)
         assert _errors(report, "result-file-present")
@@ -439,8 +437,8 @@ class TestCheckerEdgeCases:
     def test_missing_detail_log(self, tmp_path):
         """result-detail-present error when mlperf_endpoints_log_detail.json is absent."""
         root = _build_submission(tmp_path)
-        # Remove the detail log for one point
-        detail = root / "pareto" / "test-sys" / "llama3-70b" / "results" / "point_16" / "mlperf_endpoints_log_detail.json"
+        # Remove the detail log for one run
+        detail = root / "test-sys" / "llama3-70b" / "r16" / "mlperf_endpoints_log_detail.json"
         detail.unlink()
         report = _check(root)
         assert _errors(report, "result-detail-present")
@@ -448,11 +446,8 @@ class TestCheckerEdgeCases:
     def test_invalid_result_log(self, tmp_path):
         """result-file-valid error when the result log JSON is malformed."""
         root = _build_submission(tmp_path)
-        # Overwrite one summary with invalid JSON
-        bad_path = root / "pareto" / "test-sys" / "llama3-70b" / "results" / "point_16"
-        bad_path.mkdir(parents=True, exist_ok=True)
-        (bad_path / "mlperf_endpoints_log_summary.json").write_text("{bad")
-        (bad_path / "mlperf_endpoints_log_detail.json").write_text("{}")
+        bad_path = root / "test-sys" / "llama3-70b" / "r16" / "mlperf_endpoints_log_summary.json"
+        bad_path.write_text("{bad")
         report = _check(root)
         assert _errors(report, "result-file-valid")
 
@@ -477,56 +472,56 @@ class TestCheckerEdgeCases:
         report = _check(root)
         assert _errors(report, "accuracy-valid")
 
-    def test_point_filename_concurrency_mismatch(self, tmp_path):
-        """point-filename-concurrency warning when filename concurrency ≠ declared concurrency."""
+    def test_dir_concurrency_mismatch_warning(self, tmp_path):
+        """point-filename-concurrency warning when r<N>/ dir concurrency ≠ declared concurrency."""
         root = _build_submission(tmp_path)
-        # Add a point file whose name says 999 but YAML declares 64
-        mismatch_yaml = root / "pareto" / "test-sys" / "llama3-70b" / "points" / "point_999.yaml"
-        mismatch_yaml.write_text(yaml.dump(_make_run_yaml(64)))
-        # Also add the matching result dir so it doesn't error on result-file-present
-        result_dir = root / "pareto" / "test-sys" / "llama3-70b" / "results" / "point_64"
-        result_dir.mkdir(parents=True, exist_ok=True)
-        (result_dir / "mlperf_endpoints_log_summary.json").write_text(json.dumps(_SUMMARY))
-        (result_dir / "mlperf_endpoints_log_detail.json").write_text("{}")
+        # Add a run dir r999 that declares concurrency 64
+        mismatch_dir = root / "test-sys" / "llama3-70b" / "r999"
+        mismatch_dir.mkdir()
+        (mismatch_dir / "point.yaml").write_text(yaml.dump(_make_run_yaml(64)))
+        (mismatch_dir / "mlperf_endpoints_log_summary.json").write_text(json.dumps(_SUMMARY))
+        (mismatch_dir / "mlperf_endpoints_log_detail.json").write_text("{}")
+        (mismatch_dir / "run_metadata.json").write_text("{}")
+        (mismatch_dir / "report.txt").write_text("report\n")
+        src = mismatch_dir / "src" / "vllm"
+        src.mkdir(parents=True)
+        (src / ".gitkeep").write_text("")
+        acc = mismatch_dir / "accuracy"
+        acc.mkdir()
+        (acc / "accuracy.txt").write_text("ok")
+        (acc / "accuracy_result.json").write_text(json.dumps(_ACCURACY))
         report = _check(root)
         assert _warnings(report, "point-filename-concurrency")
 
     def test_invalid_point_yaml_is_skipped(self, tmp_path):
-        """A point_*.yaml that fails validation does not crash the checker."""
+        """A point.yaml that fails validation does not crash the checker."""
         root = _build_submission(tmp_path)
-        bad_yaml = root / "pareto" / "test-sys" / "llama3-70b" / "points" / "point_99.yaml"
-        bad_yaml.write_text("{bad yaml [")
+        bad_yaml = root / "test-sys" / "llama3-70b" / "r99"
+        bad_yaml.mkdir()
+        (bad_yaml / "point.yaml").write_text("{bad yaml [")
+        (bad_yaml / "mlperf_endpoints_log_summary.json").write_text(json.dumps(_SUMMARY))
+        (bad_yaml / "mlperf_endpoints_log_detail.json").write_text("{}")
+        (bad_yaml / "run_metadata.json").write_text("{}")
+        (bad_yaml / "report.txt").write_text("report\n")
+        src = bad_yaml / "src" / "vllm"
+        src.mkdir(parents=True)
+        (src / ".gitkeep").write_text("")
+        acc = bad_yaml / "accuracy"
+        acc.mkdir()
+        (acc / "accuracy.txt").write_text("ok")
+        (acc / "accuracy_result.json").write_text(json.dumps(_ACCURACY))
         report = _check(root)
-        # Should produce a point-config-valid error for the bad file
         assert _errors(report, "point-config-valid")
 
     def test_region_computation_error(self, tmp_path):
         """region-computation error when compute_regions raises ValueError."""
-        # compute_regions only raises if M <= 32, but SystemDescription enforces M > 32.
-        # Patch compute_regions to simulate an unexpected ValueError.
-        (tmp_path / "systems").mkdir()
-        (tmp_path / "systems" / "test-sys.json").write_text(json.dumps(_SYSTEM_DESC))
-        pareto_sys = tmp_path / "pareto" / "test-sys"
-        pareto_sys.mkdir(parents=True)
-        (pareto_sys / "llama3-70b").mkdir()
+        sys_dir = tmp_path / "test-sys"
+        sys_dir.mkdir()
+        (sys_dir / "system_desc.json").write_text(json.dumps(_SYSTEM_DESC))
+        (sys_dir / "llama3-70b").mkdir()
         with patch(
             "submission_checker.checker.compute_regions",
             side_effect=ValueError("M must be > 32"),
         ):
             report = _check(tmp_path)
         assert _errors(report, "region-computation")
-
-    def test_run_filename_non_numeric_suffix_ignored(self, tmp_path):
-        """Filename parsing errors (non-numeric suffix) are silently ignored."""
-        root = _build_submission(tmp_path)
-        # point_abc.yaml — stem is "point_abc", int("abc") raises ValueError
-        # This tests the except (IndexError, ValueError): pass branch
-        bad_name = root / "pareto" / "test-sys" / "llama3-70b" / "points" / "point_abc.yaml"
-        bad_name.write_text(yaml.dump(_make_run_yaml(64)))
-        result_dir = root / "pareto" / "test-sys" / "llama3-70b" / "results" / "point_64"
-        result_dir.mkdir(parents=True, exist_ok=True)
-        (result_dir / "mlperf_endpoints_log_summary.json").write_text(json.dumps(_SUMMARY))
-        (result_dir / "mlperf_endpoints_log_detail.json").write_text("{}")
-        report = _check(root)
-        # No run-filename-concurrency warning — the ValueError was swallowed
-        assert not _warnings(report, "point-filename-concurrency")

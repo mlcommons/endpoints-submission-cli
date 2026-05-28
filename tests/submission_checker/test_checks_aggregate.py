@@ -435,21 +435,16 @@ class TestConfigConsistencyValidator:
     def test_model_name_mismatch(self, tmp_path):
         model_dir = tmp_path / "actual-name"
         model_dir.mkdir(exist_ok=True)
-        (model_dir / "points").mkdir(exist_ok=True)
-        (model_dir / "results").mkdir(exist_ok=True)
-        (model_dir / "accuracy").mkdir(exist_ok=True)
         s = _summary()
         ctx = ModelContext(
             system_id="test-sys",
             system_desc=_system_desc(benchmark_model="expected-name"),
             model_dir=model_dir,
             regions=_REGIONS,
-            points_dir=model_dir / "points",
-            accuracy_dir=model_dir / "accuracy",
             all_point_count=7,
             valid_points=[],
             loaded_points=[(_config(), s)],
-            accuracy_result=None,
+            accuracy_results=[],
         )
         assert any(
             r.rule == "config-consistency-model" and r.severity == Severity.WARNING
@@ -465,12 +460,16 @@ class TestConfigConsistencyValidator:
 @pytest.mark.unit
 class TestAccuracyGateValidator:
     def test_no_accuracy_result_skips(self, tmp_path):
-        ctx = _model_ctx(tmp_path, accuracy_result=None)
+        ctx = _model_ctx(tmp_path, accuracy_results=[])
+        assert not any(r.rule == "accuracy-gate" for r in ctx._check_results)
+
+    def test_all_none_skips(self, tmp_path):
+        ctx = _model_ctx(tmp_path, accuracy_results=[None, None])
         assert not any(r.rule == "accuracy-gate" for r in ctx._check_results)
 
     def test_passed_accuracy_gate(self, tmp_path):
         ar = AccuracyResult(metric="rouge1", score=0.45, quality_target=0.43, passed=True)
-        ctx = _model_ctx(tmp_path, accuracy_result=ar)
+        ctx = _model_ctx(tmp_path, accuracy_results=[ar])
         assert any(
             r.rule == "accuracy-gate" and r.severity == Severity.INFO for r in ctx._check_results
         )
@@ -480,7 +479,15 @@ class TestAccuracyGateValidator:
 
     def test_failed_accuracy_gate(self, tmp_path):
         ar = AccuracyResult(metric="rouge1", score=0.30, quality_target=0.43, passed=False)
-        ctx = _model_ctx(tmp_path, accuracy_result=ar)
+        ctx = _model_ctx(tmp_path, accuracy_results=[ar])
+        assert any(
+            r.rule == "accuracy-gate" and r.severity == Severity.ERROR for r in ctx._check_results
+        )
+
+    def test_partial_failure_fails_gate(self, tmp_path):
+        passed = AccuracyResult(metric="rouge1", score=0.45, quality_target=0.43, passed=True)
+        failed = AccuracyResult(metric="rouge1", score=0.30, quality_target=0.43, passed=False)
+        ctx = _model_ctx(tmp_path, accuracy_results=[passed, failed])
         assert any(
             r.rule == "accuracy-gate" and r.severity == Severity.ERROR for r in ctx._check_results
         )

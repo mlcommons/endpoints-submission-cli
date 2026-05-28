@@ -169,7 +169,10 @@ class TestPreparePrBranchMerge:
 
     def test_fresh_org_dir_copies_entire_tree(self, tmp_path: Path) -> None:
         submission_dir = tmp_path / "ORG"
-        (submission_dir / "systems").mkdir(parents=True)
+        # New layout: system dir with system_desc.json directly at org root
+        sys_dir = submission_dir / "test-sys"
+        sys_dir.mkdir(parents=True)
+        (sys_dir / "system_desc.json").write_text("{}")
         work_dir = tmp_path / "work"
         (work_dir / "repo").mkdir(parents=True)
 

@@ -43,26 +43,29 @@ class TestExtractArchive:
 
 @pytest.mark.unit
 class TestBuildSubmissionFolder:
-    def test_creates_systems_dir(self, run_archive: Path, tmp_path: Path) -> None:
+    def test_creates_system_desc_json(self, run_archive: Path, tmp_path: Path) -> None:
         sub_dir = build_submission_folder(
             [("run-001", run_archive)], "standardized", tmp_path
         )
-        assert (sub_dir / "systems").is_dir()
+        system_descs = list(sub_dir.rglob("system_desc.json"))
+        assert len(system_descs) == 1
 
-    def test_creates_pareto_dir(self, run_archive: Path, tmp_path: Path) -> None:
+    def test_creates_model_dir(self, run_archive: Path, tmp_path: Path) -> None:
         sub_dir = build_submission_folder(
             [("run-001", run_archive)], "standardized", tmp_path
         )
-        pareto = sub_dir / "pareto"
-        assert pareto.is_dir()
+        # <system>/<model>/ should exist
+        system_dirs = [d for d in sub_dir.iterdir() if d.is_dir()]
+        assert len(system_dirs) >= 1
+        model_dirs = [d for d in system_dirs[0].iterdir() if d.is_dir()]
+        assert len(model_dirs) >= 1
 
-    def test_system_json_created(self, run_archive: Path, tmp_path: Path) -> None:
+    def test_system_desc_json_content(self, run_archive: Path, tmp_path: Path) -> None:
         sub_dir = build_submission_folder(
             [("run-001", run_archive)], "standardized", tmp_path
         )
-        jsons = list((sub_dir / "systems").glob("*.json"))
-        assert len(jsons) == 1
-        data = json.loads(jsons[0].read_text())
+        descs = list(sub_dir.rglob("system_desc.json"))
+        data = json.loads(descs[0].read_text())
         assert "division" in data
         assert data["division"] == "Standardized"
 
@@ -70,7 +73,7 @@ class TestBuildSubmissionFolder:
         sub_dir = build_submission_folder(
             [("run-001", run_archive)], "standardized", tmp_path
         )
-        yamls = list(sub_dir.rglob("point_*.yaml"))
+        yamls = list(sub_dir.rglob("point.yaml"))
         assert len(yamls) >= 1
         data = yaml.safe_load(yamls[0].read_text())
         assert data["concurrency"] == 4
@@ -92,6 +95,36 @@ class TestBuildSubmissionFolder:
         details = list(sub_dir.rglob("mlperf_endpoints_log_detail.json"))
         assert len(details) == 1
 
+    def test_run_metadata_created(self, run_archive: Path, tmp_path: Path) -> None:
+        sub_dir = build_submission_folder(
+            [("run-001", run_archive)], "standardized", tmp_path
+        )
+        assert len(list(sub_dir.rglob("run_metadata.json"))) == 1
+
+    def test_report_txt_created(self, run_archive: Path, tmp_path: Path) -> None:
+        sub_dir = build_submission_folder(
+            [("run-001", run_archive)], "standardized", tmp_path
+        )
+        assert len(list(sub_dir.rglob("report.txt"))) == 1
+
+    def test_sweep_csvs_created(self, run_archive: Path, tmp_path: Path) -> None:
+        sub_dir = build_submission_folder(
+            [("run-001", run_archive)], "standardized", tmp_path
+        )
+        assert len(list(sub_dir.rglob("sweep_summary.csv"))) == 1
+        assert len(list(sub_dir.rglob("sweep_distributions.csv"))) == 1
+
+    def test_src_impl_dir_created(self, run_archive: Path, tmp_path: Path) -> None:
+        sub_dir = build_submission_folder(
+            [("run-001", run_archive)], "standardized", tmp_path
+        )
+        src_dirs = [d for d in sub_dir.rglob("src") if d.is_dir()]
+        assert len(src_dirs) >= 1
+        # Each src/ must have at least one implementation subdir
+        for src in src_dirs:
+            impl_dirs = [d for d in src.iterdir() if d.is_dir()]
+            assert len(impl_dirs) >= 1
+
     def test_accuracy_files_created(self, run_archive: Path, tmp_path: Path) -> None:
         sub_dir = build_submission_folder(
             [("run-001", run_archive)], "standardized", tmp_path
@@ -100,6 +133,15 @@ class TestBuildSubmissionFolder:
         acc_jsons = list(sub_dir.rglob("accuracy_result.json"))
         assert len(acc_txts) == 1
         assert len(acc_jsons) == 1
+
+    def test_run_dir_pattern(self, run_archive: Path, tmp_path: Path) -> None:
+        """Run directories follow the r<N> naming convention."""
+        sub_dir = build_submission_folder(
+            [("run-001", run_archive)], "standardized", tmp_path
+        )
+        import re
+        run_dirs = [d for d in sub_dir.rglob("*") if d.is_dir() and re.match(r"^r\d+$", d.name)]
+        assert len(run_dirs) >= 1
 
     def test_empty_run_list_raises(self, tmp_path: Path) -> None:
         with pytest.raises(SubmissionBuildError, match="At least one"):
@@ -143,17 +185,21 @@ class TestBuildSubmissionFolder:
             "standardized",
             tmp_path / "sub",
         )
-        yamls = list(sub_dir.rglob("point_*.yaml"))
-        concurrencies = {yaml.safe_load(p.read_text())["concurrency"] for p in yamls}
-        assert 4 in concurrencies
-        assert 16 in concurrencies
+        import re
+        run_dirs = {
+            d.name
+            for d in sub_dir.rglob("*")
+            if d.is_dir() and re.match(r"^r\d+$", d.name)
+        }
+        assert "r4" in run_dirs
+        assert "r16" in run_dirs
 
     def test_serviced_division_normalized(self, run_archive: Path, tmp_path: Path) -> None:
         sub_dir = build_submission_folder(
             [("run-001", run_archive)], "serviced", tmp_path
         )
-        jsons = list((sub_dir / "systems").glob("*.json"))
-        data = json.loads(jsons[0].read_text())
+        descs = list(sub_dir.rglob("system_desc.json"))
+        data = json.loads(descs[0].read_text())
         assert data["division"] == "Serviced"
 
 
@@ -167,7 +213,7 @@ class TestCreateBundleArchive:
         assert bundle.exists()
         with tarfile.open(bundle) as tar:
             names = tar.getnames()
-        assert any("systems" in n for n in names)
+        assert any("system_desc.json" in n for n in names)
 
     def test_default_dest(self, run_archive: Path, tmp_path: Path) -> None:
         sub_dir = build_submission_folder(

@@ -10,6 +10,7 @@ live gh installation.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -194,55 +195,62 @@ def prepare_pr_branch_merge(
     repo_org_dir = repo_dir / submission_dir.name  # e.g. repo_dir / "NVIDIA"
 
     if repo_org_dir.exists():
-        fresh_pareto = submission_dir / "pareto"
-        repo_pareto = repo_org_dir / "pareto"
+        # Iterate system directories in fresh build (identified by system_desc.json)
+        for fresh_sys_dir in sorted(submission_dir.iterdir()):
+            if not fresh_sys_dir.is_dir():
+                continue
+            repo_sys_dir = repo_org_dir / fresh_sys_dir.name
+            repo_sys_dir.mkdir(parents=True, exist_ok=True)
 
-        for fresh_model_dir in fresh_pareto.glob("*/*"):  # <system_id>/<model>
-            rel = fresh_model_dir.relative_to(fresh_pareto)
-            repo_model_dir = repo_pareto / rel
-            repo_model_dir.mkdir(parents=True, exist_ok=True)
+            # system_desc.json: preserve PR version; seed from fresh build if absent
+            repo_sysdesc = repo_sys_dir / "system_desc.json"
+            fresh_sysdesc = fresh_sys_dir / "system_desc.json"
+            if not repo_sysdesc.exists() and fresh_sysdesc.exists():
+                shutil.copy2(fresh_sysdesc, repo_sysdesc)
 
-            # points/ and accuracy/ — replace entirely from fresh build
-            for subdir_name in ("points", "accuracy"):
-                dest = repo_model_dir / subdir_name
-                if dest.exists():
-                    shutil.rmtree(dest)
-                src = fresh_model_dir / subdir_name
-                if src.exists():
-                    shutil.copytree(src, dest)
+            for fresh_model_dir in sorted(fresh_sys_dir.iterdir()):
+                if not fresh_model_dir.is_dir():
+                    continue
+                repo_model_dir = repo_sys_dir / fresh_model_dir.name
+                repo_model_dir.mkdir(parents=True, exist_ok=True)
 
-            # results/ — surgical per-point update
-            fresh_results = fresh_model_dir / "results"
-            repo_results = repo_model_dir / "results"
-            if fresh_results.exists():
-                repo_results.mkdir(exist_ok=True)
-                # Remove point dirs no longer present in fresh build
-                fresh_point_names = {p.name for p in fresh_results.iterdir() if p.is_dir()}
-                for repo_point in list(repo_results.iterdir()):
-                    if repo_point.is_dir() and repo_point.name not in fresh_point_names:
-                        shutil.rmtree(repo_point)
-                # Update each point: replace log files, preserve system_desc.json
-                for fresh_point in fresh_results.iterdir():
-                    if not fresh_point.is_dir():
+                # sweep CSVs — always replace from fresh build
+                for csv_name in ("sweep_summary.csv", "sweep_distributions.csv"):
+                    src_csv = fresh_model_dir / csv_name
+                    if src_csv.exists():
+                        shutil.copy2(src_csv, repo_model_dir / csv_name)
+
+                # r<N>/ run dirs — surgical per-run update
+                fresh_run_names = {
+                    d.name
+                    for d in fresh_model_dir.iterdir()
+                    if d.is_dir() and re.match(r"^r\d+$", d.name)
+                }
+                # Remove run dirs no longer present in fresh build
+                if repo_model_dir.exists():
+                    for repo_run in list(repo_model_dir.iterdir()):
+                        if repo_run.is_dir() and re.match(r"^r\d+$", repo_run.name) and repo_run.name not in fresh_run_names:
+                            shutil.rmtree(repo_run)
+                # Update each run dir
+                for fresh_run in sorted(fresh_model_dir.iterdir()):
+                    if not fresh_run.is_dir() or not re.match(r"^r\d+$", fresh_run.name):
                         continue
-                    repo_point = repo_results / fresh_point.name
-                    is_new_point = not repo_point.exists()
-                    repo_point.mkdir(exist_ok=True)
-                    for src_file in fresh_point.iterdir():
-                        if src_file.name != "system_desc.json":
-                            shutil.copy2(src_file, repo_point / src_file.name)
-                    # system_desc.json: preserve PR version; seed only for new points
-                    repo_sysdesc = repo_point / "system_desc.json"
-                    if is_new_point or not repo_sysdesc.exists():
-                        fresh_sysdesc = fresh_point / "system_desc.json"
-                        if fresh_sysdesc.exists():
-                            shutil.copy2(fresh_sysdesc, repo_sysdesc)
-            elif repo_results.exists():
-                shutil.rmtree(repo_results)
-
-        # systems/ — preserve PR version; seed from fresh build if absent
-        if not (repo_org_dir / "systems").exists():
-            shutil.copytree(submission_dir / "systems", repo_org_dir / "systems")
+                    repo_run = repo_model_dir / fresh_run.name
+                    is_new = not repo_run.exists()
+                    repo_run.mkdir(exist_ok=True)
+                    # Replace all items EXCEPT src/ (may have manually-authored endpoint config)
+                    for item in fresh_run.iterdir():
+                        dest = repo_run / item.name
+                        if item.name == "src":
+                            # Preserve from PR; seed only for new runs
+                            if is_new and not dest.exists():
+                                shutil.copytree(item, dest)
+                        elif item.is_dir():
+                            if dest.exists():
+                                shutil.rmtree(dest)
+                            shutil.copytree(item, dest)
+                        else:
+                            shutil.copy2(item, dest)
     else:
         # Org dir not yet on the PR branch — full copy (first push edge case).
         shutil.copytree(submission_dir, repo_org_dir)

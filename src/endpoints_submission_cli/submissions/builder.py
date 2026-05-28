@@ -6,14 +6,23 @@ Transforms run-folder data (system_info.json, config.yaml, result_summary.json)
 into the SubmissionChecker-compatible layout:
 
     <org>/
-      systems/<system_id>.json
-      pareto/<system_id>/<model>/points/point_<concurrency>.yaml
-      pareto/<system_id>/<model>/results/point_<concurrency>/
-          mlperf_endpoints_log_summary.json
-          mlperf_endpoints_log_detail.json
-      pareto/<system_id>/<model>/accuracy/
-          accuracy_result.json
-          accuracy.txt
+      <system_id>/
+        system_desc.json
+        <model>/
+          sweep_summary.csv
+          sweep_distributions.csv
+          r<concurrency>/
+            point.yaml
+            mlperf_endpoints_log_summary.json
+            mlperf_endpoints_log_detail.json
+            run_metadata.json
+            report.txt
+            accuracy/
+              accuracy_result.json
+              accuracy.txt
+            src/
+              <implementation>/
+                (endpoint interface code)
 """
 
 from __future__ import annotations
@@ -88,16 +97,14 @@ def build_submission_folder(
     for (system_id, model), runs in groups.items():
         all_system_runs = runs_by_system[system_id]
         if system_id not in written_systems:
+            max_concurrency = max(_extract_concurrency(r["config"]) for r in all_system_runs)
             _write_system_description(
-                submission_dir, system_id, model, all_system_runs, division
+                submission_dir, system_id, model, all_system_runs, division, max_concurrency
             )
             written_systems.add(system_id)
         max_concurrency = max(_extract_concurrency(r["config"]) for r in all_system_runs)
-        _write_pareto_entries(submission_dir, system_id, model, runs, max_concurrency)
-        _write_accuracy_placeholders(submission_dir, system_id, model)
-
-    if _normalize_division(division) == "Standardized":
-        (submission_dir / "src").mkdir(exist_ok=True)
+        _write_run_entries(submission_dir, system_id, model, runs, max_concurrency)
+        _write_model_sweep_stubs(submission_dir, system_id, model)
 
     return submission_dir
 
@@ -224,13 +231,10 @@ def _write_system_description(
     model: str,
     runs: list[dict[str, Any]],
     division: str,
+    max_concurrency: int,
 ) -> None:
-    systems_dir = submission_dir / "systems"
-    systems_dir.mkdir(parents=True, exist_ok=True)
-
-    # Derive max_supported_concurrency from the highest concurrency across all runs
-    concurrencies = [_extract_concurrency(r["config"]) for r in runs]
-    max_concurrency = max(concurrencies) if concurrencies else 64
+    system_dir = submission_dir / system_id
+    system_dir.mkdir(parents=True, exist_ok=True)
 
     si = runs[0]["system_info"]
     cfg = runs[0]["config"]
@@ -281,12 +285,12 @@ def _write_system_description(
     ):
         system_desc["host_processor_core_count"] = 1
 
-    (systems_dir / f"{system_id}.json").write_text(
+    (system_dir / "system_desc.json").write_text(
         json.dumps(system_desc, indent=2), encoding="utf-8"
     )
 
 
-def _write_pareto_entries(
+def _write_run_entries(
     submission_dir: Path,
     system_id: str,
     model: str,
@@ -299,13 +303,10 @@ def _write_pareto_entries(
 
     for run in runs:
         concurrency = _extract_concurrency(run["config"])
-        model_dir = submission_dir / "pareto" / system_id / model
-        points_dir = model_dir / "points"
-        result_dir = model_dir / "results" / f"point_{concurrency}"
-        points_dir.mkdir(parents=True, exist_ok=True)
-        result_dir.mkdir(parents=True, exist_ok=True)
+        run_dir = submission_dir / system_id / model / f"r{concurrency}"
+        run_dir.mkdir(parents=True, exist_ok=True)
 
-        # Build point YAML from config.yaml + runtime_settings.json
+        # Build point.yaml from config.yaml + runtime_settings.json
         cfg_settings = run["config"].get("settings", {}) or {}
         load_pattern = cfg_settings.get("load_pattern", {}) or {}
         rt_json = run.get("runtime_settings", {}) or {}
@@ -326,37 +327,65 @@ def _write_pareto_entries(
             "dataset": dataset_name,
             "runtime_settings": runtime_settings_out,
         }
-        (points_dir / f"point_{concurrency}.yaml").write_text(
+        (run_dir / "point.yaml").write_text(
             yaml.dump(point_cfg, default_flow_style=False), encoding="utf-8"
         )
 
-        (result_dir / "mlperf_endpoints_log_summary.json").write_text(
+        (run_dir / "mlperf_endpoints_log_summary.json").write_text(
             json.dumps(run["result_summary"], indent=2), encoding="utf-8"
         )
-        (result_dir / "mlperf_endpoints_log_detail.json").write_text(
+        (run_dir / "mlperf_endpoints_log_detail.json").write_text(
             "{}", encoding="utf-8"
         )
-        (result_dir / "system_desc.json").write_text(
-            json.dumps(run["system_info"], indent=2), encoding="utf-8"
+        (run_dir / "run_metadata.json").write_text(
+            json.dumps(
+                {
+                    "serving_framework": run["system_info"].get("framework", ""),
+                    "parallelism": {},
+                    "precision": "bfloat16",
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        (run_dir / "report.txt").write_text(
+            f"Run r{concurrency} — auto-generated placeholder\n", encoding="utf-8"
+        )
+
+        # src/<impl>/ stub — submitter fills in endpoint interface code
+        src_dir = run_dir / "src" / "vllm"
+        src_dir.mkdir(parents=True, exist_ok=True)
+        (src_dir / ".gitkeep").write_text("", encoding="utf-8")
+
+        # Per-run accuracy placeholder
+        accuracy_dir = run_dir / "accuracy"
+        accuracy_dir.mkdir(exist_ok=True)
+        (accuracy_dir / "accuracy.txt").write_text("Accuracy pending\n", encoding="utf-8")
+        placeholder = {
+            "metric": "rouge1",
+            "score": 0.0,
+            "quality_target": 0.0,
+            "passed": True,
+        }
+        (accuracy_dir / "accuracy_result.json").write_text(
+            json.dumps(placeholder, indent=2), encoding="utf-8"
         )
 
 
-def _write_accuracy_placeholders(
+def _write_model_sweep_stubs(
     submission_dir: Path,
     system_id: str,
     model: str,
 ) -> None:
-    accuracy_dir = submission_dir / "pareto" / system_id / model / "accuracy"
-    accuracy_dir.mkdir(parents=True, exist_ok=True)
-    (accuracy_dir / "accuracy.txt").write_text("Accuracy pending\n", encoding="utf-8")
-    placeholder = {
-        "metric": "rouge1",
-        "score": 0.0,
-        "quality_target": 0.0,
-        "passed": True,
-    }
-    (accuracy_dir / "accuracy_result.json").write_text(
-        json.dumps(placeholder, indent=2), encoding="utf-8"
+    model_dir = submission_dir / system_id / model
+    model_dir.mkdir(parents=True, exist_ok=True)
+    (model_dir / "sweep_summary.csv").write_text(
+        "concurrency,qps,ttft_p50_ms,ttft_p95_ms,tpot_p50_ms,system_tps\n",
+        encoding="utf-8",
+    )
+    (model_dir / "sweep_distributions.csv").write_text(
+        "concurrency,percentile,ttft_ms,tpot_ms,output_tokens\n",
+        encoding="utf-8",
     )
 
 
