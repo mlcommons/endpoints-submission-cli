@@ -30,7 +30,7 @@ __all__ = [
     "_API_TIMEOUT",
 ]
 
-_DEFAULT_BASE_URL = "http://localhost:8080"
+_DEFAULT_BASE_URL = "https://mlperf-endpoints-api-50577619532.us-central1.run.app"
 
 # All values are per-operation idle timeouts (time without a byte transferred), not wall-clock totals.
 # A slow-but-steady transfer never times out; only a stalled connection does.

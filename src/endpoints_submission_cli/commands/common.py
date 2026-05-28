@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 from rich.console import Console
-from rich.json import JSON
 from rich.table import Table
 
 from .. import _http
@@ -30,8 +29,8 @@ _SEVERITY_STYLE = {
 
 
 def output_json(data: Any) -> None:
-    """Print *data* as syntax-highlighted JSON (plain when piped)."""
-    _stdout_console.print(JSON(json.dumps(data, default=str)))
+    """Print *data* as pretty-printed JSON."""
+    print(json.dumps(data, indent=2, default=str))
 
 
 def _get_token(token: str | None) -> str:
