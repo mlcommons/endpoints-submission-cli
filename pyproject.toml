@@ -42,7 +42,10 @@ packages = [
     "endpoints_submission_cli.commands.submissions",
     "endpoints_submission_cli.runs",
     "endpoints_submission_cli.submissions",
-    "submission_checker"
+    "submission_checker",
+    "submission_checker.models",
+    "submission_checker.models.aggregate",
+    "submission_checker.models.file",
 ]
 
 [tool.setuptools.package-dir]
