@@ -11,7 +11,7 @@ __all__ = ["app", "main"]
 
 
 @click.group()
-@click.version_option(version="0.1.0")
+@click.version_option(package_name="endpoints-submission-cli")
 def app() -> None:
     """MLPerf rolling submission CLI — manage benchmark runs and submissions."""
 
