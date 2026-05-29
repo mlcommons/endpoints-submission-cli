@@ -123,6 +123,21 @@ _CONFIG = {
     },
 }
 
+_RESULTS = {
+    "config": {"endpoint": ["http://localhost:8080"], "mode": "perf"},
+    "results": {"total": 2000, "successful": 2000, "failed": 0, "elapsed_time": 475.7, "qps": 4.2},
+    "accuracy_scores": {
+        "cnn_dailymail_validation": {
+            "dataset_name": "cnn_dailymail_validation",
+            "num_samples": 500,
+            "extractor": "RougeExtractor",
+            "ground_truth_column": "highlights",
+            "score": 0.45,
+            "n_repeats": 1,
+        }
+    },
+}
+
 _RESULT_SUMMARY = {
     "duration_ns": 475_700_000_000.0,
     "git_sha": "a1b2c3d",
@@ -157,6 +172,7 @@ def run_folder(tmp_path: Path) -> Path:
     (folder / "serving_config.json").write_text(json.dumps(_SERVING_CONFIG))
     (folder / "config.yaml").write_text(yaml.dump(_CONFIG))
     (folder / "result_summary.json").write_text(json.dumps(_RESULT_SUMMARY))
+    (folder / "results.json").write_text(json.dumps(_RESULTS))
     return folder
 
 

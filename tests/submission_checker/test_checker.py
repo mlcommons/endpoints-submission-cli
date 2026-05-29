@@ -295,7 +295,15 @@ _SUMMARY = {
     "output_sequence_lengths": {"total": 500_000.0, "percentiles": {}},
 }
 
-_ACCURACY = {"metric": "rouge1", "score": 0.45, "quality_target": 0.43, "passed": True}
+_ACCURACY = {
+    "metric": "cnn_dailymail_validation",
+    "score": 0.45,
+    "quality_target": 0.43,
+    "passed": True,
+    "num_samples": 500,
+    "extractor": "RougeExtractor",
+    "n_repeats": 1,
+}
 
 # Concurrencies that cover all four regions for M=1024
 # LT: 33–42 → 38; MT: 43–175 → 88; HT: 176–1126 → 256, 512, 768, 1000
@@ -457,16 +465,22 @@ class TestCheckerEdgeCases:
         assert _errors(report, "result-file-valid")
 
     def test_missing_accuracy_txt(self, tmp_path):
-        """accuracy-file error when accuracy/accuracy.txt is absent."""
+        """accuracy-file warning when accuracy/accuracy.txt is absent;
+        accuracy-present error because no model has both accuracy files."""
         root = _build_submission(tmp_path, write_accuracy=False)
         report = _check(root)
-        assert _errors(report, "accuracy-file")
+        assert _warnings(report, "accuracy-file")
+        assert not _errors(report, "accuracy-file")
+        assert _errors(report, "accuracy-present")
 
     def test_missing_accuracy_json(self, tmp_path):
-        """accuracy-file error when accuracy/accuracy_result.json is absent."""
+        """accuracy-file warning when accuracy/accuracy_result.json is absent;
+        accuracy-present error because no model in the submission has accuracy."""
         root = _build_submission(tmp_path, write_accuracy_json=False)
         report = _check(root)
-        assert _errors(report, "accuracy-file")
+        assert _warnings(report, "accuracy-file")
+        assert not _errors(report, "accuracy-file")
+        assert _errors(report, "accuracy-present")
 
     def test_invalid_accuracy_json(self, tmp_path):
         """accuracy-valid error when accuracy_result.json is malformed."""

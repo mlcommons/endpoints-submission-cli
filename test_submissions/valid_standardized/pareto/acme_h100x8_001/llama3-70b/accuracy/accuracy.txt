@@ -1,3 +1,1 @@
-rouge1: 0.4512
-rouge2: 0.2201
-rougeL: 0.3817
+cnn_dailymail_validation: 0.4512
