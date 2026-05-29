@@ -94,7 +94,7 @@ def build_submission_folder(
             written_systems.add(system_id)
         max_concurrency = max(_extract_concurrency(r["config"]) for r in all_system_runs)
         _write_pareto_entries(submission_dir, system_id, model, runs, max_concurrency)
-        _write_accuracy_placeholders(submission_dir, system_id, model)
+        _write_accuracy(submission_dir, system_id, model, runs)
 
     if _normalize_division(division) == "Standardized":
         (submission_dir / "src").mkdir(exist_ok=True)
@@ -445,22 +445,54 @@ def _write_pareto_entries(
             dest.write_bytes(content)
 
 
-def _write_accuracy_placeholders(
+def _write_accuracy(
     submission_dir: Path,
     system_id: str,
     model: str,
+    runs: list[dict[str, Any]],
 ) -> None:
+    """Write accuracy/ files from the first run that has an accuracy_scores section in results.json.
+
+    If no run provides accuracy_scores, the accuracy directory is not created.
+    """
+    accuracy_scores: dict[str, Any] | None = None
+    for run in runs:
+        results_bytes = run.get("_extra_files", {}).get("results.json")
+        if not results_bytes:
+            continue
+        try:
+            parsed = json.loads(results_bytes)
+        except json.JSONDecodeError:
+            continue
+        scores = parsed.get("accuracy_scores")
+        if scores:
+            accuracy_scores = scores
+            break
+
+    if not accuracy_scores:
+        return
+
     accuracy_dir = submission_dir / "pareto" / system_id / model / "accuracy"
     accuracy_dir.mkdir(parents=True, exist_ok=True)
-    (accuracy_dir / "accuracy.txt").write_text("Accuracy pending\n", encoding="utf-8")
-    placeholder = {
-        "metric": "rouge1",
-        "score": 0.0,
+
+    first_ds, first_data = next(iter(accuracy_scores.items()))
+    metric = first_data.get("dataset_name") or first_ds
+    score = float(first_data.get("score", 0.0))
+
+    txt_lines = [
+        f"{entry.get('dataset_name') or ds}: {float(entry.get('score', 0.0)):.4f}"
+        for ds, entry in accuracy_scores.items()
+    ]
+    (accuracy_dir / "accuracy.txt").write_text("\n".join(txt_lines) + "\n", encoding="utf-8")
+
+    accuracy_result = {
+        "metric": metric,
+        "score": round(score, 4),
         "quality_target": 0.0,
-        "passed": True,
+        "passed": score >= 0.0,
     }
     (accuracy_dir / "accuracy_result.json").write_text(
-        json.dumps(placeholder, indent=2), encoding="utf-8"
+        json.dumps(accuracy_result, indent=2), encoding="utf-8"
     )
 
 
