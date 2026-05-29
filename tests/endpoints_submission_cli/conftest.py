@@ -30,6 +30,7 @@ def sample_google_run_dir() -> Path:
 # Minimal run folder fixture (temp)
 # ---------------------------------------------------------------------------
 
+# Flat system_info dict used only in API mock responses (RUN_OUT).
 _SYSTEM_INFO = {
     "system_name": "Test System",
     "system_category": "datacenter",
@@ -51,6 +52,50 @@ _SYSTEM_INFO = {
     "submitter_org_names": "TestOrg",
     "system_type_detail": "on-premise",
 }
+
+# New-format run folder files
+_SYSTEM_DESC = {
+    "organization_metadata": {"submitter_org_name": "TestOrg"},
+    "system_under_test": {
+        "system_metadata": {
+            "system_name": "Test System",
+            "system_category": "datacenter",
+            "system_availability_status": "Available",
+        },
+        "serving_framework": None,
+    },
+}
+
+_HW_INFO = {
+    "hardware_ensemble": {
+        "processor": {
+            "host_processor_model_name": "AMD EPYC 9575F",
+            "host_processors_per_node": 2,
+            "host_processor_core_count": 64,
+            "host_processor_vcpu_count": None,
+        },
+        "host_memory": {"host_memory_capacity": "512 GB"},
+        "accelerator": {
+            "accelerator_model_name": "NVIDIA H100 SXM5 80GB",
+            "accelerators_per_node": 8,
+            "accelerator_memory_capacity": "80 GB",
+        },
+        "networking": {
+            "host_networking": "InfiniBand HDR",
+            "host_network_card_count": "4x HDR",
+        },
+        "storage": {
+            "host_storage_type": "NVMe SSD",
+            "host_storage_capacity": "3.84 TB",
+        },
+    },
+    "software_ensemble": {
+        "operating_system": "Ubuntu 22.04",
+        "other_software_stack": None,
+    },
+}
+
+_SERVING_CONFIG = {"tensor_parallel": 1, "pipeline_parallel": 1, "framework": "vllm==0.4.2"}
 
 _CONFIG = {
     "name": "test-benchmark",
@@ -107,7 +152,9 @@ def run_folder(tmp_path: Path) -> Path:
     """Create a minimal valid run folder in a temp directory."""
     folder = tmp_path / "test_run"
     folder.mkdir()
-    (folder / "system_info.json").write_text(json.dumps(_SYSTEM_INFO))
+    (folder / "system_desc.json").write_text(json.dumps(_SYSTEM_DESC))
+    (folder / "mlperf-system-info-single-node-0.json").write_text(json.dumps(_HW_INFO))
+    (folder / "serving_config.json").write_text(json.dumps(_SERVING_CONFIG))
     (folder / "config.yaml").write_text(yaml.dump(_CONFIG))
     (folder / "result_summary.json").write_text(json.dumps(_RESULT_SUMMARY))
     return folder

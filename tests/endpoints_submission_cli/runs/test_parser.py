@@ -60,13 +60,13 @@ class TestParseRunFolder:
         folder.mkdir()
         (folder / "config.yaml").write_text("name: test")
         (folder / "result_summary.json").write_text("{}")
-        with pytest.raises(RunFolderError, match="system_info.json"):
+        with pytest.raises(RunFolderError, match="system_desc.json"):
             parse_run_folder(folder)
 
     def test_missing_config_raises(self, tmp_path: Path) -> None:
         folder = tmp_path / "bad_run"
         folder.mkdir()
-        (folder / "system_info.json").write_text("{}")
+        (folder / "system_desc.json").write_text("{}")
         (folder / "result_summary.json").write_text("{}")
         with pytest.raises(RunFolderError, match="config.yaml"):
             parse_run_folder(folder)
@@ -74,7 +74,7 @@ class TestParseRunFolder:
     def test_missing_result_summary_raises(self, tmp_path: Path) -> None:
         folder = tmp_path / "bad_run"
         folder.mkdir()
-        (folder / "system_info.json").write_text("{}")
+        (folder / "system_desc.json").write_text("{}")
         (folder / "config.yaml").write_text("name: test")
         with pytest.raises(RunFolderError, match="result_summary.json"):
             parse_run_folder(folder)
@@ -86,7 +86,7 @@ class TestParseRunFolder:
     def test_invalid_json_raises(self, tmp_path: Path) -> None:
         folder = tmp_path / "bad_json"
         folder.mkdir()
-        (folder / "system_info.json").write_text("{bad json")
+        (folder / "system_desc.json").write_text("{bad json")
         (folder / "config.yaml").write_text("name: test")
         (folder / "result_summary.json").write_text("{}")
         with pytest.raises(RunFolderError, match="Invalid JSON"):
@@ -95,7 +95,7 @@ class TestParseRunFolder:
     def test_invalid_yaml_raises(self, tmp_path: Path) -> None:
         folder = tmp_path / "bad_yaml"
         folder.mkdir()
-        (folder / "system_info.json").write_text("{}")
+        (folder / "system_desc.json").write_text("{}")
         (folder / "config.yaml").write_text(": invalid: yaml: [")
         (folder / "result_summary.json").write_text("{}")
         with pytest.raises(RunFolderError, match="Invalid YAML"):
@@ -104,7 +104,7 @@ class TestParseRunFolder:
     def test_config_yaml_not_mapping_raises(self, tmp_path: Path) -> None:
         folder = tmp_path / "bad_yaml2"
         folder.mkdir()
-        (folder / "system_info.json").write_text("{}")
+        (folder / "system_desc.json").write_text("{}")
         (folder / "config.yaml").write_text("- item1\n- item2\n")
         (folder / "result_summary.json").write_text("{}")
         with pytest.raises(RunFolderError, match="must be a YAML mapping"):
@@ -114,7 +114,7 @@ class TestParseRunFolder:
         """When duration_ns is 0, started_at == finished_at."""
         folder = tmp_path / "zero_dur"
         folder.mkdir()
-        (folder / "system_info.json").write_text("{}")
+        (folder / "system_desc.json").write_text("{}")
         (folder / "config.yaml").write_text(yaml.dump({"name": "x"}))
         (folder / "result_summary.json").write_text(json.dumps({"duration_ns": 0}))
         payload = parse_run_folder(folder)
@@ -123,7 +123,7 @@ class TestParseRunFolder:
     def test_benchmark_version_from_git_sha(self, tmp_path: Path) -> None:
         folder = tmp_path / "run_with_sha"
         folder.mkdir()
-        (folder / "system_info.json").write_text("{}")
+        (folder / "system_desc.json").write_text("{}")
         (folder / "config.yaml").write_text(yaml.dump({"name": "x"}))
         (folder / "result_summary.json").write_text(json.dumps({"git_sha": "abc123"}))
         payload = parse_run_folder(folder)
@@ -132,7 +132,7 @@ class TestParseRunFolder:
     def test_benchmark_version_unknown_when_no_git_sha(self, tmp_path: Path) -> None:
         folder = tmp_path / "run_no_sha"
         folder.mkdir()
-        (folder / "system_info.json").write_text("{}")
+        (folder / "system_desc.json").write_text("{}")
         (folder / "config.yaml").write_text(yaml.dump({"name": "x"}))
         (folder / "result_summary.json").write_text("{}")
         payload = parse_run_folder(folder)
@@ -142,8 +142,6 @@ class TestParseRunFolder:
         """Parse a real Google sample run folder."""
         if not sample_google_run_dir.exists():
             pytest.skip("Sample Google run data not available")
-        if not (sample_google_run_dir / "system_info.json").exists():
-            pytest.skip("Sample run uses run_metadata.json format, not system_info.json")
         payload = parse_run_folder(sample_google_run_dir)
         assert payload["system_info"]["system_name"]
         assert payload["config"]
@@ -171,6 +169,6 @@ class TestBuildArchive:
         build_archive(run_folder, dest)
         with tarfile.open(dest) as tar:
             names = tar.getnames()
-        assert any("system_info.json" in n for n in names)
+        assert any("system_desc.json" in n for n in names)
         assert any("config.yaml" in n for n in names)
         assert any("result_summary.json" in n for n in names)

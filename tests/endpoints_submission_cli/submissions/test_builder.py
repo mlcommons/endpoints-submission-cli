@@ -25,8 +25,8 @@ class TestExtractArchive:
     def test_extracts_files(self, run_archive: Path, tmp_path: Path) -> None:
         dest = tmp_path / "extracted"
         extract_archive(run_archive, dest)
-        # Should contain the system_info.json somewhere
-        files = list(dest.rglob("system_info.json"))
+        # Should contain the system_desc.json somewhere
+        files = list(dest.rglob("system_desc.json"))
         assert len(files) == 1
 
     def test_bad_archive_raises(self, tmp_path: Path) -> None:
@@ -106,7 +106,7 @@ class TestBuildSubmissionFolder:
             build_submission_folder([], "standardized", tmp_path)
 
     def test_missing_system_info_in_archive_raises(self, tmp_path: Path) -> None:
-        # Create archive without system_info.json
+        # Create archive without any system info files
         folder = tmp_path / "bad_run"
         folder.mkdir()
         (folder / "config.yaml").write_text(yaml.dump({"name": "x"}))
@@ -114,23 +114,29 @@ class TestBuildSubmissionFolder:
         archive = tmp_path / "bad.tar.gz"
         with tarfile.open(archive, "w:gz") as tar:
             tar.add(folder, arcname="bad_run")
-        with pytest.raises(SubmissionBuildError, match="system_info.json"):
+        with pytest.raises(SubmissionBuildError, match="system_desc.json"):
             build_submission_folder([("bad", archive)], "standardized", tmp_path / "out")
 
     def test_multiple_runs_single_system(
         self, run_archive: Path, run_folder: Path, tmp_path: Path
     ) -> None:
         # Create a second archive with different concurrency
+        import shutil
+
         second_folder = tmp_path / "run2"
         second_folder.mkdir()
 
         import json as _json
-        si = _json.loads((run_folder / "system_info.json").read_text())
         cfg = yaml.safe_load((run_folder / "config.yaml").read_text())
         rs = _json.loads((run_folder / "result_summary.json").read_text())
 
+        # Copy system info files from the first run
+        for fname in ["system_desc.json", "mlperf-system-info-single-node-0.json", "serving_config.json"]:
+            src = run_folder / fname
+            if src.exists():
+                shutil.copy(src, second_folder / fname)
+
         cfg["settings"]["load_pattern"]["target_concurrency"] = 16
-        (second_folder / "system_info.json").write_text(_json.dumps(si))
         (second_folder / "config.yaml").write_text(yaml.dump(cfg))
         (second_folder / "result_summary.json").write_text(_json.dumps(rs))
 

@@ -141,29 +141,35 @@ def extract_archive(archive_path: Path, dest_dir: Path) -> None:
 
 
 def _load_run_data(run_dir: Path, run_id: str) -> dict[str, Any]:
-    """Find and load the three required files from an extracted run archive."""
-    # Archives may contain a top-level directory wrapper
-    candidates = list(run_dir.rglob("system_info.json"))
+    """Find and load required files from an extracted run archive.
+
+    Uses config.yaml as the directory anchor. All supplementary files are read
+    into memory so they survive tempdir cleanup.
+    """
+    # Archives may contain a top-level directory wrapper; use config.yaml as anchor
+    candidates = list(run_dir.rglob("config.yaml"))
     if not candidates:
         raise SubmissionBuildError(
-            f"Run {run_id}: archive does not contain system_info.json"
+            f"Run {run_id}: archive does not contain config.yaml"
         )
-    # Use the shallowest match
-    system_info_path = min(candidates, key=lambda p: len(p.parts))
-    base = system_info_path.parent
+    config_path = min(candidates, key=lambda p: len(p.parts))
+    base = config_path.parent
 
-    config_path = base / "config.yaml"
     summary_path = base / "result_summary.json"
+    if not summary_path.exists():
+        raise SubmissionBuildError(
+            f"Run {run_id}: archive is missing result_summary.json"
+        )
 
-    for p in (config_path, summary_path):
-        if not p.exists():
-            raise SubmissionBuildError(
-                f"Run {run_id}: archive is missing {p.name}"
-            )
-
-    system_info: dict[str, Any] = json.loads(system_info_path.read_text())
     config: dict[str, Any] = yaml.safe_load(config_path.read_text()) or {}
     result_summary: dict[str, Any] = json.loads(summary_path.read_text())
+
+    system_info = _merge_system_info(base)
+    if not system_info:
+        raise SubmissionBuildError(
+            f"Run {run_id}: archive is missing system info "
+            "(expected system_desc.json or mlperf-system-info-*.json)"
+        )
 
     runtime_settings_path = base / "runtime_settings.json"
     runtime_settings: dict[str, Any] = (
@@ -178,7 +184,93 @@ def _load_run_data(run_dir: Path, run_id: str) -> dict[str, Any]:
         "config": config,
         "result_summary": result_summary,
         "runtime_settings": runtime_settings,
+        "_extra_files": _load_extra_files(base),
     }
+
+
+def _merge_system_info(base: Path) -> dict[str, Any]:
+    """Build a flat system_info dict from new-format run files.
+
+    Reads system_desc.json, mlperf-system-info-*.json, and serving_config.json
+    and merges them into the flat field names expected by _write_system_description.
+    """
+    merged: dict[str, Any] = {}
+
+    sd_path = base / "system_desc.json"
+    if sd_path.exists():
+        sd: dict[str, Any] = json.loads(sd_path.read_text())
+        org = sd.get("organization_metadata", {}) or {}
+        sut = sd.get("system_under_test", {}) or {}
+        sys_meta = sut.get("system_metadata", {}) or {}
+        merged["submitter_org_names"] = org.get("submitter_org_name", "") or ""
+        merged["system_name"] = sys_meta.get("system_name", "") or ""
+        merged["system_category"] = sys_meta.get("system_category", "") or ""
+        merged["system_availability_status"] = (
+            sys_meta.get("system_availability_status", "") or ""
+        )
+        merged["framework"] = sut.get("serving_framework", "") or ""
+
+    hw_paths = sorted(base.glob("mlperf-system-info-*.json"))
+    if hw_paths:
+        hw: dict[str, Any] = json.loads(hw_paths[0].read_text())
+        hw_ens = hw.get("hardware_ensemble", {}) or {}
+        proc = hw_ens.get("processor", {}) or {}
+        mem = hw_ens.get("host_memory", {}) or {}
+        accel = hw_ens.get("accelerator", {}) or {}
+        net = hw_ens.get("networking", {}) or {}
+        storage = hw_ens.get("storage", {}) or {}
+        sw = hw.get("software_ensemble", {}) or {}
+        merged.update({
+            "host_processor_model_name": proc.get("host_processor_model_name", "") or "",
+            "host_processors_per_node": proc.get("host_processors_per_node", 1),
+            "host_processor_core_count": proc.get("host_processor_core_count"),
+            "host_processor_vcpu_count": proc.get("host_processor_vcpu_count"),
+            "host_memory_capacity": mem.get("host_memory_capacity", "") or "",
+            "accelerator_model_name": accel.get("accelerator_model_name", "") or "",
+            "accelerators_per_node": accel.get("accelerators_per_node", 0),
+            "accelerator_memory_capacity": accel.get("accelerator_memory_capacity", "") or "",
+            "accelerator_memory_type": accel.get("accelerator_memory_type", "") or "",
+            "accelerator_interconnect": accel.get("accelerator_interconnect", "") or "",
+            "accelerator_host_interconnect": accel.get("accelerator_host_interconnect", "") or "",
+            "host_networking": net.get("host_networking", "") or "",
+            "host_network_card_count": net.get("host_network_card_count", "") or "",
+            "host_storage_capacity": storage.get("host_storage_capacity", "") or "",
+            "host_storage_type": storage.get("host_storage_type", "") or "",
+            "cooling": hw_ens.get("cooling") or "",
+            "operating_system": sw.get("operating_system", "") or "",
+            "other_software_stack": sw.get("other_software_stack") or "",
+        })
+
+    sc_path = base / "serving_config.json"
+    if sc_path.exists():
+        sc: dict[str, Any] = json.loads(sc_path.read_text())
+        if sc.get("framework"):
+            merged["framework"] = sc["framework"]
+
+    return merged
+
+
+def _load_extra_files(base: Path) -> dict[str, bytes]:
+    """Read supplementary run files into memory for inclusion in the result directory."""
+    extra: dict[str, bytes] = {}
+    candidates = [
+        "config.yaml",
+        "events.jsonl",
+        "results.json",
+        "run_metadata.json",
+        "sample_idx_map.json",
+        "serving_config.json",
+        "report.txt",
+        "metrics/final_snapshot.json",
+    ]
+    for rel in candidates:
+        p = base / rel
+        if p.exists() and p.is_file():
+            extra[rel] = p.read_bytes()
+    for p in sorted(base.glob("mlperf-system-info-*.json")):
+        if p.is_file():
+            extra[p.name] = p.read_bytes()
+    return extra
 
 
 def _group_runs(
@@ -252,7 +344,7 @@ def _write_system_description(
         "serving_framework": si.get("framework", "") or "",
         "submitter": si.get("submitter_org_names", "") or "",
         "system_name": si.get("system_name", system_id) or system_id,
-        "system_type": si.get("system_category", "datacenter") or "datacenter",
+        "system_type": si.get("system_category", "") or "",
         "system_type_detail": si.get("system_type_detail", "") or "",
         "number_of_nodes": int(si.get("number_of_nodes", 1) or 1),
         "host_processors_per_node": int(si.get("host_processors_per_node", 1) or 1),
@@ -333,12 +425,24 @@ def _write_pareto_entries(
         (result_dir / "mlperf_endpoints_log_summary.json").write_text(
             json.dumps(run["result_summary"], indent=2), encoding="utf-8"
         )
-        (result_dir / "mlperf_endpoints_log_detail.json").write_text(
-            "{}", encoding="utf-8"
-        )
+        # Convert events.jsonl (JSONL) to a JSON array for the detail log
+        extra_files = run.get("_extra_files", {})
+        if "events.jsonl" in extra_files:
+            lines = extra_files["events.jsonl"].decode().splitlines()
+            events = [json.loads(ln) for ln in lines if ln.strip()]
+            detail_bytes = json.dumps(events, indent=2).encode()
+        else:
+            detail_bytes = b"[]"
+        (result_dir / "mlperf_endpoints_log_detail.json").write_bytes(detail_bytes)
         (result_dir / "system_desc.json").write_text(
             json.dumps(run["system_info"], indent=2), encoding="utf-8"
         )
+
+        # Copy all supplementary files into the result directory, preserving subdirs
+        for rel_path, content in extra_files.items():
+            dest = result_dir / rel_path
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(content)
 
 
 def _write_accuracy_placeholders(
