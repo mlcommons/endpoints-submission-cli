@@ -11,10 +11,10 @@ from pathlib import Path
 import click
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 
-from ...exceptions import APIError, GitHubError, SubmissionBuildError, SubmissionCheckError
+from ...exceptions import APIError, SubmissionBuildError, SubmissionCheckError
 from ...runs import api as runs_api
 from ...submissions import api as subs_api
-from ...submissions import github as github_ops
+# from ...submissions import github as github_ops
 from ...submissions.builder import build_submission_folder, create_bundle_archive
 from ..common import _console, _get_token, _run_submission_checker
 
@@ -98,6 +98,7 @@ def submissions_create(
     """
     run_ids_list = list(run_ids)
     resolved_token = _get_token(token)
+    """
     if not dry_run:
         target_repo = github_ops.get_target_repo()
         _console.print("[cyan]Checking GitHub prerequisites…[/cyan]")
@@ -108,6 +109,7 @@ def submissions_create(
             sys.exit(1)
         if not repo_ok:
             _console.print(f"[yellow]Warning:[/yellow] {repo_warning}")
+    """
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
@@ -202,6 +204,7 @@ def submissions_create(
                 _console.print(f"[bold red]Rollback failed:[/bold red] {rb_exc}")
             sys.exit(1)
 
+        """
         # 6. Push submission branch and create GitHub PR
         _console.print("[cyan]Creating GitHub PR…[/cyan]")
         branch = f"submission-{submission_id}"
@@ -224,18 +227,18 @@ def submissions_create(
                     f"Orphaned submission ID: {submission_id}"
                 )
             sys.exit(1)
-
+        """
         # 7. PATCH with pr_url, pr_number, status
         try:
             subs_api.update_submission(
                 resolved_token,
                 submission_id,
-                {"pr_url": pr_url, "pr_number": pr_number, "status": "REVIEW_PENDING"},
+                {"status": "REVIEW_PENDING"},
             )
         except APIError as exc:
             _console.print(f"[yellow]Warning: PATCH pr_url failed (retryable):[/yellow] {exc}")
 
     _console.print(
-        f"[bold green]Submission created:[/bold green] {submission_id}\n"
-        f"[bold green]PR:[/bold green] {pr_url}"
+        f"[bold green]Submission created:[/bold green] {submission_id}"
+        #f"[bold green]PR:[/bold green] {pr_url}"
     )

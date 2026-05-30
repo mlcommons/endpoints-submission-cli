@@ -52,6 +52,7 @@ def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -
     """
     resolved_token = _get_token(token)
     target_repo = github_ops.get_target_repo()
+    """
     _console.print("[cyan]Checking GitHub prerequisites…[/cyan]")
     try:
         repo_ok, repo_warning = github_ops.check_prerequisites(target_repo)
@@ -60,6 +61,7 @@ def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -
         sys.exit(1)
     if not repo_ok:
         _console.print(f"[yellow]Warning:[/yellow] {repo_warning}")
+    """
 
     try:
         sub_out = subs_api.remove_run_from_submission(resolved_token, submission_id, run_id)
@@ -131,9 +133,10 @@ def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -
             _rollback_remove_run(resolved_token, submission_id, run_id)
             sys.exit(1)
 
-        # 4. Merge fresh build with existing PR branch content (fatal — rollback on failure)
         upload_source = submission_dir
         repo_dir = None
+        """
+        # 4. Merge fresh build with existing PR branch content (fatal — rollback on failure)
         if pr_number:
             _console.print("[cyan]Preparing PR branch merge…[/cyan]")
             try:
@@ -148,6 +151,7 @@ def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -
                 _console.print(f"[bold red]PR branch merge failed:[/bold red] {exc}")
                 _rollback_remove_run(resolved_token, submission_id, run_id)
                 sys.exit(1)
+        """
 
         # 5. Upload merged bundle to blob storage
         _console.print("[cyan]Uploading submission bundle…[/cyan]")
@@ -159,6 +163,7 @@ def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -
             _rollback_remove_run(resolved_token, submission_id, run_id)
             sys.exit(1)
 
+        """
         # 6. Push merged branch to GitHub (non-fatal)
         if pr_number and repo_dir:
             _console.print("[cyan]Updating GitHub PR…[/cyan]")
@@ -169,7 +174,8 @@ def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -
                     f"[yellow]GitHub push failed (blob updated, DB updated):[/yellow] {exc}\n"
                     f"Re-run [bold]submissions remove-run[/bold] to retry."
                 )
-
+        """
+        
     _console.print(
         f"[bold green]Run {run_id} removed from submission {submission_id}.[/bold green]"
     )

@@ -51,6 +51,7 @@ def submissions_add_run(submission_id: str, run_id: str, token: str | None) -> N
       7. Clone repo, check out existing PR branch, surgically update files, push
     """
     resolved_token = _get_token(token)
+    """
     target_repo = github_ops.get_target_repo()
     _console.print("[cyan]Checking GitHub prerequisites…[/cyan]")
     try:
@@ -61,14 +62,17 @@ def submissions_add_run(submission_id: str, run_id: str, token: str | None) -> N
     if not repo_ok:
         _console.print(f"[yellow]Warning:[/yellow] {repo_warning}")
 
+    """
     try:
         sub_out = subs_api.add_run_to_submission(resolved_token, submission_id, run_id)
     except APIError as exc:
         _console.print(f"[bold red]API error adding run:[/bold red] {exc}")
         sys.exit(1)
 
-    pr_number = sub_out.get("pr_number")
+
+    # pr_number = sub_out.get("pr_number")
     all_run_ids: list[str] = sub_out.get("run_ids", [])
+    
 
     _console.print(
         f"[cyan]Rebuilding submission with {len(all_run_ids)} run(s) "
@@ -123,9 +127,10 @@ def submissions_add_run(submission_id: str, run_id: str, token: str | None) -> N
             _console.print(f"[bold red]Submission checker failed:[/bold red]\n{exc}")
             _rollback_add_run(resolved_token, submission_id, run_id)
             sys.exit(1)
-
-        # 4. Merge fresh build with existing PR branch content (fatal — rollback on failure)
         upload_source = submission_dir
+
+        """
+        # 4. Merge fresh build with existing PR branch content (fatal — rollback on failure)
         repo_dir = None
         if pr_number:
             _console.print("[cyan]Preparing PR branch merge…[/cyan]")
@@ -141,6 +146,7 @@ def submissions_add_run(submission_id: str, run_id: str, token: str | None) -> N
                 _console.print(f"[bold red]PR branch merge failed:[/bold red] {exc}")
                 _rollback_add_run(resolved_token, submission_id, run_id)
                 sys.exit(1)
+        """
 
         # 5. Upload merged bundle to blob storage
         _console.print("[cyan]Uploading submission bundle…[/cyan]")
@@ -152,6 +158,7 @@ def submissions_add_run(submission_id: str, run_id: str, token: str | None) -> N
             _rollback_add_run(resolved_token, submission_id, run_id)
             sys.exit(1)
 
+        """
         # 6. Push merged branch to GitHub (non-fatal)
         if pr_number and repo_dir:
             _console.print("[cyan]Updating GitHub PR…[/cyan]")
@@ -162,5 +169,5 @@ def submissions_add_run(submission_id: str, run_id: str, token: str | None) -> N
                     f"[yellow]GitHub push failed (blob updated, DB updated):[/yellow] {exc}\n"
                     f"Re-run [bold]submissions add-run[/bold] to retry."
                 )
-
+        """
     _console.print(f"[bold green]Run {run_id} added to submission {submission_id}.[/bold green]")

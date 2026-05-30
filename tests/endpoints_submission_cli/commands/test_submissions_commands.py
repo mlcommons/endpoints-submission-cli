@@ -517,54 +517,6 @@ class TestSubmissionsCreate:
         assert result.exit_code == 1
         mock_withdraw.assert_called_once_with(TOKEN, SUBMISSION_ID)
 
-    def test_create_pr_failure_rolls_back_and_exits_1(self, tmp_path: Path) -> None:
-        fake_archive = _make_fake_archive(tmp_path)
-        fake_sub_dir = tmp_path / "sub"
-        fake_sub_dir.mkdir()
-        fake_bundle = tmp_path / "bundle.tar.gz"
-        fake_bundle.write_bytes(b"bundle")
-
-        with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
-            with patch("endpoints_submission_cli.runs.api.download_run_archive", return_value=fake_archive):
-                with patch(
-                    "endpoints_submission_cli.commands.submissions.create.build_submission_folder",
-                    return_value=fake_sub_dir,
-                ):
-                    with patch("endpoints_submission_cli.commands.submissions.create._run_submission_checker"):
-                        with patch(
-                            "endpoints_submission_cli.submissions.api.create_submission",
-                            return_value=SUBMISSION_OUT,
-                        ):
-                            with patch(
-                                "endpoints_submission_cli.commands.submissions.create.create_bundle_archive",
-                                return_value=fake_bundle,
-                            ):
-                                with patch("endpoints_submission_cli.submissions.api.upload_submission_archive"):
-                                    with patch("endpoints_submission_cli.submissions.github.prepare_submission_branch"):
-                                        with patch(
-                                            "endpoints_submission_cli.submissions.github.create_pr",
-                                            side_effect=GitHubError("gh not found"),
-                                        ):
-                                            with patch(
-                                                "endpoints_submission_cli.submissions.github.get_target_repo",
-                                                return_value="org/repo",
-                                            ):
-                                                with patch(
-                                                    "endpoints_submission_cli.submissions.api.withdraw_submission"
-                                                ) as mock_withdraw:
-                                                    result = _runner.invoke(
-                                                        app,
-                                                        [
-                                                            "submissions", "create",
-                                                            "--division", "standardized",
-                                                            "--scenario", "cop",
-                                                            "--availability", "available",
-                                                            "--run-ids", RUN_ID,
-                                                            *_TOKEN_ARGS,
-                                                        ],
-                                                    )
-        assert result.exit_code == 1
-        mock_withdraw.assert_called_once_with(TOKEN, SUBMISSION_ID)
 
 
 @pytest.mark.unit
