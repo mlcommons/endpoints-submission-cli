@@ -51,7 +51,7 @@ submission-checker regions --max-concurrency 1024
 
 Prints the concurrency ranges for each region given a declared Maximum Supported Concurrency *M* (§5.5).
 
-## Submission structure
+## Required Files in submission structure
 
 ```
 <org>/
