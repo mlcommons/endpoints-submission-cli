@@ -428,8 +428,7 @@ def _write_pareto_entries(
         # Convert events.jsonl (JSONL) to a JSON array for the detail log
         extra_files = run.get("_extra_files", {})
         if "events.jsonl" in extra_files:
-            lines = extra_files["events.jsonl"].decode().splitlines()
-            events = [json.loads(ln) for ln in lines if ln.strip()]
+            events = [json.loads(ln) for ln in extra_files["events.jsonl"].splitlines() if ln.strip()]
             detail_bytes = json.dumps(events, indent=2).encode()
         else:
             detail_bytes = b"[]"
