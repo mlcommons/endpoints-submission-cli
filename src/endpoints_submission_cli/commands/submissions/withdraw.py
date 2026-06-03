@@ -32,16 +32,17 @@ def submissions_withdraw(submission_id: str, token: str | None) -> None:
     If archive deletion fails the orphaned URI is logged for garbage collection.
     """
     resolved_token = _get_token(token)
+    """
     target_repo = github_ops.get_target_repo()
-
+    """
     try:
         sub_out = subs_api.withdraw_submission(resolved_token, submission_id)
     except APIError as exc:
         _console.print(f"[bold red]Error withdrawing submission:[/bold red] {exc}")
         sys.exit(1)
 
+    """
     pr_number = sub_out.get("pr_number")
-
     if pr_number:
         try:
             github_ops.close_pr(pr_number, target_repo)
@@ -50,6 +51,7 @@ def submissions_withdraw(submission_id: str, token: str | None) -> None:
                 f"[yellow]PR close failed (submission already WITHDRAWN):[/yellow] {exc}\n"
                 f"Close manually: gh pr close {pr_number} --repo {target_repo}"
             )
+    """
 
     try:
         subs_api.delete_submission_archive(resolved_token, submission_id)

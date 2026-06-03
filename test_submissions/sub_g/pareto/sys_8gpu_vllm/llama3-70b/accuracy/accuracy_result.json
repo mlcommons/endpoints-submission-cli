@@ -1,6 +1,9 @@
 {
-  "metric": "rouge1",
+  "metric": "cnn_dailymail_validation",
   "score": 0.45,
   "quality_target": 0.43,
-  "passed": true
+  "passed": true,
+  "num_samples": 500,
+  "extractor": "RougeExtractor",
+  "n_repeats": 1
 }

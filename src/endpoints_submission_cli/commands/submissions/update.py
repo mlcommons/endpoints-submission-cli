@@ -82,6 +82,7 @@ def submissions_update(
 
     # Run-IDs path: full rebuild
     desired_run_ids = list(run_ids)
+    """
     target_repo = github_ops.get_target_repo()
     _console.print("[cyan]Checking GitHub prerequisites…[/cyan]")
     try:
@@ -91,7 +92,7 @@ def submissions_update(
         sys.exit(1)
     if not repo_ok:
         _console.print(f"[yellow]Warning:[/yellow] {repo_warning}")
-
+    """
     try:
         current_sub = subs_api.get_submission(resolved_token, submission_id)
     except APIError as exc:
@@ -188,6 +189,9 @@ def submissions_update(
             _rollback_update(resolved_token, submission_id, original_run_ids)
             sys.exit(1)
 
+        upload_source = submission_dir
+        repo_dir = None
+        """
         # Build commit message before merge (needed by commit_and_push)
         _parts = []
         if added:
@@ -197,8 +201,6 @@ def submissions_update(
         _commit_msg = f"update: {'; '.join(_parts)} ({len(desired_run_ids)} runs total)"
 
         # Merge fresh build with existing PR branch content (fatal — rollback on failure)
-        upload_source = submission_dir
-        repo_dir = None
         if pr_number:
             _console.print("[cyan]Preparing PR branch merge…[/cyan]")
             try:
@@ -213,7 +215,7 @@ def submissions_update(
                 _console.print(f"[bold red]PR branch merge failed:[/bold red] {exc}")
                 _rollback_update(resolved_token, submission_id, original_run_ids)
                 sys.exit(1)
-
+        """
         # Upload merged bundle to blob storage
         _console.print("[cyan]Uploading submission bundle…[/cyan]")
         archive_path = create_bundle_archive(upload_source, tmp_path / "bundle.tar.gz")
@@ -225,6 +227,7 @@ def submissions_update(
             sys.exit(1)
 
         # Push merged branch to GitHub (non-fatal)
+        """
         if pr_number and repo_dir:
             _console.print("[cyan]Updating GitHub PR…[/cyan]")
             try:
@@ -234,5 +237,5 @@ def submissions_update(
                     f"[yellow]GitHub push failed (blob updated, DB updated):[/yellow] {exc}\n"
                     f"Re-run [bold]submissions update[/bold] to retry."
                 )
-
+        """
     _console.print(f"[bold green]Submission {submission_id} updated.[/bold green]")

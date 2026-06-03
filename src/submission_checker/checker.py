@@ -110,6 +110,30 @@ class SubmissionChecker:
         for system_json in system_jsons:
             report.results.extend(self._check_system(system_json, pareto_dir))
 
+        # §15: at least one model in the submission must have both accuracy files.
+        has_full_accuracy = any(
+            (p.parent / "accuracy.txt").exists()
+            for p in pareto_dir.rglob("accuracy_result.json")
+        )
+        if has_full_accuracy:
+            report.results.append(
+                _ok(
+                    "accuracy-present",
+                    "At least one model has both accuracy files",
+                    pareto_dir,
+                    "#15",
+                )
+            )
+        else:
+            report.results.append(
+                _err(
+                    "accuracy-present",
+                    "No model in this submission has both accuracy_result.json and accuracy.txt",
+                    pareto_dir,
+                    "#15",
+                )
+            )
+
         return report
 
     # ------------------------------------------------------------------
@@ -275,21 +299,27 @@ class SubmissionChecker:
             results.extend(point_result._check_results)
             loaded_points.append((config, summary))
 
-        # Load accuracy
+        # Load accuracy — run() enforces that at least one model in the
+        # submission has both accuracy files. Per-model warnings are only
+        # emitted when the accuracy/ directory exists but files within it
+        # are absent (implying a partially-filled accuracy directory).
         accuracy_result = None
-        txt_path = accuracy_dir / "accuracy.txt"
-        if not txt_path.exists():
-            results.append(_err("accuracy-file", "Missing accuracy/accuracy.txt", txt_path, "#15"))
-        json_path = accuracy_dir / "accuracy_result.json"
-        if not json_path.exists():
-            results.append(
-                _err("accuracy-file", "Missing accuracy/accuracy_result.json", json_path, "#15")
-            )
-        else:
-            accuracy_result, acc_results = load_accuracy_result(json_path)
-            results.extend(acc_results)
-            if any(r.severity == Severity.ERROR for r in acc_results):
-                accuracy_result = None
+        if accuracy_dir.is_dir():
+            txt_path = accuracy_dir / "accuracy.txt"
+            if not txt_path.exists():
+                results.append(
+                    _warn("accuracy-file", "Missing accuracy/accuracy.txt", txt_path, "#15")
+                )
+            json_path = accuracy_dir / "accuracy_result.json"
+            if not json_path.exists():
+                results.append(
+                    _warn("accuracy-file", "Missing accuracy/accuracy_result.json", json_path, "#15")
+                )
+            else:
+                accuracy_result, acc_results = load_accuracy_result(json_path)
+                results.extend(acc_results)
+                if any(r.severity == Severity.ERROR for r in acc_results):
+                    accuracy_result = None
 
         # ModelContext validates point-count, regional-coverage, config-consistency, accuracy-gate
         model_ctx = ModelContext(

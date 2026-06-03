@@ -1,1 +1,1 @@
-rouge1: 0.45
+cnn_dailymail_validation: 0.4500
