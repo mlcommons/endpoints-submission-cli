@@ -11,17 +11,16 @@ import httpx
 
 from .._http import (
     _DOWNLOAD_TIMEOUT,
-    _UPLOAD_TIMEOUT,
     _base_url,
     _delete,
     _get,
     _headers,
     _patch,
     _post,
+    _put_to_signed_url,
     _raise_request,
     _raise_status,
 )
-from ..exceptions import ArchiveError
 
 __all__ = [
     "list_runs",
@@ -70,23 +69,14 @@ def unpin_run(token: str, run_id: str) -> None:
 
 
 def upload_run_archive(token: str, run_id: str, archive_path: Path) -> dict[str, Any]:
-    """POST /runs/{run_id}/archive — upload the run archive (multipart/form-data)."""
-    try:
-        with open(archive_path, "rb") as fh:
-            r = httpx.post(
-                f"{_base_url()}/runs/{run_id}/archive",
-                headers={"X-API-Key": token},
-                files={"archive": (archive_path.name, fh, "application/octet-stream")},
-                timeout=_UPLOAD_TIMEOUT,
-            )
-            r.raise_for_status()
-            return r.json()
-    except OSError as exc:
-        raise ArchiveError(f"Failed to open run archive for upload: {archive_path}") from exc
-    except httpx.HTTPStatusError as exc:
-        _raise_status(exc)
-    except httpx.RequestError as exc:
-        _raise_request(exc)
+    """Upload a run archive via a server-issued signed URL.
+
+    POST /runs/{run_id}/archive → {"upload_url": "...", "archive_uri": "..."}
+    PUT  <upload_url>           → streams file directly to object storage
+    """
+    result = _post(f"/runs/{run_id}/archive", token)
+    _put_to_signed_url(result["upload_url"], archive_path)
+    return result
 
 
 def delete_run_archive(token: str, run_id: str) -> None:

@@ -7,10 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import httpx
-
 from .._http import (
-    _UPLOAD_TIMEOUT,
     _DOWNLOAD_TIMEOUT,
     _base_url,
     _delete,
@@ -18,10 +15,10 @@ from .._http import (
     _headers,
     _patch,
     _post,
+    _put_to_signed_url,
     _raise_request,
     _raise_status,
 )
-from ..exceptions import ArchiveError
 
 __all__ = [
     "list_submissions",
@@ -92,23 +89,14 @@ def remove_run_from_submission(
 def upload_submission_archive(
     token: str, submission_id: str, archive_path: Path
 ) -> dict[str, Any]:
-    """POST /submissions/{submission_id}/archive — upload the submission bundle."""
-    try:
-        with open(archive_path, "rb") as fh:
-            r = httpx.post(
-                f"{_base_url()}/submissions/{submission_id}/archive",
-                headers={"X-API-Key": token},
-                files={"archive": (archive_path.name, fh, "application/octet-stream")},
-                timeout=_UPLOAD_TIMEOUT,
-            )
-            r.raise_for_status()
-            return r.json()
-    except OSError as exc:
-        raise ArchiveError(f"Failed to open submission archive for upload: {archive_path}") from exc
-    except httpx.HTTPStatusError as exc:
-        _raise_status(exc)
-    except httpx.RequestError as exc:
-        _raise_request(exc)
+    """Upload a submission bundle via a server-issued signed URL.
+
+    POST /submissions/{submission_id}/archive → {"upload_url": "...", "archive_uri": "..."}
+    PUT  <upload_url>                         → streams file directly to object storage
+    """
+    result = _post(f"/submissions/{submission_id}/archive", token)
+    _put_to_signed_url(result["upload_url"], archive_path)
+    return result
 
 
 def delete_submission_archive(token: str, submission_id: str) -> None:

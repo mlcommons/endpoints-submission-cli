@@ -106,16 +106,28 @@ class TestAddRemoveRunSubmission:
 
 @pytest.mark.unit
 class TestUploadDeleteSubmissionArchive:
+    _SIGNED_RESP = {"upload_url": "https://storage.example.com/signed", "archive_uri": "gs://bucket/submissions/x.tar.gz"}
+
     def test_upload_ok(self, tmp_path: Path) -> None:
         archive = tmp_path / "bundle.tar.gz"
         archive.write_bytes(b"bundle")
-        with patch("httpx.post", return_value=_mock_response(200, {})):
-            upload_submission_archive(TOKEN, SUBMISSION_ID, archive)
+        with patch("httpx.post", return_value=_mock_response(200, self._SIGNED_RESP)):
+            with patch("httpx.put", return_value=_mock_response(200)):
+                upload_submission_archive(TOKEN, SUBMISSION_ID, archive)
+
+    def test_http_error_on_put_raises(self, tmp_path: Path) -> None:
+        archive = tmp_path / "bundle.tar.gz"
+        archive.write_bytes(b"bundle")
+        with patch("httpx.post", return_value=_mock_response(200, self._SIGNED_RESP)):
+            with patch("httpx.put", side_effect=_mock_http_error(403)):
+                with pytest.raises(APIError):
+                    upload_submission_archive(TOKEN, SUBMISSION_ID, archive)
 
     def test_missing_file_raises_archive_error(self, tmp_path: Path) -> None:
         archive = tmp_path / "nonexistent.tar.gz"
-        with pytest.raises(ArchiveError):
-            upload_submission_archive(TOKEN, SUBMISSION_ID, archive)
+        with patch("httpx.post", return_value=_mock_response(200, self._SIGNED_RESP)):
+            with pytest.raises(ArchiveError):
+                upload_submission_archive(TOKEN, SUBMISSION_ID, archive)
 
     def test_delete_ok(self) -> None:
         resp = _mock_response(204)
