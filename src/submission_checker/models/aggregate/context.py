@@ -145,11 +145,16 @@ class ModelContext(BaseModel):
             return self  # file missing/invalid already reported by checker.py
         accuracy = self.accuracy_result
         json_path = self.accuracy_dir / "accuracy_result.json"
+        score_str = (
+            ", ".join(f"{k}={v}" for k, v in accuracy.score.items())
+            if isinstance(accuracy.score, dict)
+            else f"{accuracy.score:.4f}"
+        )
         if accuracy.passed:
             self._check_results.append(
                 ok(
                     "accuracy-gate",
-                    f"Accuracy gate PASSED: {accuracy.metric} = {accuracy.score:.4f}"
+                    f"Accuracy gate PASSED: {accuracy.metric} = {score_str}"
                     f" ≥ target {accuracy.quality_target:.4f}",
                     json_path,
                     "#15",
@@ -159,7 +164,7 @@ class ModelContext(BaseModel):
             self._check_results.append(
                 err(
                     "accuracy-gate",
-                    f"Accuracy gate FAILED: {accuracy.metric} = {accuracy.score:.4f}"
+                    f"Accuracy gate FAILED: {accuracy.metric} = {score_str}"
                     f" < target {accuracy.quality_target:.4f}",
                     json_path,
                     "#15",
