@@ -1,27 +1,134 @@
 # MLCommons Endpoints Submission Tools
 
-This repository contains two tools:
+A Python package with two tools for managing MLPerf Endpoints benchmark submissions:
 
-- **`submission-checker`** — validates a submission folder against the §9.1 automated compliance rules (see below).
-- **`endpoints-submission-cli`** — CLI for registering benchmark runs and creating rolling submissions via the PRISM API. See [docs/endpoints-submission-cli.md](docs/endpoints-submission-cli.md) for full usage.
+- **`endpoints-submission-cli`** — registers benchmark runs, assembles submission packages, runs compliance checks, and opens GitHub pull requests via the PRISM API.
+- **`submission-checker`** — validates a submission folder against the §9.1 automated compliance rules before or after upload.
+
+---
+
+## Installation
+
+**With pip:**
+
+```bash
+pip install endpoints-submission-cli
+```
+
+**From source (editable):**
+
+```bash
+pip install -e ".[dev]"
+```
+
+**With [uv](https://github.com/astral-sh/uv):**
+
+```bash
+uv sync --extra dev
+```
+
+---
+
+# endpoints-submission-cli
+
+## Requirements
+
+- Python 3.10 or later
+- [`gh` CLI](https://cli.github.com/) — required for creating, updating, and withdrawing submissions
+
+## Authentication
+
+Every command requires a PRISM API token in `mlc_…` format. Supply it as an env var or pass `--token` per command:
+
+```bash
+# Persistent (add to shell profile)
+export PRISM_USER_API_TOKEN=mlc_your_token_here
+
+# Per-command override
+endpoints-submission-cli runs list --token mlc_your_token_here
+```
+
+Submission commands that create or update GitHub pull requests also require the `gh` CLI:
+
+```bash
+gh auth login
+```
+
+## Configuration
+
+| Environment variable | Default | Description |
+|---|---|---|
+| `PRISM_USER_API_TOKEN` | — | API key. Required unless `--token` is passed. |
+| `MLPERF_SUBMISSION_REPO` | `MLCommons-Systems/test-endpoints-submission-repo` | Target GitHub repository for submission PRs (`owner/repo`). |
+
+Add to your shell profile for a persistent setup:
+
+```bash
+export PRISM_USER_API_TOKEN=mlc_your_token_here
+export MLPERF_SUBMISSION_REPO=MLCommons-Systems/endpoints-submission-repo
+```
+
+## Quick start
+
+```bash
+# 1. Verify connectivity
+endpoints-submission-cli runs list
+
+# 2. Register a benchmark run from a local result folder
+endpoints-submission-cli runs create --path /results/llama3_h100_c4
+# → Run created: d5d9873e-5eca-4f8d-a487-4be1cb8b440c
+RUN_ID=d5d9873e-5eca-4f8d-a487-4be1cb8b440c
+
+# 3. Create a submission (assembles, checks, uploads, opens PR)
+endpoints-submission-cli submissions create \
+  --division standardized \
+  --availability available \
+  --run-ids $RUN_ID
+# → Submission created: a1b2c3d4-…
+# → PR: https://github.com/MLCommons-Systems/…/pull/42
+SUB_ID=a1b2c3d4-e5f6-7890-abcd-ef1234567890
+
+# 4. Add another run later
+endpoints-submission-cli submissions add-run \
+  --submission-id $SUB_ID \
+  --run-id <new-run-id>
+
+# 5. Withdraw if needed
+endpoints-submission-cli submissions withdraw --submission-id $SUB_ID
+```
+
+## Command reference
+
+```
+endpoints-submission-cli
+├── runs
+│   ├── list        List all runs
+│   ├── create      Register a run from a local folder
+│   ├── get         Fetch run details
+│   ├── delete      Delete a run and its archive
+│   ├── pin         Pin a run (prevent expiry)
+│   └── unpin       Restore normal expiry
+└── submissions
+    ├── list        List all submissions
+    ├── create      Create a submission from runs (full pipeline)
+    ├── get         Fetch submission details
+    ├── update      Update run list or metadata
+    ├── withdraw    Withdraw a submission
+    ├── add-run     Add a run to an existing submission
+    └── remove-run  Remove a run from a submission
+```
+
+Use `--help` on any command for full flag details:
+
+```bash
+endpoints-submission-cli submissions create --help
+```
 
 ---
 
 # submission-checker
 
 CLI tool for validating MLPerf Endpoints submissions against the §9.1 automated compliance checks.
-
-## Installation
-
-```bash
-uv sync --extra dev
-```
-
-Or with pip:
-
-```bash
-pip install -e ".[dev]"
-```
 
 ## Usage
 
@@ -132,38 +239,13 @@ else:
 
 The `Report` object also exposes `report.warnings` and serialises cleanly via `report.model_dump_json()`.
 
+---
+
 ## Development
 
 ```bash
-uv run pytest                                          # run tests (189 tests, 100% coverage)
-uv run pytest --no-cov -x                             # fast fail on first error
-uv run ruff check src/ tests/                         # lint
-uv run ruff format src/ tests/                        # auto-format
-uv run sphinx-build -W docs docs/_build/html          # build docs
+uv run pytest                          # run all tests
+uv run pytest --no-cov -x             # fast fail on first error
+uv run ruff check src/ tests/          # lint
+uv run ruff format src/ tests/         # auto-format
 ```
-
-## Architecture
-
-```
-cli.py          Entry point — Click commands, Rich table output
-checker.py      SubmissionChecker — orchestrates loading and validation
-loader.py       File I/O — JSON/YAML loading, returns (model | None, list[CheckResult])
-structure.py    Directory structure validators (§8.1)
-models/
-  results.py         CheckResult, Severity, ok/warn/err helpers
-  regions.py         Region boundary computation (§5.5 reference algorithm)
-  file/              Per-artifact models — each validates a single file
-    system.py          SystemDescription (systems/*.json)
-    point_config.py    PointConfig + RuntimeSettings (points/point_<N>.yaml)
-    point_summary.py   PointSummary + PercentileStats (mlperf_endpoints_log_summary.json)
-    accuracy.py        AccuracyResult (accuracy/accuracy_result.json)
-  aggregate/         Cross-artifact models — validate across multiple files
-    point_result.py    PointResult — pairs one PointConfig with its PointSummary
-    context.py         ModelContext — validates point count, coverage, consistency, accuracy
-```
-
-Validation logic is co-located with the data models: each Pydantic model runs its own
-`@model_validator` methods and accumulates results in a private `_check_results` list.
-`SubmissionChecker.run()` orchestrates loading, instantiates models, and collects results
-into a `Report`. All loaders return `(model | None, list[CheckResult])` — failure surfaces
-every Pydantic validation error, not just the first.

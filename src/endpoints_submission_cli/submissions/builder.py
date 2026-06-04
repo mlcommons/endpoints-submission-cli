@@ -444,6 +444,12 @@ def _write_pareto_entries(
             dest.write_bytes(content)
 
 
+def _fmt_score(score: float | dict) -> str:
+    if isinstance(score, dict):
+        return ", ".join(f"{k}={v}" for k, v in score.items())
+    return f"{score:.4f}"
+
+
 def _write_accuracy(
     submission_dir: Path,
     system_id: str,
@@ -476,19 +482,20 @@ def _write_accuracy(
 
     first_ds, first_data = next(iter(accuracy_scores.items()))
     metric = first_data.get("dataset_name") or first_ds
-    score = float(first_data.get("score", 0.0))
+    raw_score = first_data.get("score", 0.0)
+    score: float | dict = raw_score if isinstance(raw_score, dict) else float(raw_score)
 
     txt_lines = [
-        f"{entry.get('dataset_name') or ds}: {float(entry.get('score', 0.0)):.4f}"
+        f"{entry.get('dataset_name') or ds}: {_fmt_score(entry.get('score', 0.0))}"
         for ds, entry in accuracy_scores.items()
     ]
     (accuracy_dir / "accuracy.txt").write_text("\n".join(txt_lines) + "\n", encoding="utf-8")
 
     accuracy_result = {
         "metric": metric,
-        "score": round(score, 4),
+        "score": score,
         "quality_target": 0.0,
-        "passed": score >= 0.0,
+        "passed": True,
     }
     (accuracy_dir / "accuracy_result.json").write_text(
         json.dumps(accuracy_result, indent=2), encoding="utf-8"
