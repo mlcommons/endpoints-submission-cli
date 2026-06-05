@@ -185,38 +185,21 @@ class TestRegionDeclaredValidator:
 
 
 @pytest.mark.unit
-class TestAccuracyConsistencyValidator:
-    def test_consistent_pass(self):
-        ar = AccuracyResult(metric="rouge1", score=0.45, quality_target=0.43, passed=True)
-        assert any(
-            r.rule == "accuracy-consistency" and r.severity != Severity.ERROR
-            for r in ar._check_results
-        )
+class TestAccuracyResultModel:
+    def test_scores_accessible(self):
+        ar = AccuracyResult({
+            "cnn_dailymail::llama3_8b": {"score": {"rouge1": "38.73", "rouge2": "16.10"}}
+        })
+        scores = ar.metric_scores()
+        assert scores["cnn_dailymail::llama3_8b"]["rouge1"] == pytest.approx(38.73)
 
-    def test_consistent_fail(self):
-        ar = AccuracyResult(metric="rouge1", score=0.30, quality_target=0.43, passed=False)
-        assert any(
-            r.rule == "accuracy-consistency" and r.severity != Severity.ERROR
-            for r in ar._check_results
-        )
+    def test_no_check_results_on_valid_input(self):
+        ar = AccuracyResult({"ds": {"score": {"rouge1": "38.73"}}})
+        assert not any(r.severity == Severity.ERROR for r in ar._check_results)
 
-    def test_passed_true_but_score_below_target(self):
-        ar = AccuracyResult(metric="rouge1", score=0.30, quality_target=0.43, passed=True)
+    def test_empty_dict_emits_accuracy_valid_error(self):
+        ar = AccuracyResult({})
         assert any(
-            r.rule == "accuracy-consistency" and r.severity == Severity.ERROR
-            for r in ar._check_results
-        )
-
-    def test_passed_false_but_score_meets_target(self):
-        ar = AccuracyResult(metric="rouge1", score=0.50, quality_target=0.43, passed=False)
-        assert any(
-            r.rule == "accuracy-consistency" and r.severity == Severity.ERROR
-            for r in ar._check_results
-        )
-
-    def test_score_exactly_at_boundary(self):
-        ar = AccuracyResult(metric="rouge1", score=0.43, quality_target=0.43, passed=True)
-        assert any(
-            r.rule == "accuracy-consistency" and r.severity != Severity.ERROR
+            r.rule == "accuracy-valid" and r.severity == Severity.ERROR
             for r in ar._check_results
         )

@@ -296,13 +296,12 @@ _SUMMARY = {
 }
 
 _ACCURACY = {
-    "metric": "cnn_dailymail_validation",
-    "score": 0.45,
-    "quality_target": 0.43,
-    "passed": True,
-    "num_samples": 500,
-    "extractor": "RougeExtractor",
-    "n_repeats": 1,
+    "llm-perf-dataset-v1": {
+        "dataset_name": "llm-perf-dataset-v1",
+        "num_samples": 500,
+        "score": {"rouge1": "45.12", "rouge2": "22.01", "rougeL": "30.45"},
+        "n_repeats": 1,
+    }
 }
 
 # Concurrencies that cover all four regions for M=1024
@@ -486,7 +485,7 @@ class TestCheckerEdgeCases:
         """accuracy-valid error when accuracy_result.json is malformed."""
         root = _build_submission(
             tmp_path,
-            accuracy_data={"metric": "rouge1"},  # missing required fields
+            accuracy_data={"cnn_dailymail": "not-a-dict"},  # value must be a dict
         )
         report = _check(root)
         assert _errors(report, "accuracy-valid")

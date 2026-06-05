@@ -262,6 +262,8 @@ def _load_extra_files(base: Path) -> dict[str, bytes]:
         "serving_config.json",
         "report.txt",
         "metrics/final_snapshot.json",
+        "accuracy/accuracy_result.json",
+        "accuracy/accuracy.txt",
     ]
     for rel in candidates:
         p = base / rel
@@ -429,7 +431,13 @@ def _write_pareto_entries(
         extra_files = run.get("_extra_files", {})
         if "events.jsonl" in extra_files:
             lines = extra_files["events.jsonl"].decode().splitlines()
-            events = [json.loads(ln) for ln in lines if ln.strip()]
+            events = []
+            for ln in lines:
+                if ln.strip():
+                    try:
+                        events.append(json.loads(ln))
+                    except json.JSONDecodeError:
+                        pass
             detail_bytes = json.dumps(events, indent=2).encode()
         else:
             detail_bytes = b"[]"
@@ -445,29 +453,70 @@ def _write_pareto_entries(
             dest.write_bytes(content)
 
 
+def _score_to_float(score: Any) -> float:
+    """Coerce a score value to float — handles rouge breakdown dicts."""
+    if isinstance(score, dict):
+        for key in ("rouge1", "rouge2", "rougeL", "rougeLsum"):
+            if key in score:
+                return float(score[key])
+        for v in score.values():
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                pass
+        return 0.0
+    try:
+        return float(score)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _write_accuracy(
     submission_dir: Path,
     system_id: str,
     model: str,
     runs: list[dict[str, Any]],
 ) -> None:
-    """Write accuracy/ files from the first run that has an accuracy_scores section in results.json.
+    """Write accuracy/ files, preferring a pre-computed accuracy_result.json from the archive.
 
-    If no run provides accuracy_scores, the accuracy directory is not created.
+    Priority:
+    1. accuracy/accuracy_result.json in the archive (if it contains accuracy_scores).
+    2. accuracy_scores in results.json — fallback when no pre-computed file exists.
+
+    The written accuracy_result.json preserves the accuracy_scores nested format:
+        {"<dataset_name>": {"score": {...}, "num_samples": N, ...}}
     """
     accuracy_scores: dict[str, Any] | None = None
+
+    # Primary: accuracy/accuracy_result.json bundled with the run
     for run in runs:
-        results_bytes = run.get("_extra_files", {}).get("results.json")
-        if not results_bytes:
+        ar_bytes = run.get("_extra_files", {}).get("accuracy/accuracy_result.json")
+        if not ar_bytes:
             continue
         try:
-            parsed = json.loads(results_bytes)
+            ar_data = json.loads(ar_bytes)
         except json.JSONDecodeError:
             continue
-        scores = parsed.get("accuracy_scores")
-        if scores:
-            accuracy_scores = scores
-            break
+        if "accuracy_scores" in ar_data:
+            scores = ar_data["accuracy_scores"]
+            if scores:
+                accuracy_scores = scores
+                break
+
+    # Fallback: accuracy_scores in results.json
+    if accuracy_scores is None:
+        for run in runs:
+            results_bytes = run.get("_extra_files", {}).get("results.json")
+            if not results_bytes:
+                continue
+            try:
+                parsed = json.loads(results_bytes)
+            except json.JSONDecodeError:
+                continue
+            scores = parsed.get("accuracy_scores")
+            if scores:
+                accuracy_scores = scores
+                break
 
     if not accuracy_scores:
         return
@@ -475,25 +524,23 @@ def _write_accuracy(
     accuracy_dir = submission_dir / "pareto" / system_id / model / "accuracy"
     accuracy_dir.mkdir(parents=True, exist_ok=True)
 
-    first_ds, first_data = next(iter(accuracy_scores.items()))
-    metric = first_data.get("dataset_name") or first_ds
-    score = float(first_data.get("score", 0.0))
-
-    txt_lines = [
-        f"{entry.get('dataset_name') or ds}: {float(entry.get('score', 0.0)):.4f}"
-        for ds, entry in accuracy_scores.items()
-    ]
-    (accuracy_dir / "accuracy.txt").write_text("\n".join(txt_lines) + "\n", encoding="utf-8")
-
-    accuracy_result = {
-        "metric": metric,
-        "score": round(score, 4),
-        "quality_target": 0.0,
-        "passed": score >= 0.0,
-    }
     (accuracy_dir / "accuracy_result.json").write_text(
-        json.dumps(accuracy_result, indent=2), encoding="utf-8"
+        json.dumps(accuracy_scores, indent=2), encoding="utf-8"
     )
+
+    # Write a human-readable summary
+    txt_lines: list[str] = []
+    for ds_name, entry in accuracy_scores.items():
+        raw = entry.get("score", {}) if isinstance(entry, dict) else {}
+        if isinstance(raw, dict):
+            metrics = ", ".join(
+                f"{k}={v}" for k, v in raw.items()
+                if isinstance(v, (int, float)) or (isinstance(v, str) and v.replace(".", "").isdigit())
+            )
+            txt_lines.append(f"{ds_name}: {metrics}" if metrics else ds_name)
+        else:
+            txt_lines.append(f"{ds_name}: {raw}")
+    (accuracy_dir / "accuracy.txt").write_text("\n".join(txt_lines) + "\n", encoding="utf-8")
 
 
 def _normalize_division(division: str) -> str:

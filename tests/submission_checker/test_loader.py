@@ -158,10 +158,10 @@ def test_load_accuracy_result_missing_file(tmp_path):
 
 def test_load_accuracy_result_schema_error(tmp_path):
     p = tmp_path / "bad.json"
-    p.write_text(json.dumps({"metric": "rouge1"}))  # missing score, quality_target, passed
+    p.write_text(json.dumps({"cnn_dailymail": "not-a-dict"}))  # value must be a dict
     model, results = load_accuracy_result(p)
     assert model is None
-    assert len(results) > 1  # all missing fields reported, not just the first
+    assert len(results) >= 1
     assert all(r.severity == Severity.ERROR for r in results)
     assert any("Validation error" in r.message for r in results)
 
@@ -174,7 +174,7 @@ def test_load_accuracy_result_schema_error(tmp_path):
 def test_load_json_os_error(tmp_path):
     """_load_json must surface an OSError (e.g. permission denied) as an error message."""
     p = tmp_path / "ok.json"
-    payload = {"metric": "rouge1", "score": 0.5, "quality_target": 0.43, "passed": True}
+    payload = {"cnn_dailymail::llama3_8b": {"score": {"rouge1": "0.5", "rouge2": "0.16"}}}
     p.write_text(json.dumps(payload))
     with patch("pathlib.Path.read_text", side_effect=OSError("permission denied")):
         model, results = load_accuracy_result(p)
