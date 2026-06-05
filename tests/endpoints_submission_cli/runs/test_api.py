@@ -152,6 +152,8 @@ class TestDeleteRunArchive:
 
 @pytest.mark.unit
 class TestDownloadRunArchive:
+    _DL_URL_RESP = {"download_url": "https://storage.example.com/signed-dl", "expires_in": 300}
+
     def test_download_creates_file(self, tmp_path: Path) -> None:
         mock_stream = MagicMock()
         mock_stream.__enter__ = MagicMock(return_value=mock_stream)
@@ -159,8 +161,9 @@ class TestDownloadRunArchive:
         mock_stream.raise_for_status = MagicMock()
         mock_stream.iter_bytes = MagicMock(return_value=[b"data1", b"data2"])
 
-        with patch("httpx.stream", return_value=mock_stream):
-            result = download_run_archive(TOKEN, RUN_ID, tmp_path)
+        with patch("httpx.get", return_value=_mock_response(200, self._DL_URL_RESP)):
+            with patch("httpx.stream", return_value=mock_stream):
+                result = download_run_archive(TOKEN, RUN_ID, tmp_path)
 
         assert result.exists()
         assert result.read_bytes() == b"data1data2"
