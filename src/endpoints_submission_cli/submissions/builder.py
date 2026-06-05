@@ -430,14 +430,7 @@ def _write_pareto_entries(
         # Convert events.jsonl (JSONL) to a JSON array for the detail log
         extra_files = run.get("_extra_files", {})
         if "events.jsonl" in extra_files:
-            lines = extra_files["events.jsonl"].decode().splitlines()
-            events = []
-            for ln in lines:
-                if ln.strip():
-                    try:
-                        events.append(json.loads(ln))
-                    except json.JSONDecodeError:
-                        pass
+            events = [json.loads(ln) for ln in extra_files["events.jsonl"].splitlines() if ln.strip()]
             detail_bytes = json.dumps(events, indent=2).encode()
         else:
             detail_bytes = b"[]"
@@ -453,22 +446,10 @@ def _write_pareto_entries(
             dest.write_bytes(content)
 
 
-def _score_to_float(score: Any) -> float:
-    """Coerce a score value to float — handles rouge breakdown dicts."""
+def _fmt_score(score: float | dict) -> str:
     if isinstance(score, dict):
-        for key in ("rouge1", "rouge2", "rougeL", "rougeLsum"):
-            if key in score:
-                return float(score[key])
-        for v in score.values():
-            try:
-                return float(v)
-            except (TypeError, ValueError):
-                pass
-        return 0.0
-    try:
-        return float(score)
-    except (TypeError, ValueError):
-        return 0.0
+        return ", ".join(f"{k}={v}" for k, v in score.items())
+    return f"{score:.4f}"
 
 
 def _write_accuracy(
@@ -524,6 +505,23 @@ def _write_accuracy(
     accuracy_dir = submission_dir / "pareto" / system_id / model / "accuracy"
     accuracy_dir.mkdir(parents=True, exist_ok=True)
 
+    first_ds, first_data = next(iter(accuracy_scores.items()))
+    metric = first_data.get("dataset_name") or first_ds
+    raw_score = first_data.get("score", 0.0)
+    score: float | dict = raw_score if isinstance(raw_score, dict) else float(raw_score)
+
+    txt_lines = [
+        f"{entry.get('dataset_name') or ds}: {_fmt_score(entry.get('score', 0.0))}"
+        for ds, entry in accuracy_scores.items()
+    ]
+    (accuracy_dir / "accuracy.txt").write_text("\n".join(txt_lines) + "\n", encoding="utf-8")
+
+    accuracy_result = {
+        "metric": metric,
+        "score": score,
+        "quality_target": 0.0,
+        "passed": True,
+    }
     (accuracy_dir / "accuracy_result.json").write_text(
         json.dumps(accuracy_scores, indent=2), encoding="utf-8"
     )

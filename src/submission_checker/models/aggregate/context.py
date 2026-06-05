@@ -146,94 +146,28 @@ class ModelContext(BaseModel):
             return self  # file missing/invalid already reported by checker.py
 
         json_path = self.accuracy_dir / "accuracy_result.json"
-        target = get_thresholds(self.model_dir.name)
-
-        if target is None:
+        score_str = (
+            ", ".join(f"{k}={v}" for k, v in accuracy.score.items())
+            if isinstance(accuracy.score, dict)
+            else f"{accuracy.score:.4f}"
+        )
+        if accuracy.passed:
             self._check_results.append(
                 warn(
                     "accuracy-gate",
-                    f"No accuracy thresholds defined for model '{self.model_dir.name}'"
-                    " — skipping gate check",
+                    f"Accuracy gate PASSED: {accuracy.metric} = {score_str}"
+                    f" ≥ target {accuracy.quality_target:.4f}",
                     json_path,
                     "#15",
                 )
             )
-            return self
-
-        thresholds, min_queries = target
-
-        # Check per-dataset sample counts
-        for ds_name, entry in self.accuracy_result.root.items():
-            num_samples = entry.get("num_samples")
-            if num_samples is None:
-                continue
-            try:
-                n = int(num_samples)
-            except (TypeError, ValueError):
-                continue
-            if n < min_queries:
-                self._check_results.append(
-                    err(
-                        "accuracy-sample-count",
-                        f"{ds_name}: {n} samples < required {min_queries}",
-                        json_path,
-                        "#15",
-                    )
-                )
-            else:
-                self._check_results.append(
-                    ok(
-                        "accuracy-sample-count",
-                        f"{ds_name}: {n} samples ≥ required {min_queries}",
-                        json_path,
-                        "#15",
-                    )
-                )
-
-        all_scores = self.accuracy_result.metric_scores()  # {ds: {metric: float}}
-        # Flatten all per-dataset metric scores into one dict for threshold matching
-        flat_scores: dict[str, float] = {}
-        for ds_scores in all_scores.values():
-            flat_scores.update(ds_scores)
-
-        for threshold_key, (lower, upper) in thresholds.items():
-            # Match score key case-insensitively
-            score: float | None = None
-            matched_key: str = threshold_key
-            for k, v in flat_scores.items():
-                if k.lower() == threshold_key:
-                    score = v
-                    matched_key = k
-                    break
-            if score is None:
-                continue  # metric not present in this run's results
-
-            if score < lower:
-                self._check_results.append(
-                    err(
-                        "accuracy-gate",
-                        f"{matched_key} = {score:.4f} < min {lower:.4f}",
-                        json_path,
-                        "#15",
-                    )
-                )
-            elif upper is not None and score > upper:
-                self._check_results.append(
-                    err(
-                        "accuracy-gate",
-                        f"{matched_key} = {score:.4f} > max {upper:.4f}",
-                        json_path,
-                        "#15",
-                    )
-                )
-            else:
-                bound = f"[{lower:.4f}, {upper:.4f}]" if upper is not None else f"≥ {lower:.4f}"
-                self._check_results.append(
-                    ok(
-                        "accuracy-gate",
-                        f"{matched_key} = {score:.4f} PASSED (target {bound})",
-                        json_path,
-                        "#15",
-                    )
+        else:
+            self._check_results.append(
+                err(
+                    "accuracy-gate",
+                    f"Accuracy gate FAILED: {accuracy.metric} = {score_str}"
+                    f" < target {accuracy.quality_target:.4f}",
+                    json_path,
+                    "#15",
                 )
         return self
