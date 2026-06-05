@@ -7,12 +7,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from .._http import (
     _DOWNLOAD_TIMEOUT,
-    _base_url,
     _delete,
     _get,
-    _headers,
     _patch,
     _post,
     _put_to_signed_url,
@@ -91,10 +91,10 @@ def upload_submission_archive(
 ) -> dict[str, Any]:
     """Upload a submission bundle via a server-issued signed URL.
 
-    POST /submissions/{submission_id}/archive → {"upload_url": "...", "archive_uri": "..."}
-    PUT  <upload_url>                         → streams file directly to object storage
+    GET /submissions/{submission_id}/archive/upload-url → {"upload_url": "...", "expires_in": 3600}
+    PUT <upload_url>                                    → streams file directly to object storage
     """
-    result = _post(f"/submissions/{submission_id}/archive", token)
+    result = _get(f"/submissions/{submission_id}/archive/upload-url", token)
     _put_to_signed_url(result["upload_url"], archive_path)
     return result
 
@@ -107,16 +107,17 @@ def delete_submission_archive(token: str, submission_id: str) -> None:
 def download_submission_archive(
     token: str, submission_id: str, dest_dir: Path
 ) -> Path:
-    """GET /submissions/{submission_id}/archive — download submission bundle to dest_dir."""
+    """Download submission bundle to dest_dir. Returns the saved file path.
+
+    GET /submissions/{submission_id}/archive → {"download_url": "...", "expires_in": 300}
+    GET <download_url>                       → streams file directly from object storage
+    """
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / f"{submission_id}.tar.gz"
+    result = _get(f"/submissions/{submission_id}/archive", token)
+    download_url = result["download_url"]
     try:
-        with httpx.stream(
-            "GET",
-            f"{_base_url()}/submissions/{submission_id}/archive",
-            headers=_headers(token),
-            timeout=_DOWNLOAD_TIMEOUT,
-        ) as r:
+        with httpx.stream("GET", download_url, timeout=_DOWNLOAD_TIMEOUT) as r:
             r.raise_for_status()
             with open(dest, "wb") as fh:
                 for chunk in r.iter_bytes():
