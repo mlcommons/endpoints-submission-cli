@@ -14,7 +14,8 @@ from ..results import CheckResult, err
 class AccuracyResult(RootModel[dict[str, dict[str, Any]]]):
     """Parsed ``accuracy/accuracy_result.json``.
 
-    Format: one entry per evaluated dataset, keyed by dataset name:
+    Format: one entry per evaluated dataset, keyed by dataset name::
+
         {
           "cnn_dailymail::llama3_8b": {
             "dataset_name": "cnn_dailymail::llama3_8b",
