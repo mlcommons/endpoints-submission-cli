@@ -110,23 +110,35 @@ class TestPinUnpin:
 
 @pytest.mark.unit
 class TestUploadRunArchive:
+    _SIGNED_RESP = {"upload_url": "https://storage.example.com/signed", "expires_in": 3600}
+
     def test_upload_ok(self, tmp_path: Path) -> None:
         archive = tmp_path / "run.tar.gz"
         archive.write_bytes(b"fake data")
-        with patch("httpx.post", return_value=_mock_response(200, {})):
-            upload_run_archive(TOKEN, RUN_ID, archive)
+        with patch("httpx.get", return_value=_mock_response(200, self._SIGNED_RESP)):
+            with patch("httpx.put", return_value=_mock_response(200)):
+                upload_run_archive(TOKEN, RUN_ID, archive)
 
-    def test_http_error_raises(self, tmp_path: Path) -> None:
+    def test_http_error_on_sign_raises(self, tmp_path: Path) -> None:
         archive = tmp_path / "run.tar.gz"
         archive.write_bytes(b"fake data")
-        with patch("httpx.post", side_effect=_mock_http_error(500)):
+        with patch("httpx.get", side_effect=_mock_http_error(500)):
             with pytest.raises(APIError):
                 upload_run_archive(TOKEN, RUN_ID, archive)
 
+    def test_http_error_on_put_raises(self, tmp_path: Path) -> None:
+        archive = tmp_path / "run.tar.gz"
+        archive.write_bytes(b"fake data")
+        with patch("httpx.get", return_value=_mock_response(200, self._SIGNED_RESP)):
+            with patch("httpx.put", side_effect=_mock_http_error(403)):
+                with pytest.raises(APIError):
+                    upload_run_archive(TOKEN, RUN_ID, archive)
+
     def test_missing_file_raises_archive_error(self, tmp_path: Path) -> None:
         archive = tmp_path / "nonexistent.tar.gz"
-        with pytest.raises(ArchiveError):
-            upload_run_archive(TOKEN, RUN_ID, archive)
+        with patch("httpx.get", return_value=_mock_response(200, self._SIGNED_RESP)):
+            with pytest.raises(ArchiveError):
+                upload_run_archive(TOKEN, RUN_ID, archive)
 
 
 @pytest.mark.unit
@@ -140,6 +152,8 @@ class TestDeleteRunArchive:
 
 @pytest.mark.unit
 class TestDownloadRunArchive:
+    _DL_URL_RESP = {"download_url": "https://storage.example.com/signed-dl", "expires_in": 300}
+
     def test_download_creates_file(self, tmp_path: Path) -> None:
         mock_stream = MagicMock()
         mock_stream.__enter__ = MagicMock(return_value=mock_stream)
@@ -147,8 +161,9 @@ class TestDownloadRunArchive:
         mock_stream.raise_for_status = MagicMock()
         mock_stream.iter_bytes = MagicMock(return_value=[b"data1", b"data2"])
 
-        with patch("httpx.stream", return_value=mock_stream):
-            result = download_run_archive(TOKEN, RUN_ID, tmp_path)
+        with patch("httpx.get", return_value=_mock_response(200, self._DL_URL_RESP)):
+            with patch("httpx.stream", return_value=mock_stream):
+                result = download_run_archive(TOKEN, RUN_ID, tmp_path)
 
         assert result.exists()
         assert result.read_bytes() == b"data1data2"

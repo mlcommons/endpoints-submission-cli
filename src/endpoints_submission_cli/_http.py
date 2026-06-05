@@ -9,6 +9,7 @@ error translators, and the four verb helpers used by the domain API modules.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any, NoReturn
 
 import httpx
@@ -25,6 +26,7 @@ __all__ = [
     "_post",
     "_patch",
     "_delete",
+    "_put_to_signed_url",
     "_UPLOAD_TIMEOUT",
     "_DOWNLOAD_TIMEOUT",
     "_API_TIMEOUT",
@@ -68,6 +70,30 @@ def _raise_status(exc: httpx.HTTPStatusError) -> NoReturn:
 # Translates an httpx network/transport error (timeout, connection refused, DNS failure, etc.)
 def _raise_request(exc: httpx.RequestError) -> NoReturn:
     raise APIError(f"Request failed: {type(exc).__name__}: {exc}") from exc
+
+
+def _put_to_signed_url(url: str, archive_path: Path) -> None:
+    """PUT a local file directly to a pre-signed URL (GCS/S3).
+
+    No auth headers are sent — the signature is embedded in the URL.
+    The file is streamed chunk-by-chunk to avoid loading it into memory.
+    """
+    try:
+        with open(archive_path, "rb") as fh:
+            r = httpx.put(
+                url,
+                content=fh,
+                headers={"Content-Type": "application/octet-stream"},
+                timeout=_UPLOAD_TIMEOUT,
+            )
+            r.raise_for_status()
+    except OSError as exc:
+        from .exceptions import ArchiveError
+        raise ArchiveError(f"Failed to open archive for upload: {archive_path}") from exc
+    except httpx.HTTPStatusError as exc:
+        _raise_status(exc)
+    except httpx.RequestError as exc:
+        _raise_request(exc)
 
 
 def _get(path: str, token: str, **kwargs: Any) -> Any:

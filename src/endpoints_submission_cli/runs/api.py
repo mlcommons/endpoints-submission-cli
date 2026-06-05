@@ -11,17 +11,14 @@ import httpx
 
 from .._http import (
     _DOWNLOAD_TIMEOUT,
-    _UPLOAD_TIMEOUT,
-    _base_url,
     _delete,
     _get,
-    _headers,
     _patch,
     _post,
+    _put_to_signed_url,
     _raise_request,
     _raise_status,
 )
-from ..exceptions import ArchiveError
 
 __all__ = [
     "list_runs",
@@ -70,23 +67,14 @@ def unpin_run(token: str, run_id: str) -> None:
 
 
 def upload_run_archive(token: str, run_id: str, archive_path: Path) -> dict[str, Any]:
-    """POST /runs/{run_id}/archive — upload the run archive (multipart/form-data)."""
-    try:
-        with open(archive_path, "rb") as fh:
-            r = httpx.post(
-                f"{_base_url()}/runs/{run_id}/archive",
-                headers={"X-API-Key": token},
-                files={"archive": (archive_path.name, fh, "application/octet-stream")},
-                timeout=_UPLOAD_TIMEOUT,
-            )
-            r.raise_for_status()
-            return r.json()
-    except OSError as exc:
-        raise ArchiveError(f"Failed to open run archive for upload: {archive_path}") from exc
-    except httpx.HTTPStatusError as exc:
-        _raise_status(exc)
-    except httpx.RequestError as exc:
-        _raise_request(exc)
+    """Upload a run archive via a server-issued signed URL.
+
+    GET /runs/{run_id}/archive/upload-url → {"upload_url": "...", "expires_in": 3600}
+    PUT <upload_url>                      → streams file directly to object storage
+    """
+    result = _get(f"/runs/{run_id}/archive/upload-url", token)
+    _put_to_signed_url(result["upload_url"], archive_path)
+    return result
 
 
 def delete_run_archive(token: str, run_id: str) -> None:
@@ -95,19 +83,17 @@ def delete_run_archive(token: str, run_id: str) -> None:
 
 
 def download_run_archive(token: str, run_id: str, dest_dir: Path) -> Path:
-    """GET /runs/{run_id}/archive — download the run archive to dest_dir.
+    """Download the run archive to dest_dir. Returns the saved file path.
 
-    Returns the path of the saved file.
+    GET /runs/{run_id}/archive → {"download_url": "...", "expires_in": 300}
+    GET <download_url>         → streams file directly from object storage
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / f"{run_id}.tar.gz"
+    result = _get(f"/runs/{run_id}/archive", token)
+    download_url = result["download_url"]
     try:
-        with httpx.stream(
-            "GET",
-            f"{_base_url()}/runs/{run_id}/archive",
-            headers=_headers(token),
-            timeout=_DOWNLOAD_TIMEOUT,
-        ) as r:
+        with httpx.stream("GET", download_url, timeout=_DOWNLOAD_TIMEOUT) as r:
             r.raise_for_status()
             with open(dest, "wb") as fh:
                 for chunk in r.iter_bytes():
