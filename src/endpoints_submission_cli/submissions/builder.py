@@ -99,6 +99,8 @@ def build_submission_folder(
     if _normalize_division(division) == "Standardized":
         (submission_dir / "src").mkdir(exist_ok=True)
 
+    _write_documentation(submission_dir, run_data)
+
     return submission_dir
 
 
@@ -272,6 +274,12 @@ def _load_extra_files(base: Path) -> dict[str, bytes]:
     for p in sorted(base.glob("mlperf-system-info-*.json")):
         if p.is_file():
             extra[p.name] = p.read_bytes()
+    doc_dir = base / "documentation"
+    if doc_dir.is_dir():
+        for p in sorted(doc_dir.rglob("*")):
+            if p.is_file():
+                rel = p.relative_to(base)
+                extra[str(rel)] = p.read_bytes()
     return extra
 
 
@@ -539,6 +547,19 @@ def _write_accuracy(
         else:
             txt_lines.append(f"{ds_name}: {raw}")
     (accuracy_dir / "accuracy.txt").write_text("\n".join(txt_lines) + "\n", encoding="utf-8")
+
+
+def _write_documentation(submission_dir: Path, run_data: list[dict[str, Any]]) -> None:
+    """Merge documentation files from all runs into submission_dir/documentation/."""
+    doc_dir = submission_dir / "documentation"
+    doc_dir.mkdir(exist_ok=True)
+    for run in run_data:
+        for rel, content in run.get("_extra_files", {}).items():
+            if not rel.startswith("documentation/"):
+                continue
+            dest = doc_dir / Path(rel).relative_to("documentation")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(content)
 
 
 def _normalize_division(division: str) -> str:

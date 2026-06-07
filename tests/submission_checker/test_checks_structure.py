@@ -30,6 +30,7 @@ class TestSubmissionDir:
     def test_both_present(self, tmp_path):
         (tmp_path / "systems").mkdir()
         (tmp_path / "pareto").mkdir()
+        (tmp_path / "documentation").mkdir()
         sd = SubmissionDir(root=tmp_path)
         assert _passed(sd._check_results)
 

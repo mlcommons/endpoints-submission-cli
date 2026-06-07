@@ -341,6 +341,7 @@ def _build_submission(
     systems_dir = root / "systems"
     systems_dir.mkdir(parents=True)
     (systems_dir / f"{system_id}.json").write_text(json.dumps(desc))
+    (root / "documentation").mkdir(parents=True, exist_ok=True)
 
     pareto_dir = root / "pareto"
     model_dir = pareto_dir / system_id / model
@@ -391,6 +392,7 @@ class TestCheckerEdgeCases:
         """system-description-present error when systems/ has no *.json files."""
         (tmp_path / "systems").mkdir()
         (tmp_path / "pareto").mkdir()
+        (tmp_path / "documentation").mkdir()
         report = _check(tmp_path)
         assert _errors(report, "system-description-present")
 
@@ -398,6 +400,7 @@ class TestCheckerEdgeCases:
         """system-description-valid error when system JSON is malformed."""
         (tmp_path / "systems").mkdir()
         (tmp_path / "pareto").mkdir()
+        (tmp_path / "documentation").mkdir()
         (tmp_path / "systems" / "bad-sys.json").write_text("{bad json")
         report = _check(tmp_path)
         assert _errors(report, "system-description-valid")
@@ -406,6 +409,7 @@ class TestCheckerEdgeCases:
         """pareto-dir-exists error when pareto/<system_id>/ is absent."""
         (tmp_path / "systems").mkdir()
         (tmp_path / "pareto").mkdir()
+        (tmp_path / "documentation").mkdir()
         (tmp_path / "systems" / "test-sys.json").write_text(json.dumps(_SYSTEM_DESC))
         report = _check(tmp_path)
         assert _errors(report, "pareto-dir-exists")
@@ -413,6 +417,7 @@ class TestCheckerEdgeCases:
     def test_empty_pareto_system_dir(self, tmp_path):
         """benchmark-model-dir error when pareto/<system_id>/ has no subdirectories."""
         (tmp_path / "systems").mkdir()
+        (tmp_path / "documentation").mkdir()
         (tmp_path / "systems" / "test-sys.json").write_text(json.dumps(_SYSTEM_DESC))
         pareto_sys = tmp_path / "pareto" / "test-sys"
         pareto_sys.mkdir(parents=True)
@@ -422,6 +427,7 @@ class TestCheckerEdgeCases:
     def test_missing_model_subdirs_early_exit(self, tmp_path):
         """pareto-subdir error when points/ or results/ or accuracy/ is absent."""
         (tmp_path / "systems").mkdir()
+        (tmp_path / "documentation").mkdir()
         (tmp_path / "systems" / "test-sys.json").write_text(json.dumps(_SYSTEM_DESC))
         model_dir = tmp_path / "pareto" / "test-sys" / "llama3-70b"
         # Only points/ present — results/ and accuracy/ missing
@@ -518,6 +524,7 @@ class TestCheckerEdgeCases:
         # compute_regions only raises if M <= 32, but SystemDescription enforces M > 32.
         # Patch compute_regions to simulate an unexpected ValueError.
         (tmp_path / "systems").mkdir()
+        (tmp_path / "documentation").mkdir()
         (tmp_path / "systems" / "test-sys.json").write_text(json.dumps(_SYSTEM_DESC))
         pareto_sys = tmp_path / "pareto" / "test-sys"
         pareto_sys.mkdir(parents=True)

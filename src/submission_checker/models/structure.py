@@ -29,7 +29,7 @@ class SubmissionDir(BaseModel):
 
     @model_validator(mode="after")
     def _check_required_dirs(self) -> SubmissionDir:
-        for name in ("systems", "pareto"):
+        for name in ("systems", "pareto", "documentation"):
             path = self.root / name
             if path.is_dir():
                 self._check_results.append(
