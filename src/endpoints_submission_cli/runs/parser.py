@@ -6,8 +6,6 @@ Run folder layout:
 
     <run_folder>/
         system_desc.json              — org/model/dataset metadata
-        mlperf-system-info-*.json     — hardware/software info (structured)
-        serving_config.json           — serving framework details
         config.yaml                   — benchmark configuration
         result_summary.json           — raw benchmark metrics
         run_metadata.json             — run-level metadata
@@ -15,6 +13,8 @@ Run folder layout:
         events.jsonl                  — per-event log
         report.txt                    — human-readable report
         sample_idx_map.json           — sample index mapping
+        serving_config.json           — serving framework details
+        mlperf-system-info-*.json     — per-node hardware snapshots
         metrics/final_snapshot.json   — metrics snapshot
 """
 
@@ -38,9 +38,8 @@ def parse_run_folder(path: Path) -> dict[str, Any]:
     """Parse *path* and return a dict suitable for ``POST /runs``.
 
     Args:
-        path: Directory containing ``config.yaml`` and ``result_summary.json``,
-              plus either ``system_info.json`` (old format) or
-              ``system_desc.json`` / ``mlperf-system-info-*.json`` (new format).
+        path: Directory containing ``system_desc.json``, ``config.yaml``,
+              and ``result_summary.json``.
 
     Returns:
         Dict with keys matching ``RunCreate`` schema fields.
@@ -77,82 +76,15 @@ def _validate_required_files(path: Path) -> None:
         raise RunFolderError(
             f"Run folder {path} is missing required file(s): {', '.join(missing)}"
         )
-    has_system_info = (path / "system_desc.json").exists() or bool(
-        list(path.glob("mlperf-system-info-*.json"))
-    )
-    if not has_system_info:
+    if not (path / "system_desc.json").exists():
         raise RunFolderError(
-            f"Run folder {path} is missing system info: "
-            "expected system_desc.json or mlperf-system-info-*.json"
+            f"Run folder {path} is missing system_desc.json"
         )
 
 
 def _load_system_info(path: Path) -> dict[str, Any]:
-    """Load system info from the run folder (new format only).
-
-    Merges system_desc.json + mlperf-system-info-*.json + serving_config.json
-    into a flat dict of field names used by the rest of the code.
-    """
-    merged: dict[str, Any] = {}
-
-    sd_path = path / "system_desc.json"
-    if sd_path.exists():
-        sd = _load_json(sd_path)
-        org = sd.get("organization_metadata", {}) or {}
-        sut = sd.get("system_under_test", {}) or {}
-        sys_meta = sut.get("system_metadata", {}) or {}
-        merged["submitter_org_names"] = org.get("submitter_org_name", "") or ""
-        merged["system_name"] = sys_meta.get("system_name", "") or ""
-        merged["system_category"] = sys_meta.get("system_category", "") or ""
-        merged["system_availability_status"] = (
-            sys_meta.get("system_availability_status", "") or ""
-        )
-        merged["framework"] = sut.get("serving_framework", "") or ""
-
-    hw_paths = sorted(path.glob("mlperf-system-info-*.json"))
-    if hw_paths:
-        hw = _load_json(hw_paths[0])
-        hw_ens = hw.get("hardware_ensemble", {}) or {}
-        proc = hw_ens.get("processor", {}) or {}
-        mem = hw_ens.get("host_memory", {}) or {}
-        accel = hw_ens.get("accelerator", {}) or {}
-        net = hw_ens.get("networking", {}) or {}
-        storage = hw_ens.get("storage", {}) or {}
-        sw = hw.get("software_ensemble", {}) or {}
-        merged.update({
-            "host_processor_model_name": proc.get("host_processor_model_name", "") or "",
-            "host_processors_per_node": proc.get("host_processors_per_node", 1),
-            "host_processor_core_count": proc.get("host_processor_core_count"),
-            "host_processor_vcpu_count": proc.get("host_processor_vcpu_count"),
-            "host_memory_capacity": mem.get("host_memory_capacity", "") or "",
-            "accelerator_model_name": accel.get("accelerator_model_name", "") or "",
-            "accelerators_per_node": accel.get("accelerators_per_node", 0),
-            "accelerator_memory_capacity": accel.get("accelerator_memory_capacity", "") or "",
-            "accelerator_memory_type": accel.get("accelerator_memory_type", "") or "",
-            "accelerator_interconnect": accel.get("accelerator_interconnect", "") or "",
-            "accelerator_host_interconnect": accel.get("accelerator_host_interconnect", "") or "",
-            "host_networking": net.get("host_networking", "") or "",
-            "host_network_card_count": net.get("host_network_card_count", "") or "",
-            "host_storage_capacity": storage.get("host_storage_capacity", "") or "",
-            "host_storage_type": storage.get("host_storage_type", "") or "",
-            "cooling": hw_ens.get("cooling") or "",
-            "operating_system": sw.get("operating_system", "") or "",
-            "other_software_stack": sw.get("other_software_stack") or "",
-        })
-
-    sc_path = path / "serving_config.json"
-    if sc_path.exists():
-        sc = _load_json(sc_path)
-        if sc.get("framework"):
-            merged["framework"] = sc["framework"]
-
-    if not merged:
-        raise RunFolderError(
-            f"Run folder {path} is missing system info: "
-            "expected system_desc.json or mlperf-system-info-*.json"
-        )
-
-    return merged
+    """Load system_desc.json and return the nested dict as-is."""
+    return _load_json(path / "system_desc.json")
 
 
 def _load_json(file_path: Path) -> dict[str, Any]:

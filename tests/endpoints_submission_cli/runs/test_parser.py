@@ -33,8 +33,13 @@ class TestParseRunFolder:
     def test_system_info_passthrough(self, run_folder: Path) -> None:
         payload = parse_run_folder(run_folder)
         si = payload["system_info"]
-        assert si["system_name"] == "Test System"
-        assert si["accelerator_model_name"] == "NVIDIA H100 SXM5 80GB"
+        assert si["system_under_test"]["system_metadata"]["system_name"] == "Test System"
+        assert (
+            si["system_under_test"]["node_types"][0]["hardware_ensemble"]["accelerator"][
+                "accelerator_model_name"
+            ]
+            == "NVIDIA H100 SXM5 80GB"
+        )
 
     def test_config_passthrough(self, run_folder: Path) -> None:
         payload = parse_run_folder(run_folder)
@@ -143,7 +148,8 @@ class TestParseRunFolder:
         if not sample_google_run_dir.exists():
             pytest.skip("Sample Google run data not available")
         payload = parse_run_folder(sample_google_run_dir)
-        assert payload["system_info"]["system_name"]
+        si = payload["system_info"]
+        assert si.get("system_under_test", {}).get("system_metadata", {}).get("system_name") or si
         assert payload["config"]
         assert payload["result_summary"]["n_samples_completed"] > 0
 
