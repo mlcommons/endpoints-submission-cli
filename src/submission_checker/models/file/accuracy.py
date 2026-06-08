@@ -6,7 +6,7 @@ from pathlib import Path
 
 __all__ = ["AccuracyResult"]
 
-from pydantic import BaseModel, ConfigDict, PrivateAttr, ValidationInfo, model_validator
+from pydantic import BaseModel, ConfigDict, PrivateAttr, ValidationInfo, field_validator, model_validator
 
 from ..results import CheckResult, err, ok
 
@@ -28,6 +28,19 @@ class AccuracyResult(BaseModel):
     score: float | dict
     quality_target: float
     passed: bool
+
+    @field_validator("score", mode="before")
+    @classmethod
+    def _coerce_score_strings(cls, v: object) -> object:
+        if isinstance(v, dict):
+            coerced = {}
+            for k, val in v.items():
+                try:
+                    coerced[k] = float(val)
+                except (TypeError, ValueError):
+                    coerced[k] = val
+            return coerced
+        return v
 
     @model_validator(mode="after")
     def _check_score_consistency(self, info: ValidationInfo) -> AccuracyResult:

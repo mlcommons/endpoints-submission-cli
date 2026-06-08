@@ -112,8 +112,9 @@ def submissions_add_run(submission_id: str, run_id: str, token: str | None) -> N
         # 2. Assemble submission folder
         _console.print("[cyan]Assembling submission folder…[/cyan]")
         division = sub_out.get("division", "standardized")
+        availability = sub_out.get("availability", "available")
         try:
-            submission_dir = build_submission_folder(archives, division, tmp_path / "bundle")
+            submission_dir = build_submission_folder(archives, division, tmp_path / "bundle", availability)
         except SubmissionBuildError as exc:
             _console.print(f"[bold red]Build error:[/bold red] {exc}")
             _rollback_add_run(resolved_token, submission_id, run_id)

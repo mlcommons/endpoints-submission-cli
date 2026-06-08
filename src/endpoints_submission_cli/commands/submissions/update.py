@@ -101,6 +101,7 @@ def submissions_update(
 
     original_run_ids: list[str] = current_sub.get("run_ids", [])
     division: str = current_sub.get("division", "standardized")
+    availability: str = current_sub.get("availability", "available")
     pr_number: int | None = current_sub.get("pr_number")
 
     added = [r for r in desired_run_ids if r not in original_run_ids]
@@ -174,7 +175,7 @@ def submissions_update(
         # Assemble submission folder
         _console.print("[cyan]Assembling submission folder…[/cyan]")
         try:
-            submission_dir = build_submission_folder(archives, division, tmp_path / "bundle")
+            submission_dir = build_submission_folder(archives, division, tmp_path / "bundle", availability)
         except SubmissionBuildError as exc:
             _console.print(f"[bold red]Build error:[/bold red] {exc}")
             _rollback_update(resolved_token, submission_id, original_run_ids)
