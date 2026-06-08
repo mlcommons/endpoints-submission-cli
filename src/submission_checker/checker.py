@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import yaml
+
 __all__ = ["SubmissionChecker"]
 
 from .models.loader import (
@@ -157,9 +159,20 @@ class SubmissionChecker:
             )
         )
 
-        M = system_desc.max_supported_concurrency
+        # Derive M from the maximum concurrency in submitted point YAML files
+        system_pareto_path = pareto_dir / system_id
+        M = 33
+        if system_pareto_path.is_dir():
+            for yaml_path in system_pareto_path.rglob("point_*.yaml"):
+                try:
+                    data = yaml.safe_load(yaml_path.read_text())
+                    c = int(data.get("concurrency", 0))
+                    if c > M:
+                        M = c
+                except Exception:
+                    pass
         results.append(
-            _ok("max-concurrency-declared", f"max_supported_concurrency = {M}", system_json, "#7")
+            _ok("max-concurrency-declared", f"max concurrency = {M} (derived from points)", system_json, "#7")
         )
 
         try:
@@ -168,7 +181,7 @@ class SubmissionChecker:
             results.append(_err("region-computation", str(exc), system_json, "#7"))
             return results
 
-        src = SrcDir(root=self.submission_path, division=system_desc.division)
+        src = SrcDir(root=self.submission_path, division=system_desc.model_metadata.division)
         results.extend(src._check_results)
 
         system_pareto = SystemPareto(pareto_dir=pareto_dir, system_id=system_id)
