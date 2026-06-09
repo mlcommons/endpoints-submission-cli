@@ -444,9 +444,21 @@ class TestAccuracyGateValidator:
         ctx = _model_ctx(tmp_path, accuracy_result=None)
         assert not any(r.rule == "accuracy-gate" for r in ctx._check_results)
 
-    def test_passed_accuracy_gate(self, tmp_path):
-        ar = AccuracyResult(metric="rouge1", score=0.45, quality_target=0.43, passed=True)
+    def test_unknown_model_emits_warning(self, tmp_path):
+        # default model_name "llama3-70b" has no known thresholds
+        ar = AccuracyResult({"ds": {"score": {"rouge1": "39.0"}}})
         ctx = _model_ctx(tmp_path, accuracy_result=ar)
+        assert any(
+            r.rule == "accuracy-gate" and r.severity == Severity.WARNING
+            for r in ctx._check_results
+        )
+
+    def test_passed_accuracy_gate(self, tmp_path):
+        # rouge1 = 39.0 > threshold 38.3914 for llama3.1-8b
+        ar = AccuracyResult({"cnn_dailymail::llama3_8b": {
+            "score": {"rouge1": "39.0", "rouge2": "16.0", "rougeL": "25.0"}
+        }})
+        ctx = _model_ctx(tmp_path, accuracy_result=ar, model_name="Llama-3_1-8B-Instruct")
         assert any(
             r.rule == "accuracy-gate" and r.severity == Severity.INFO for r in ctx._check_results
         )
@@ -455,8 +467,47 @@ class TestAccuracyGateValidator:
         )
 
     def test_failed_accuracy_gate(self, tmp_path):
-        ar = AccuracyResult(metric="rouge1", score=0.30, quality_target=0.43, passed=False)
-        ctx = _model_ctx(tmp_path, accuracy_result=ar)
+        # rouge1 = 30.0 < threshold 38.3914 for llama3.1-8b
+        ar = AccuracyResult({"cnn_dailymail::llama3_8b": {
+            "score": {"rouge1": "30.0", "rouge2": "12.0", "rougeL": "20.0"}
+        }})
+        ctx = _model_ctx(tmp_path, accuracy_result=ar, model_name="Llama-3_1-8B-Instruct")
         assert any(
             r.rule == "accuracy-gate" and r.severity == Severity.ERROR for r in ctx._check_results
         )
+
+    def test_sample_count_passes(self, tmp_path):
+        # 13368 == min_queries for llama3.1-8b → ok
+        ar = AccuracyResult({"cnn_dailymail::llama3_8b": {
+            "num_samples": 13368,
+            "score": {"rouge1": "39.0"},
+        }})
+        ctx = _model_ctx(tmp_path, accuracy_result=ar, model_name="Llama-3_1-8B-Instruct")
+        assert any(
+            r.rule == "accuracy-sample-count" and r.severity != Severity.ERROR
+            for r in ctx._check_results
+        )
+        assert not any(
+            r.rule == "accuracy-sample-count" and r.severity == Severity.ERROR
+            for r in ctx._check_results
+        )
+
+    def test_sample_count_fails(self, tmp_path):
+        # 1000 < 13368 min_queries for llama3.1-8b → error
+        ar = AccuracyResult({"cnn_dailymail::llama3_8b": {
+            "num_samples": 1000,
+            "score": {"rouge1": "39.0"},
+        }})
+        ctx = _model_ctx(tmp_path, accuracy_result=ar, model_name="Llama-3_1-8B-Instruct")
+        assert any(
+            r.rule == "accuracy-sample-count" and r.severity == Severity.ERROR
+            for r in ctx._check_results
+        )
+
+    def test_sample_count_missing_skips(self, tmp_path):
+        # no num_samples field → no accuracy-sample-count check
+        ar = AccuracyResult({"cnn_dailymail::llama3_8b": {
+            "score": {"rouge1": "39.0"},
+        }})
+        ctx = _model_ctx(tmp_path, accuracy_result=ar, model_name="Llama-3_1-8B-Instruct")
+        assert not any(r.rule == "accuracy-sample-count" for r in ctx._check_results)
