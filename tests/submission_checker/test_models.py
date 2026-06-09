@@ -278,35 +278,18 @@ def test_point_result_summary_total_output_tokens():
 # ---------------------------------------------------------------------------
 
 
-def test_accuracy_result_passed():
-    ar = AccuracyResult(metric="rouge1", score=0.45, quality_target=0.43, passed=True)
-    assert ar.passed
+def test_accuracy_result_stores_scores():
+    ar = AccuracyResult({
+        "cnn_dailymail::llama3_8b": {"score": {"rouge1": "38.73", "rouge2": "16.10"}}
+    })
+    scores = ar.metric_scores()
+    assert scores["cnn_dailymail::llama3_8b"]["rouge1"] == pytest.approx(38.73)
+    assert scores["cnn_dailymail::llama3_8b"]["rouge2"] == pytest.approx(16.10)
 
 
-def test_accuracy_result_failed():
-    ar = AccuracyResult(metric="rouge1", score=0.38, quality_target=0.43, passed=False)
-    assert not ar.passed
-
-
-def test_accuracy_result_dict_score_strings_coerced():
-    ar = AccuracyResult(
-        metric="rouge",
-        score={"rouge1": "0.45", "rouge2": "0.21"},
-        quality_target=0.0,
-        passed=True,
-    )
-    assert ar.score == {"rouge1": 0.45, "rouge2": 0.21}
-
-
-def test_accuracy_result_dict_score_consistency_checked():
-    ar = AccuracyResult(
-        metric="rouge",
-        score={"rouge1": 0.45, "rouge2": 0.21},
-        quality_target=0.20,
-        passed=True,
-    )
-    results = ar._check_results
-    assert any(r.rule == "accuracy-consistency" for r in results)
+def test_accuracy_result_empty_emits_error():
+    ar = AccuracyResult({})
+    assert any(r.rule == "accuracy-valid" and r.severity == Severity.ERROR for r in ar._check_results)
 
 
 # ---------------------------------------------------------------------------
