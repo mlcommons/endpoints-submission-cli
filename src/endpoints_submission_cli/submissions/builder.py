@@ -274,6 +274,9 @@ def _load_extra_files(base: Path) -> dict[str, bytes]:
     for p in sorted(base.glob("mlperf-system-info-*.json")):
         if p.is_file():
             extra[p.name] = p.read_bytes()
+    sd_path = base / "system_desc.json"
+    if sd_path.exists():
+        extra["system_desc_backup.json"] = sd_path.read_bytes()
     doc_dir = base / "documentation"
     if doc_dir.is_dir():
         for p in sorted(doc_dir.rglob("*")):
