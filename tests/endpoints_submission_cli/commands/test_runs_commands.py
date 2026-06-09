@@ -107,6 +107,35 @@ class TestRunsGet:
                 result = _runner.invoke(app, ["runs", "get", "--run-id", RUN_ID, *_TOKEN_ARGS])
         assert result.exit_code == 1
 
+    def test_get_download_to_saves_archive(self, tmp_path: Path) -> None:
+        archive = tmp_path / f"{RUN_ID}.tar.gz"
+        with patch("endpoints_submission_cli.runs.api.get_run", return_value=RUN_OUT):
+            with patch(
+                "endpoints_submission_cli.runs.api.download_run_archive",
+                return_value=archive,
+            ) as mock_dl:
+                with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
+                    result = _runner.invoke(
+                        app,
+                        ["runs", "get", "--run-id", RUN_ID, "--download-to", str(tmp_path), *_TOKEN_ARGS],
+                    )
+        assert result.exit_code == 0
+        mock_dl.assert_called_once_with(TOKEN, RUN_ID, tmp_path)
+        assert "Archive saved to" in result.output
+
+    def test_get_download_api_error_exits_1(self, tmp_path: Path) -> None:
+        with patch("endpoints_submission_cli.runs.api.get_run", return_value=RUN_OUT):
+            with patch(
+                "endpoints_submission_cli.runs.api.download_run_archive",
+                side_effect=APIError("download failed"),
+            ):
+                with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
+                    result = _runner.invoke(
+                        app,
+                        ["runs", "get", "--run-id", RUN_ID, "--download-to", str(tmp_path), *_TOKEN_ARGS],
+                    )
+        assert result.exit_code == 1
+
 
 @pytest.mark.unit
 class TestRunsDelete:
