@@ -99,6 +99,8 @@ def build_submission_folder(
     if _normalize_division(division) == "Standardized":
         (submission_dir / "src").mkdir(exist_ok=True)
 
+    _write_documentation(submission_dir, run_data)
+
     return submission_dir
 
 
@@ -262,6 +264,8 @@ def _load_extra_files(base: Path) -> dict[str, bytes]:
         "serving_config.json",
         "report.txt",
         "metrics/final_snapshot.json",
+        "accuracy/accuracy_result.json",
+        "accuracy/accuracy.txt",
     ]
     for rel in candidates:
         p = base / rel
@@ -270,6 +274,12 @@ def _load_extra_files(base: Path) -> dict[str, bytes]:
     for p in sorted(base.glob("mlperf-system-info-*.json")):
         if p.is_file():
             extra[p.name] = p.read_bytes()
+    doc_dir = base / "documentation"
+    if doc_dir.is_dir():
+        for p in sorted(doc_dir.rglob("*")):
+            if p.is_file():
+                rel = p.relative_to(base)
+                extra[str(rel)] = p.read_bytes()
     return extra
 
 
@@ -456,23 +466,46 @@ def _write_accuracy(
     model: str,
     runs: list[dict[str, Any]],
 ) -> None:
-    """Write accuracy/ files from the first run that has an accuracy_scores section in results.json.
+    """Write accuracy/ files, preferring a pre-computed accuracy_result.json from the archive.
 
-    If no run provides accuracy_scores, the accuracy directory is not created.
+    Priority:
+    1. accuracy/accuracy_result.json in the archive (if it contains accuracy_scores).
+    2. accuracy_scores in results.json — fallback when no pre-computed file exists.
+
+    The written accuracy_result.json preserves the accuracy_scores nested format:
+        {"<dataset_name>": {"score": {...}, "num_samples": N, ...}}
     """
     accuracy_scores: dict[str, Any] | None = None
+
+    # Primary: accuracy/accuracy_result.json bundled with the run
     for run in runs:
-        results_bytes = run.get("_extra_files", {}).get("results.json")
-        if not results_bytes:
+        ar_bytes = run.get("_extra_files", {}).get("accuracy/accuracy_result.json")
+        if not ar_bytes:
             continue
         try:
-            parsed = json.loads(results_bytes)
+            ar_data = json.loads(ar_bytes)
         except json.JSONDecodeError:
             continue
-        scores = parsed.get("accuracy_scores")
-        if scores:
-            accuracy_scores = scores
-            break
+        if "accuracy_scores" in ar_data:
+            scores = ar_data["accuracy_scores"]
+            if scores:
+                accuracy_scores = scores
+                break
+
+    # Fallback: accuracy_scores in results.json
+    if accuracy_scores is None:
+        for run in runs:
+            results_bytes = run.get("_extra_files", {}).get("results.json")
+            if not results_bytes:
+                continue
+            try:
+                parsed = json.loads(results_bytes)
+            except json.JSONDecodeError:
+                continue
+            scores = parsed.get("accuracy_scores")
+            if scores:
+                accuracy_scores = scores
+                break
 
     if not accuracy_scores:
         return
@@ -498,8 +531,35 @@ def _write_accuracy(
         "passed": True,
     }
     (accuracy_dir / "accuracy_result.json").write_text(
-        json.dumps(accuracy_result, indent=2), encoding="utf-8"
+        json.dumps(accuracy_scores, indent=2), encoding="utf-8"
     )
+
+    # Write a human-readable summary
+    txt_lines: list[str] = []
+    for ds_name, entry in accuracy_scores.items():
+        raw = entry.get("score", {}) if isinstance(entry, dict) else {}
+        if isinstance(raw, dict):
+            metrics = ", ".join(
+                f"{k}={v}" for k, v in raw.items()
+                if isinstance(v, (int, float)) or (isinstance(v, str) and v.replace(".", "").isdigit())
+            )
+            txt_lines.append(f"{ds_name}: {metrics}" if metrics else ds_name)
+        else:
+            txt_lines.append(f"{ds_name}: {raw}")
+    (accuracy_dir / "accuracy.txt").write_text("\n".join(txt_lines) + "\n", encoding="utf-8")
+
+
+def _write_documentation(submission_dir: Path, run_data: list[dict[str, Any]]) -> None:
+    """Merge documentation files from all runs into submission_dir/documentation/."""
+    doc_dir = submission_dir / "documentation"
+    doc_dir.mkdir(exist_ok=True)
+    for run in run_data:
+        for rel, content in run.get("_extra_files", {}).items():
+            if not rel.startswith("documentation/"):
+                continue
+            dest = doc_dir / Path(rel).relative_to("documentation")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(content)
 
 
 def _normalize_division(division: str) -> str:

@@ -9,6 +9,9 @@ build/
 htmlcov/
 docs/_build/
 .uv/
+env/
+*.log
+*.jsonl
 
 # Test / lint caches
 .pytest_cache/
