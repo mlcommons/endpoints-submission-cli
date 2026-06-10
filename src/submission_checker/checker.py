@@ -10,29 +10,31 @@ from typing import TYPE_CHECKING
 
 __all__ = ["SubmissionChecker"]
 
+from .models import (
+    CheckResult,
+    ModelContext,
+    ModelDir,
+    PointConfig,
+    PointResult,
+    PointSummary,
+    Regions,
+    Report,
+    Severity,
+    SrcDir,
+    SubmissionDir,
+    SystemDescription,
+    SystemPareto,
+    compute_regions,
+)
+from .models import err as _err
+from .models import ok as _ok
+from .models import warn as _warn
 from .models.loader import (
     load_accuracy_result,
     load_point_config,
     load_result_summary,
     load_system_description,
 )
-from .models import (
-    CheckResult,
-    ModelContext,
-    PointConfig,
-    PointResult,
-    PointSummary,
-    Regions,
-    Report,
-    RuntimeSettings,
-    Severity,
-    SystemDescription,
-    compute_regions,
-)
-from .models import ModelDir, SrcDir, SubmissionDir, SystemPareto
-from .models import err as _err
-from .models import ok as _ok
-from .models import warn as _warn
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -64,8 +66,7 @@ class SubmissionChecker:
     # ------------------------------------------------------------------
 
     def run(self) -> Report:
-        """Run all §9.1 automated checks and return an aggregated
-        :class:`~submission_checker.models.Report`.
+        """Run all §9.1 automated checks and return an aggregated report.
 
         Returns:
             A :class:`~submission_checker.models.Report` with every
@@ -159,7 +160,12 @@ class SubmissionChecker:
 
         M = system_desc.max_supported_concurrency
         results.append(
-            _ok("max-concurrency-declared", f"max_supported_concurrency = {M}", system_json, "#7")
+            _ok(
+                "max-concurrency-declared",
+                f"max_supported_concurrency = {M}",
+                system_json,
+                "#7",
+            )
         )
 
         try:
@@ -313,7 +319,12 @@ class SubmissionChecker:
             json_path = accuracy_dir / "accuracy_result.json"
             if not json_path.exists():
                 results.append(
-                    _warn("accuracy-file", "Missing accuracy/accuracy_result.json", json_path, "#15")
+                    _warn(
+                        "accuracy-file",
+                        "Missing accuracy/accuracy_result.json",
+                        json_path,
+                        "#15",
+                    )
                 )
             else:
                 accuracy_result, acc_results = load_accuracy_result(json_path)

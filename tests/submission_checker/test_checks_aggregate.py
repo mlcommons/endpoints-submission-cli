@@ -4,14 +4,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from submission_checker.models import (
-    AccuracyResult,
     MIN_QUERY_COUNT,
-    ModelContext,
+    AccuracyResult,
     PercentileStats,
     PointConfig,
     PointResult,
@@ -24,9 +21,7 @@ from .conftest import (
     _REGIONS,
     _config,
     _model_ctx,
-    _passed,
     _summary,
-    _system_desc,
 )
 
 # ---------------------------------------------------------------------------
@@ -429,30 +424,6 @@ class TestConfigConsistencyValidator:
         ctx = _model_ctx(tmp_path, loaded_points=[(c1, s), (c2, s)])
         assert any(
             r.rule == "config-consistency-dataset" and r.severity == Severity.ERROR
-            for r in ctx._check_results
-        )
-
-    def test_model_name_mismatch(self, tmp_path):
-        model_dir = tmp_path / "actual-name"
-        model_dir.mkdir(exist_ok=True)
-        (model_dir / "points").mkdir(exist_ok=True)
-        (model_dir / "results").mkdir(exist_ok=True)
-        (model_dir / "accuracy").mkdir(exist_ok=True)
-        s = _summary()
-        ctx = ModelContext(
-            system_id="test-sys",
-            system_desc=_system_desc(benchmark_model="expected-name"),
-            model_dir=model_dir,
-            regions=_REGIONS,
-            points_dir=model_dir / "points",
-            accuracy_dir=model_dir / "accuracy",
-            all_point_count=7,
-            valid_points=[],
-            loaded_points=[(_config(), s)],
-            accuracy_result=None,
-        )
-        assert any(
-            r.rule == "config-consistency-model" and r.severity == Severity.WARNING
             for r in ctx._check_results
         )
 

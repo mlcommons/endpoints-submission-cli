@@ -8,10 +8,10 @@ __all__ = ["MIN_QUERY_COUNT", "PointResult"]
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr, ValidationInfo, model_validator
 
-from ..regions import MIN_DURATION_MS, classify_concurrency
-from ..results import CheckResult, err, ok, warn
 from ..file.point_config import PointConfig
 from ..file.point_summary import PointSummary
+from ..regions import MIN_DURATION_MS, classify_concurrency
+from ..results import CheckResult, err, ok, warn
 
 _TPS_TOLERANCE = 0.01  # 1% relative tolerance for stored-vs-derived comparisons
 

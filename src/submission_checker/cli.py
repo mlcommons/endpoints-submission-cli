@@ -36,7 +36,7 @@ def main() -> None:
     help="Write full results as JSON to FILE (in addition to the terminal table).",
 )
 def check(path: Path, strict: bool, quiet: bool, output: Path | None) -> None:
-    """Check the submission at PATH for §9.1 compliance.
+    r"""Check the submission at PATH for §9.1 compliance.
 
     PATH is the submitting organisation's root directory (contains systems/ and pareto/).
 

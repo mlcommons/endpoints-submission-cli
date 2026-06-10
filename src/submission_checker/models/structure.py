@@ -20,11 +20,13 @@ class SubmissionDir(BaseModel):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def systems_dir(self) -> Path:
+        """Path to the systems/ subdirectory."""
         return self.root / "systems"
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def pareto_dir(self) -> Path:
+        """Path to the pareto/ subdirectory."""
         return self.root / "pareto"
 
     @model_validator(mode="after")
@@ -82,6 +84,7 @@ class SystemPareto(BaseModel):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def system_dir(self) -> Path:
+        """Path to the pareto/<system_id>/ subdirectory."""
         return self.pareto_dir / self.system_id
 
     @model_validator(mode="after")
@@ -110,16 +113,19 @@ class ModelDir(BaseModel):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def points_dir(self) -> Path:
+        """Path to the points/ subdirectory."""
         return self.root / "points"
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def results_dir(self) -> Path:
+        """Path to the results/ subdirectory."""
         return self.root / "results"
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def accuracy_dir(self) -> Path:
+        """Path to the accuracy/ subdirectory."""
         return self.root / "accuracy"
 
     @model_validator(mode="after")

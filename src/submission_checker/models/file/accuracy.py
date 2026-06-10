@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+from pydantic import PrivateAttr, RootModel, model_validator
+
+from ..results import CheckResult, err
 
 __all__ = ["AccuracyResult"]
 
-from pydantic import RootModel, model_validator, PrivateAttr
-
-from ..results import CheckResult, err
+_log = logging.getLogger(__name__)
 
 
 class AccuracyResult(RootModel[dict[str, dict[str, Any]]]):
@@ -47,12 +50,19 @@ class AccuracyResult(RootModel[dict[str, dict[str, Any]]]):
                     try:
                         scores[k] = float(v)
                     except (TypeError, ValueError):
-                        pass
+                        _log.warning(
+                            "accuracy_result.json: cannot convert %r=%r to float; skipping",
+                            k,
+                            v,
+                        )
                 if scores:
                     result[ds_name] = scores
             elif raw_score is not None:
                 try:
                     result[ds_name] = {"score": float(raw_score)}
                 except (TypeError, ValueError):
-                    pass
+                    _log.warning(
+                        "accuracy_result.json: cannot convert score %r to float; skipping",
+                        raw_score,
+                    )
         return result

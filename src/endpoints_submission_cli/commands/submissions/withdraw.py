@@ -8,9 +8,8 @@ import sys
 
 import click
 
-from ...exceptions import APIError, GitHubError
+from ...exceptions import APIError
 from ...submissions import api as subs_api
-from ...submissions import github as github_ops
 from ..common import _console, _get_token
 
 __all__ = ["submissions_withdraw"]
@@ -36,7 +35,7 @@ def submissions_withdraw(submission_id: str, token: str | None) -> None:
     target_repo = github_ops.get_target_repo()
     """
     try:
-        sub_out = subs_api.withdraw_submission(resolved_token, submission_id)
+        subs_api.withdraw_submission(resolved_token, submission_id)
     except APIError as exc:
         _console.print(f"[bold red]Error withdrawing submission:[/bold red] {exc}")
         sys.exit(1)

@@ -16,14 +16,7 @@ import yaml
 # ---------------------------------------------------------------------------
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
-_SAMPLE_SUBMISSIONS = _REPO_ROOT / "samplesubmissions" / "submissions"
 _TEST_SUBMISSIONS = _REPO_ROOT / "test_submissions"
-
-
-@pytest.fixture(scope="session")
-def sample_google_run_dir() -> Path:
-    """Path to a real Google run folder with system_info.json, config.yaml, result_summary.json."""
-    return _SAMPLE_SUBMISSIONS / "google" / "Ironwood-192GBx4_vLLM" / "run_data" / "r1"
 
 
 # ---------------------------------------------------------------------------
@@ -53,19 +46,42 @@ _SYSTEM_INFO = {
     "system_type_detail": "on-premise",
 }
 
-# New-format run folder files
+# Flat system description
 _SYSTEM_DESC = {
-    "organization_metadata": {"submitter_org_name": "TestOrg"},
-    "system_under_test": {
-        "system_metadata": {
-            "system_name": "Test System",
-            "system_category": "datacenter",
-            "system_availability_status": "Available",
-        },
-        "serving_framework": None,
-    },
+    "submitter_org_names": "TestOrg",
+    "submitter_contact": "test@testorg.com",
+    "system_name": "Test System",
+    "system_category": "datacenter",
+    "system_availability_status": "Available",
+    "max_supported_concurrency": 1024,
+    "serving_framework": "vllm==0.4.2",
+    "node_types": [
+        {
+            "system_node_ensemble_id": 0,
+            "number_of_nodes": 1,
+            "host_processor_model_name": "AMD EPYC 9575F",
+            "host_processors_per_node": 2,
+            "host_processor_core_count": 64,
+            "host_memory_capacity": "512 GB",
+            "accelerator_model_name": "NVIDIA H100 SXM5 80GB",
+            "accelerators_per_node": 8,
+            "accelerator_memory_capacity": "80 GB",
+            "host_networking": "InfiniBand HDR",
+            "host_network_card_count": "4x HDR",
+            "host_storage_type": "NVMe SSD",
+            "host_storage_capacity": "3.84 TB",
+            "operating_system": "Ubuntu 22.04",
+        }
+    ],
+    "division": "Standardized",
+    "model_id": "llama3.1-8b",
+    "model_name": "Llama 3.1 8B Instruct",
+    "dataset_id": "cnn-dailymail",
+    "dataset_name": "cnn_dailymail",
+    "measured_accuracy_score": 0.45,
 }
 
+# Supplementary per-node hardware snapshot (still written to run folder)
 _HW_INFO = {
     "hardware_ensemble": {
         "processor": {

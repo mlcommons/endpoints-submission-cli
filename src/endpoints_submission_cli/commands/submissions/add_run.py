@@ -11,10 +11,9 @@ from pathlib import Path
 import click
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 
-from ...exceptions import APIError, GitHubError, SubmissionBuildError, SubmissionCheckError
+from ...exceptions import APIError, SubmissionBuildError, SubmissionCheckError
 from ...runs import api as runs_api
 from ...submissions import api as subs_api
-from ...submissions import github as github_ops
 from ...submissions.builder import build_submission_folder, create_bundle_archive
 from ..common import _console, _get_token, _run_submission_checker
 
@@ -72,7 +71,7 @@ def submissions_add_run(submission_id: str, run_id: str, token: str | None) -> N
 
     # pr_number = sub_out.get("pr_number")
     all_run_ids: list[str] = sub_out.get("run_ids", [])
-    
+
 
     _console.print(
         f"[cyan]Rebuilding submission with {len(all_run_ids)} run(s) "
@@ -112,8 +111,11 @@ def submissions_add_run(submission_id: str, run_id: str, token: str | None) -> N
         # 2. Assemble submission folder
         _console.print("[cyan]Assembling submission folder…[/cyan]")
         division = sub_out.get("division", "standardized")
+        availability = sub_out.get("availability", "available")
         try:
-            submission_dir = build_submission_folder(archives, division, tmp_path / "bundle")
+            submission_dir = build_submission_folder(
+                archives, division, availability, tmp_path / "bundle"
+            )
         except SubmissionBuildError as exc:
             _console.print(f"[bold red]Build error:[/bold red] {exc}")
             _rollback_add_run(resolved_token, submission_id, run_id)

@@ -12,7 +12,7 @@ from submission_checker.models import (
     Severity,
 )
 
-from .conftest import _REGIONS, _passed
+from .conftest import _REGIONS
 
 
 @pytest.mark.unit

@@ -18,7 +18,6 @@ from pydantic import (
 from ..regions import classify_concurrency
 from ..results import CheckResult, err, ok, warn
 
-
 _VALID_REGIONS = frozenset(
     {"low_latency", "low_throughput", "med_throughput", "high_throughput", "submitters_choice"}
 )
@@ -181,7 +180,8 @@ class PointConfig(BaseModel):
                 self._check_results.append(
                     ok(
                         "region-declared",
-                        f"Declared region '{region}' consistent with concurrency {self.concurrency}",
+                        f"Declared region '{region}' consistent with"
+                        f" concurrency {self.concurrency}",
                         path,
                         "#8.3",
                     )

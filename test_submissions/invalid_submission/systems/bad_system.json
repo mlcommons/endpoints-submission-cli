@@ -1,25 +1,26 @@
 {
-  "division": "Standardized",
-  "publication_status": "Available",
-  "benchmark_model": "Llama-3_1-8B-Instruct",
-  "max_supported_concurrency": 1024,
-  "endpoint_url": "https://example.com/v1",
-  "serving_framework": "custom 0.0.1",
-  "submitter": "Invalid Corp",
+  "submitter_org_names": "Invalid Corp",
   "system_name": "bad_system",
-  "system_type": "datacenter",
-  "system_type_detail": "",
-  "number_of_nodes": 1,
-  "host_processors_per_node": 1,
-  "host_processor_model_name": "Generic CPU",
-  "host_processor_core_count": 8,
-  "host_memory_capacity": "64 GB",
-  "host_storage_type": "HDD",
-  "host_storage_capacity": "1 TB",
-  "host_networking": "Ethernet 1Gb",
-  "host_networking_topology": "",
-  "accelerators_per_node": 1,
-  "accelerator_model_name": "Generic GPU",
-  "accelerator_memory_capacity": "16 GB",
-  "operating_system": "Ubuntu 20.04"
+  "system_category": "datacenter",
+  "system_availability_status": "Available",
+  "max_supported_concurrency": 88,
+  "serving_framework": "custom 0.0.1",
+  "node_types": [
+    {
+      "system_node_ensemble_id": 0,
+      "number_of_nodes": 1,
+      "host_processor_model_name": "Generic CPU",
+      "host_processors_per_node": 1,
+      "host_processor_core_count": 8,
+      "host_memory_capacity": "64 GB",
+      "accelerator_model_name": "Generic GPU",
+      "accelerators_per_node": 1,
+      "accelerator_memory_capacity": "16 GB",
+      "host_networking": "Ethernet 1Gb",
+      "host_storage_capacity": "1 TB",
+      "host_storage_type": "HDD",
+      "operating_system": "Ubuntu 20.04"
+    }
+  ],
+  "division": "Standardized"
 }

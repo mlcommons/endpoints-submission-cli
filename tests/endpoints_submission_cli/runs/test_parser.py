@@ -34,7 +34,7 @@ class TestParseRunFolder:
         payload = parse_run_folder(run_folder)
         si = payload["system_info"]
         assert si["system_name"] == "Test System"
-        assert si["accelerator_model_name"] == "NVIDIA H100 SXM5 80GB"
+        assert si["node_types"][0]["accelerator_model_name"] == "NVIDIA H100 SXM5 80GB"
 
     def test_config_passthrough(self, run_folder: Path) -> None:
         payload = parse_run_folder(run_folder)
@@ -137,15 +137,6 @@ class TestParseRunFolder:
         (folder / "result_summary.json").write_text("{}")
         payload = parse_run_folder(folder)
         assert payload["benchmark_version"] == "unknown"
-
-    def test_google_sample_run(self, sample_google_run_dir: Path) -> None:
-        """Parse a real Google sample run folder."""
-        if not sample_google_run_dir.exists():
-            pytest.skip("Sample Google run data not available")
-        payload = parse_run_folder(sample_google_run_dir)
-        assert payload["system_info"]["system_name"]
-        assert payload["config"]
-        assert payload["result_summary"]["n_samples_completed"] > 0
 
 
 @pytest.mark.unit

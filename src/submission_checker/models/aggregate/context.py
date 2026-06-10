@@ -1,20 +1,24 @@
-"""Model context — aggregate model-level validation (point count, coverage, consistency, accuracy)."""
+"""Model context — aggregate model-level validation (point count, coverage, consistency).
+
+Handles accuracy and overall compliance checks.
+"""
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 __all__ = ["ModelContext"]
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr, model_validator
 
-from ..regions import Regions
-from ..results import CheckResult, err, ok, warn
-from ..file.accuracy import AccuracyResult
 from ...accuracy_targets import get_thresholds
+from ..file.accuracy import AccuracyResult
 from ..file.point_config import PointConfig
 from ..file.point_summary import PointSummary
 from ..file.system import SystemDescription
+from ..regions import Regions
+from ..results import CheckResult, err, ok, warn
 
 _MIN_POINTS = 7
 _MAX_POINTS = 32
@@ -56,7 +60,12 @@ class ModelContext(BaseModel):
             )
         if n > _MAX_POINTS:
             self._check_results.append(
-                err("point-cap", f"{n} points exceed the {_MAX_POINTS}-point cap", self.points_dir, "#2, #8")
+                err(
+                    "point-cap",
+                    f"{n} points exceed the {_MAX_POINTS}-point cap",
+                    self.points_dir,
+                    "#2, #8",
+                )
             )
         return self
 
@@ -94,8 +103,66 @@ class ModelContext(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def _check_model_name_consistency(self) -> ModelContext:
+        """§16: model name in system_desc must match the model directory name.
+
+        The model directory name is derived from config.yaml's model_params.name
+        (last path component, slugified). system_desc.model_id is the authoritative
+        source; system_desc.model_name is the fallback. Both may be in HuggingFace
+        format (e.g. "meta-llama/Llama-3.1-8B-Instruct") so we take the last "/"
+        component before comparing.
+
+        - system_desc has no model id/name  → warning (submitter hasn't filled it in)
+        - system_desc model normalizes to a different name than the directory → error
+        - they match → ok
+        """
+        # Strips HuggingFace org prefix, lowercases, and replaces non-word chars with
+        # underscores so "meta-llama/Llama-3.1-8B" compares equal to "Llama-3.1-8B".
+        def _normalize(name: str) -> str:
+            part = name.split("/")[-1].strip()
+            slug = re.sub(r"[^\w\-]", "_", part)
+            slug = re.sub(r"_+", "_", slug).strip("_")
+            return slug[:64]
+
+        sd_raw = (self.system_desc.model_id or self.system_desc.model_name or "").strip()
+
+        if not sd_raw:
+            self._check_results.append(
+                warn(
+                    "model-name-consistency",
+                    f"system_desc has no model_id or model_name; "
+                    f"model directory is '{self.model_dir.name}'",
+                    self.model_dir,
+                    "#16",
+                )
+            )
+        else:
+            sd_normalized = _normalize(sd_raw)
+            dir_name = self.model_dir.name
+            if sd_normalized != dir_name:
+                self._check_results.append(
+                    err(
+                        "model-name-consistency",
+                        f"system_desc model '{sd_raw}' (normalized: '{sd_normalized}')"
+                        f" does not match model directory '{dir_name}'",
+                        self.model_dir,
+                        "#16",
+                    )
+                )
+            else:
+                self._check_results.append(
+                    ok(
+                        "model-name-consistency",
+                        f"Model name consistent: {dir_name}",
+                        self.model_dir,
+                        "#16",
+                    )
+                )
+        return self
+
+    @model_validator(mode="after")
     def _check_config_consistency(self) -> ModelContext:
-        """§16: all points must use the same dataset; directory name must match benchmark_model."""
+        """§16: all points must use the same dataset."""
         if not self.loaded_points:
             return self
         datasets = {config.dataset for config, _ in self.loaded_points}
@@ -113,26 +180,6 @@ class ModelContext(BaseModel):
                 ok(
                     "config-consistency-dataset",
                     f"Dataset consistent: {next(iter(datasets))}",
-                    self.model_dir,
-                    "#16",
-                )
-            )
-
-        if self.model_dir.name != self.system_desc.benchmark_model:
-            self._check_results.append(
-                warn(
-                    "config-consistency-model",
-                    f"Directory name '{self.model_dir.name}' ≠"
-                    f" system_desc benchmark_model '{self.system_desc.benchmark_model}'",
-                    self.model_dir,
-                    "#16",
-                )
-            )
-        else:
-            self._check_results.append(
-                ok(
-                    "config-consistency-model",
-                    f"Benchmark model consistent: {self.model_dir.name}",
                     self.model_dir,
                     "#16",
                 )

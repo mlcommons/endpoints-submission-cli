@@ -37,7 +37,10 @@ __all__ = ["runs_create"]
 @click.option(
     "--expires-at",
     default=None,
-    help="Expiry datetime in ISO 8601 format (e.g. 2026-01-01T00:00:00). Defaults to server policy.",
+    help=(
+        "Expiry datetime in ISO 8601 format (e.g. 2026-01-01T00:00:00)."
+        " Defaults to server policy."
+    ),
 )
 @click.option(
     "--pinned",
@@ -51,7 +54,9 @@ __all__ = ["runs_create"]
     default=False,
     help="Print the parsed payload as JSON and exit without calling the API.",
 )
-def runs_create(path: Path, token: str | None, expires_at: str | None, pinned: bool, dry_run: bool) -> None:
+def runs_create(
+    path: Path, token: str | None, expires_at: str | None, pinned: bool, dry_run: bool
+) -> None:
     """Create a run from a local benchmark result folder.
 
     Parses system_info.json, config.yaml, and result_summary.json from PATH,

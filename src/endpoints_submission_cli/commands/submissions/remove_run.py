@@ -11,10 +11,9 @@ from pathlib import Path
 import click
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 
-from ...exceptions import APIError, GitHubError, SubmissionBuildError, SubmissionCheckError
+from ...exceptions import APIError, SubmissionBuildError, SubmissionCheckError
 from ...runs import api as runs_api
 from ...submissions import api as subs_api
-from ...submissions import github as github_ops
 from ...submissions.builder import build_submission_folder, create_bundle_archive
 from ..common import _console, _get_token, _run_submission_checker
 
@@ -48,10 +47,10 @@ def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -
       4. Rebuild submission folder — skipped if no runs remain
       5. Run Submission Checker — rollback and abort on errors; skipped if no runs remain
       6. Upload updated bundle to blob storage — skipped if no runs remain
-      7. Clone repo, check out existing PR branch, surgically update files, push — skipped if no runs remain
+      7. Clone repo, check out existing PR branch, surgically update files, push
+         — skipped if no runs remain
     """
     resolved_token = _get_token(token)
-    target_repo = github_ops.get_target_repo()
     """
     _console.print("[cyan]Checking GitHub prerequisites…[/cyan]")
     try:
@@ -69,7 +68,6 @@ def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -
         _console.print(f"[bold red]API error removing run:[/bold red] {exc}")
         sys.exit(1)
 
-    pr_number = sub_out.get("pr_number")
     all_run_ids: list[str] = sub_out.get("run_ids", [])
 
     if not all_run_ids:
@@ -117,8 +115,11 @@ def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -
         # 2. Assemble submission folder
         _console.print("[cyan]Assembling submission folder…[/cyan]")
         division = sub_out.get("division", "standardized")
+        availability = sub_out.get("availability", "available")
         try:
-            submission_dir = build_submission_folder(archives, division, tmp_path / "bundle")
+            submission_dir = build_submission_folder(
+                archives, division, availability, tmp_path / "bundle"
+            )
         except SubmissionBuildError as exc:
             _console.print(f"[bold red]Build error:[/bold red] {exc}")
             _rollback_remove_run(resolved_token, submission_id, run_id)
@@ -134,7 +135,6 @@ def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -
             sys.exit(1)
 
         upload_source = submission_dir
-        repo_dir = None
         """
         # 4. Merge fresh build with existing PR branch content (fatal — rollback on failure)
         if pr_number:
@@ -175,7 +175,7 @@ def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -
                     f"Re-run [bold]submissions remove-run[/bold] to retry."
                 )
         """
-        
+
     _console.print(
         f"[bold green]Run {run_id} removed from submission {submission_id}.[/bold green]"
     )

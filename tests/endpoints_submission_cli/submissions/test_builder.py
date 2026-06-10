@@ -45,30 +45,30 @@ class TestExtractArchive:
 class TestBuildSubmissionFolder:
     def test_creates_systems_dir(self, run_archive: Path, tmp_path: Path) -> None:
         sub_dir = build_submission_folder(
-            [("run-001", run_archive)], "standardized", tmp_path
+            [("run-001", run_archive)], "standardized", "available", tmp_path
         )
         assert (sub_dir / "systems").is_dir()
 
     def test_creates_pareto_dir(self, run_archive: Path, tmp_path: Path) -> None:
         sub_dir = build_submission_folder(
-            [("run-001", run_archive)], "standardized", tmp_path
+            [("run-001", run_archive)], "standardized", "available", tmp_path
         )
         pareto = sub_dir / "pareto"
         assert pareto.is_dir()
 
     def test_system_json_created(self, run_archive: Path, tmp_path: Path) -> None:
         sub_dir = build_submission_folder(
-            [("run-001", run_archive)], "standardized", tmp_path
+            [("run-001", run_archive)], "standardized", "available", tmp_path
         )
         jsons = list((sub_dir / "systems").glob("*.json"))
         assert len(jsons) == 1
         data = json.loads(jsons[0].read_text())
-        assert "division" in data
         assert data["division"] == "Standardized"
+        assert "node_types" in data
 
     def test_point_yaml_created(self, run_archive: Path, tmp_path: Path) -> None:
         sub_dir = build_submission_folder(
-            [("run-001", run_archive)], "standardized", tmp_path
+            [("run-001", run_archive)], "standardized", "available", tmp_path
         )
         yamls = list(sub_dir.rglob("point_*.yaml"))
         assert len(yamls) >= 1
@@ -77,7 +77,7 @@ class TestBuildSubmissionFolder:
 
     def test_log_summary_created(self, run_archive: Path, tmp_path: Path) -> None:
         sub_dir = build_submission_folder(
-            [("run-001", run_archive)], "standardized", tmp_path
+            [("run-001", run_archive)], "standardized", "available", tmp_path
         )
         summaries = list(sub_dir.rglob("mlperf_endpoints_log_summary.json"))
         assert len(summaries) == 1
@@ -87,14 +87,14 @@ class TestBuildSubmissionFolder:
 
     def test_log_detail_created(self, run_archive: Path, tmp_path: Path) -> None:
         sub_dir = build_submission_folder(
-            [("run-001", run_archive)], "standardized", tmp_path
+            [("run-001", run_archive)], "standardized", "available", tmp_path
         )
         details = list(sub_dir.rglob("mlperf_endpoints_log_detail.json"))
         assert len(details) == 1
 
     def test_accuracy_files_created(self, run_archive: Path, tmp_path: Path) -> None:
         sub_dir = build_submission_folder(
-            [("run-001", run_archive)], "standardized", tmp_path
+            [("run-001", run_archive)], "standardized", "available", tmp_path
         )
         acc_txts = list(sub_dir.rglob("accuracy.txt"))
         acc_jsons = list(sub_dir.rglob("accuracy_result.json"))
@@ -103,10 +103,10 @@ class TestBuildSubmissionFolder:
 
     def test_empty_run_list_raises(self, tmp_path: Path) -> None:
         with pytest.raises(SubmissionBuildError, match="At least one"):
-            build_submission_folder([], "standardized", tmp_path)
+            build_submission_folder([], "standardized", "available", tmp_path)
 
-    def test_missing_system_info_in_archive_raises(self, tmp_path: Path) -> None:
-        # Create archive without any system info files
+    def test_missing_system_desc_in_archive_raises(self, tmp_path: Path) -> None:
+        # Create archive without system_desc.json
         folder = tmp_path / "bad_run"
         folder.mkdir()
         (folder / "config.yaml").write_text(yaml.dump({"name": "x"}))
@@ -115,7 +115,21 @@ class TestBuildSubmissionFolder:
         with tarfile.open(archive, "w:gz") as tar:
             tar.add(folder, arcname="bad_run")
         with pytest.raises(SubmissionBuildError, match="system_desc.json"):
-            build_submission_folder([("bad", archive)], "standardized", tmp_path / "out")
+            build_submission_folder([("bad", archive)], "standardized", "available", tmp_path / "out")
+
+    def test_system_desc_missing_required_fields_raises(self, tmp_path: Path) -> None:
+        # Missing required fields (submitter_org_names, system_name, node_types) must raise
+        folder = tmp_path / "bad_run"
+        folder.mkdir()
+        bad_desc = {"system_category": "datacenter"}
+        (folder / "system_desc.json").write_text(json.dumps(bad_desc))
+        (folder / "config.yaml").write_text(yaml.dump({"name": "x"}))
+        (folder / "result_summary.json").write_text("{}")
+        archive = tmp_path / "bad.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname="bad_run")
+        with pytest.raises(SubmissionBuildError, match="schema validation"):
+            build_submission_folder([("bad", archive)], "standardized", "available", tmp_path / "out")
 
     def test_multiple_runs_single_system(
         self, run_archive: Path, run_folder: Path, tmp_path: Path
@@ -147,6 +161,7 @@ class TestBuildSubmissionFolder:
         sub_dir = build_submission_folder(
             [("run-001", run_archive), ("run-002", second_archive)],
             "standardized",
+            "available",
             tmp_path / "sub",
         )
         yamls = list(sub_dir.rglob("point_*.yaml"))
@@ -154,9 +169,10 @@ class TestBuildSubmissionFolder:
         assert 4 in concurrencies
         assert 16 in concurrencies
 
-    def test_serviced_division_normalized(self, run_archive: Path, tmp_path: Path) -> None:
+    def test_system_json_division_from_cli(self, run_archive: Path, tmp_path: Path) -> None:
+        # CLI division arg is authoritative — overwrites any placeholder or stale value in system_desc
         sub_dir = build_submission_folder(
-            [("run-001", run_archive)], "serviced", tmp_path
+            [("run-001", run_archive)], "serviced", "available", tmp_path
         )
         jsons = list((sub_dir / "systems").glob("*.json"))
         data = json.loads(jsons[0].read_text())
@@ -167,7 +183,7 @@ class TestBuildSubmissionFolder:
 class TestCreateBundleArchive:
     def test_creates_archive(self, run_archive: Path, tmp_path: Path) -> None:
         sub_dir = build_submission_folder(
-            [("run-001", run_archive)], "standardized", tmp_path / "sub"
+            [("run-001", run_archive)], "standardized", "available", tmp_path / "sub"
         )
         bundle = create_bundle_archive(sub_dir, tmp_path / "bundle.tar.gz")
         assert bundle.exists()
@@ -177,7 +193,7 @@ class TestCreateBundleArchive:
 
     def test_default_dest(self, run_archive: Path, tmp_path: Path) -> None:
         sub_dir = build_submission_folder(
-            [("run-001", run_archive)], "standardized", tmp_path / "sub"
+            [("run-001", run_archive)], "standardized", "available", tmp_path / "sub"
         )
         bundle = create_bundle_archive(sub_dir)
         expected = sub_dir.parent / f"{sub_dir.name}.tar.gz"

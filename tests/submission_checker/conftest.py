@@ -23,7 +23,6 @@ from submission_checker.models import (
     PercentileStats,
     PointConfig,
     PointSummary,
-    PublicationStatus,
     RuntimeSettings,
     Severity,
     SystemDescription,
@@ -34,23 +33,19 @@ from submission_checker.models import (
 # Shared constants
 # ---------------------------------------------------------------------------
 
-_HW = {
-    "submitter": "Test Org",
-    "system_name": "test-sys",
-    "system_type": "datacenter",
-    "system_type_detail": "",
+_NODE_TYPE = {
+    "system_node_ensemble_id": 0,
     "number_of_nodes": 1,
-    "host_processors_per_node": 2,
     "host_processor_model_name": "AMD EPYC",
+    "host_processors_per_node": 2,
     "host_processor_core_count": 64,
     "host_memory_capacity": "512 GB",
+    "accelerator_model_name": "H100",
+    "accelerators_per_node": 8,
+    "accelerator_memory_capacity": "80 GB",
+    "host_networking": "InfiniBand",
     "host_storage_type": "NVMe",
     "host_storage_capacity": "10 TB",
-    "host_networking": "InfiniBand",
-    "host_networking_topology": "Single switch",
-    "accelerators_per_node": 8,
-    "accelerator_model_name": "H100",
-    "accelerator_memory_capacity": "80 GB",
     "operating_system": "Ubuntu 22.04",
 }
 
@@ -64,17 +59,18 @@ _REGIONS = compute_regions(_M)
 
 def _system_desc(
     division: Division = Division.STANDARDIZED,
-    benchmark_model: str = "llama3-70b",
+    max_supported_concurrency: int = 1024,
     **kwargs,
 ) -> SystemDescription:
     return SystemDescription(
-        division=division,
-        publication_status=PublicationStatus.AVAILABLE,
-        benchmark_model=benchmark_model,
-        max_supported_concurrency=_M,
-        endpoint_url="http://localhost",
+        submitter_org_names="Test Org",
+        system_name="test-sys",
+        system_category="datacenter",
+        system_availability_status="Available",
+        max_supported_concurrency=max_supported_concurrency,
         serving_framework="vLLM",
-        **_HW,
+        node_types=[_NODE_TYPE],
+        division=division,
         **kwargs,
     )
 
@@ -128,7 +124,7 @@ def _model_ctx(
     (model_dir / "accuracy").mkdir(exist_ok=True)
     return ModelContext(
         system_id="test-sys",
-        system_desc=system_desc or _system_desc(benchmark_model=model_name),
+        system_desc=system_desc or _system_desc(),
         model_dir=model_dir,
         regions=_REGIONS,
         points_dir=model_dir / "points",

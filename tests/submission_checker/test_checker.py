@@ -76,8 +76,8 @@ class TestInvalidSubmission:
 
     def test_missing_throughput_regions(self, invalid_submission):
         report = _check(invalid_submission)
-        # Only 3 points (c16, c38, c88) — no high-throughput coverage
-        assert _errors(report, "high-throughput-coverage")
+        # Only 3 points (c16, c38, c88); max_supported_concurrency=88 → LT region is 33–36, not covered
+        assert _errors(report, "low-throughput-coverage")
 
 
 # ---------------------------------------------------------------------------
@@ -261,29 +261,30 @@ class TestSubJ:
 # ---------------------------------------------------------------------------
 
 _SYSTEM_DESC = {
-    "division": "Serviced",
-    "publication_status": "Available",
-    "benchmark_model": "llama3-70b",
-    "max_supported_concurrency": 1024,
-    "endpoint_url": "http://localhost",
-    "serving_framework": "vLLM",
-    "submitter": "Test Org",
+    "submitter_org_names": "Test Org",
     "system_name": "test-sys",
-    "system_type": "datacenter",
-    "system_type_detail": "",
-    "number_of_nodes": 1,
-    "host_processors_per_node": 2,
-    "host_processor_model_name": "AMD EPYC",
-    "host_processor_core_count": 64,
-    "host_memory_capacity": "512 GB",
-    "host_storage_type": "NVMe",
-    "host_storage_capacity": "10 TB",
-    "host_networking": "InfiniBand",
-    "host_networking_topology": "Single switch",
-    "accelerators_per_node": 8,
-    "accelerator_model_name": "H100",
-    "accelerator_memory_capacity": "80 GB",
-    "operating_system": "Ubuntu 22.04",
+    "system_category": "datacenter",
+    "system_availability_status": "Available",
+    "max_supported_concurrency": 1024,
+    "serving_framework": "vLLM",
+    "node_types": [
+        {
+            "system_node_ensemble_id": 0,
+            "number_of_nodes": 1,
+            "host_processor_model_name": "AMD EPYC",
+            "host_processors_per_node": 2,
+            "host_processor_core_count": 64,
+            "host_memory_capacity": "512 GB",
+            "accelerator_model_name": "H100",
+            "accelerators_per_node": 8,
+            "accelerator_memory_capacity": "80 GB",
+            "host_networking": "InfiniBand",
+            "host_storage_type": "NVMe",
+            "host_storage_capacity": "10 TB",
+            "operating_system": "Ubuntu 22.04",
+        }
+    ],
+    "division": "Serviced",
 }
 
 _SUMMARY = {
@@ -335,7 +336,6 @@ def _build_submission(
 ) -> Path:
     """Build a minimal valid (or deliberately broken) submission directory."""
     desc = system_desc if system_desc is not None else _SYSTEM_DESC.copy()
-    desc["benchmark_model"] = model
     concs = concurrencies if concurrencies is not None else _CONCURRENCIES
 
     systems_dir = root / "systems"
@@ -535,6 +535,29 @@ class TestCheckerEdgeCases:
         ):
             report = _check(tmp_path)
         assert _errors(report, "region-computation")
+
+    def test_model_name_matches_dir(self, tmp_path):
+        """ok when model_id in system_desc matches the model directory name."""
+        desc = {**_SYSTEM_DESC, "model_id": "llama3-70b"}
+        root = _build_submission(tmp_path, system_desc=desc, model="llama3-70b")
+        report = _check(root)
+        ok_results = [r for r in report.results if r.rule == "model-name-consistency" and r.passed]
+        assert ok_results
+
+    def test_model_name_mismatch_errors(self, tmp_path):
+        """err when model_id in system_desc does not match the model directory name."""
+        desc = {**_SYSTEM_DESC, "model_id": "mistral-7b"}
+        root = _build_submission(tmp_path, system_desc=desc, model="llama3-70b")
+        report = _check(root)
+        assert _errors(report, "model-name-consistency")
+
+    def test_model_name_huggingface_format_matches(self, tmp_path):
+        """ok when model_id uses HuggingFace org/name format — last component compared."""
+        desc = {**_SYSTEM_DESC, "model_id": "meta-llama/llama3-70b"}
+        root = _build_submission(tmp_path, system_desc=desc, model="llama3-70b")
+        report = _check(root)
+        ok_results = [r for r in report.results if r.rule == "model-name-consistency" and r.passed]
+        assert ok_results
 
     def test_run_filename_non_numeric_suffix_ignored(self, tmp_path):
         """Filename parsing errors (non-numeric suffix) are silently ignored."""

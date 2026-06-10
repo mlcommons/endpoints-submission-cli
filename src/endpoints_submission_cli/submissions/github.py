@@ -258,8 +258,7 @@ def update_pr_branch(
     message: str,
     branch: str,
 ) -> None:
-    """Clone target_repo, check out an existing PR branch, apply the surgical merge,
-    commit, and push.
+    """Clone target_repo, check out an existing PR branch, merge, commit, and push.
 
     Delegates merge logic to ``prepare_pr_branch_merge``; call that directly when
     you need the merged content before uploading to blob storage.

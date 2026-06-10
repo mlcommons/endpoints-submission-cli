@@ -7,14 +7,14 @@ from __future__ import annotations
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import click
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 
-from ...exceptions import APIError, GitHubError, SubmissionBuildError, SubmissionCheckError
+from ...exceptions import APIError, SubmissionBuildError, SubmissionCheckError
 from ...runs import api as runs_api
 from ...submissions import api as subs_api
-from ...submissions import github as github_ops
 from ...submissions.builder import build_submission_folder, create_bundle_archive
 from ...submissions.formatters import print_submission_detail
 from ..common import _console, _get_token, _run_submission_checker
@@ -39,9 +39,15 @@ def _rollback_update(token: str, submission_id: str, original_run_ids: list[str]
     help="PRISM API key (mlc_...).",
 )
 @click.option("--run-ids", "run_ids", multiple=True, help="Replace run UUID list. Repeatable.")
-@click.option("--target-availability-date", default=None, help="Target availability date (YYYY-MM-DD).")
+@click.option(
+    "--target-availability-date", default=None, help="Target availability date (YYYY-MM-DD)."
+)
 @click.option("--publication-cycle", default=None, help="Publication cycle (e.g. 2025-04-C1).")
-@click.option("--embargo-date", default=None, help="Embargo datetime in ISO 8601 format (e.g. 2025-12-01T00:00:00).")
+@click.option(
+    "--embargo-date",
+    default=None,
+    help="Embargo datetime in ISO 8601 format (e.g. 2025-12-01T00:00:00).",
+)
 def submissions_update(
     submission_id: str,
     token: str | None,
@@ -57,13 +63,14 @@ def submissions_update(
     """
     resolved_token = _get_token(token)
 
-    if not run_ids and target_availability_date is None and publication_cycle is None and embargo_date is None:
+    if not run_ids and target_availability_date is None and publication_cycle is None \
+            and embargo_date is None:
         _console.print("[yellow]Nothing to update — provide at least one field.[/yellow]")
         return
 
     # Date/metadata-only path: no rebuild needed
     if not run_ids:
-        patch: dict = {}
+        patch: dict[str, Any] = {}
         if target_availability_date is not None:
             patch["target_availability_date"] = target_availability_date
         if publication_cycle is not None:
@@ -101,18 +108,22 @@ def submissions_update(
 
     original_run_ids: list[str] = current_sub.get("run_ids", [])
     division: str = current_sub.get("division", "standardized")
-    pr_number: int | None = current_sub.get("pr_number")
-
+    availability: str = current_sub.get("availability", "available")
     added = [r for r in desired_run_ids if r not in original_run_ids]
     removed = [r for r in original_run_ids if r not in desired_run_ids]
     if added:
-        _console.print(f"[cyan]Adding {len(added)} run(s): {', '.join(r[:8] for r in added)}…[/cyan]")
+        _console.print(
+            f"[cyan]Adding {len(added)} run(s): {', '.join(r[:8] for r in added)}…[/cyan]"
+        )
     if removed:
-        _console.print(f"[cyan]Removing {len(removed)} run(s): {', '.join(r[:8] for r in removed)}…[/cyan]")
+        _console.print(
+            f"[cyan]Removing {len(removed)} run(s): {', '.join(r[:8] for r in removed)}…[/cyan]"
+        )
 
     if not added and not removed:
-        if target_availability_date is not None or publication_cycle is not None or embargo_date is not None:
-            metadata_patch: dict = {}
+        if (target_availability_date is not None or publication_cycle is not None
+                or embargo_date is not None):
+            metadata_patch: dict[str, Any] = {}
             if target_availability_date is not None:
                 metadata_patch["target_availability_date"] = target_availability_date
             if publication_cycle is not None:
@@ -130,15 +141,15 @@ def submissions_update(
         return
 
     # PATCH DB with new run list (and any metadata fields) in one call
-    patch: dict = {"run_ids": desired_run_ids}
+    run_patch: dict[str, Any] = {"run_ids": desired_run_ids}
     if target_availability_date is not None:
-        patch["target_availability_date"] = target_availability_date
+        run_patch["target_availability_date"] = target_availability_date
     if publication_cycle is not None:
-        patch["publication_cycle"] = publication_cycle
+        run_patch["publication_cycle"] = publication_cycle
     if embargo_date is not None:
-        patch["embargo_date"] = embargo_date
+        run_patch["embargo_date"] = embargo_date
     try:
-        subs_api.update_submission(resolved_token, submission_id, patch)
+        subs_api.update_submission(resolved_token, submission_id, run_patch)
     except APIError as exc:
         _console.print(f"[bold red]Error updating submission:[/bold red] {exc}")
         sys.exit(1)
@@ -174,7 +185,9 @@ def submissions_update(
         # Assemble submission folder
         _console.print("[cyan]Assembling submission folder…[/cyan]")
         try:
-            submission_dir = build_submission_folder(archives, division, tmp_path / "bundle")
+            submission_dir = build_submission_folder(
+                archives, division, availability, tmp_path / "bundle"
+            )
         except SubmissionBuildError as exc:
             _console.print(f"[bold red]Build error:[/bold red] {exc}")
             _rollback_update(resolved_token, submission_id, original_run_ids)
@@ -190,7 +203,6 @@ def submissions_update(
             sys.exit(1)
 
         upload_source = submission_dir
-        repo_dir = None
         """
         # Build commit message before merge (needed by commit_and_push)
         _parts = []

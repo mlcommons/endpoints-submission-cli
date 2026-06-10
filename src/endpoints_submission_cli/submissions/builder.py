@@ -22,10 +22,14 @@ import json
 import re
 import tarfile
 import tempfile
+import warnings
 from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import ValidationError
+
+from submission_checker.models.file import SystemDescription
 
 from ..exceptions import SubmissionBuildError
 
@@ -40,6 +44,7 @@ __all__ = ["build_submission_folder", "create_bundle_archive", "extract_archive"
 def build_submission_folder(
     run_archives: list[tuple[str, Path]],
     division: str,
+    availability: str,
     work_dir: Path,
 ) -> Path:
     """Assemble a submission directory from a list of run archives.
@@ -47,6 +52,7 @@ def build_submission_folder(
     Args:
         run_archives: List of ``(run_id, archive_path)`` tuples.
         division: Submission division (e.g. ``"standardized"``).
+        availability: Publication/availability status (e.g. ``"available"``).
         work_dir: Base directory in which to build the submission tree.
 
     Returns:
@@ -59,14 +65,23 @@ def build_submission_folder(
     if not run_archives:
         raise SubmissionBuildError("At least one run archive is required")
 
-    # Extract all archives into temp dirs and load their content
+    # Extract all archives into temp dirs and load their content.
+    # division and availability normalization is handled by SystemDescription validators.
     run_data: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory() as tmp:
         for run_id, archive_path in run_archives:
             run_dir = Path(tmp) / run_id
             extract_archive(archive_path, run_dir)
-            data = _load_run_data(run_dir, run_id)
+            data = _load_run_data(run_id, division, availability, run_dir)
             run_data.append(data)
+
+    if len(run_data) > 1:
+        first = run_data[0]["system_info"]
+        if not all(r["system_info"] == first for r in run_data[1:]):
+            warnings.warn(
+                "Runs have inconsistent system_info; using the first run's data",
+                stacklevel=2,
+            )
 
     # Determine org name from the first run's system_info
     org_name = _slugify(
@@ -78,26 +93,38 @@ def build_submission_folder(
     # Group runs by system_id + model
     groups = _group_runs(run_data)
 
-    # Aggregate all runs per system_id so the system description uses the
-    # global max_concurrency even when multiple model groups share one system.
     runs_by_system: dict[str, list[dict[str, Any]]] = {}
     for (system_id, _model), runs in groups.items():
         runs_by_system.setdefault(system_id, []).extend(runs)
 
+    # Validate max_supported_concurrency consistency per system before writing anything
+    system_max_concurrency: dict[str, int] = {}
+    for system_id, system_runs in runs_by_system.items():
+        values = {r["system_info"].get("max_supported_concurrency") for r in system_runs}
+        if None in values:
+            raise SubmissionBuildError(
+                f"System {system_id}: system_desc.json is missing max_supported_concurrency"
+            )
+        if len(values) > 1:
+            raise SubmissionBuildError(
+                f"System {system_id}: runs have inconsistent max_supported_concurrency"
+                f" values: {sorted(values)}"
+            )
+        system_max_concurrency[system_id] = int(values.pop())
+
     written_systems: set[str] = set()
     for (system_id, model), runs in groups.items():
-        all_system_runs = runs_by_system[system_id]
         if system_id not in written_systems:
-            _write_system_description(
-                submission_dir, system_id, model, all_system_runs, division
-            )
+            _write_system_description(submission_dir, system_id, runs[0]["system_info"])
             written_systems.add(system_id)
-        max_concurrency = max(_extract_concurrency(r["config"]) for r in all_system_runs)
-        _write_pareto_entries(submission_dir, system_id, model, runs, max_concurrency)
+        _write_pareto_entries(
+            submission_dir, system_id, model, runs, system_max_concurrency[system_id]
+        )
         _write_accuracy(submission_dir, system_id, model, runs)
 
-    if _normalize_division(division) == "Standardized":
-        (submission_dir / "src").mkdir(exist_ok=True)
+    # Copy src/ for Standardized division submissions (mirrors documentation/ handling)
+    if run_data[0]["system_info"].get("division") == "Standardized":
+        _write_src(submission_dir, run_data)
 
     _write_documentation(submission_dir, run_data)
 
@@ -142,7 +169,7 @@ def extract_archive(archive_path: Path, dest_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _load_run_data(run_dir: Path, run_id: str) -> dict[str, Any]:
+def _load_run_data(run_id: str, division: str, availability: str, run_dir: Path) -> dict[str, Any]:
     """Find and load required files from an extracted run archive.
 
     Uses config.yaml as the directory anchor. All supplementary files are read
@@ -166,12 +193,7 @@ def _load_run_data(run_dir: Path, run_id: str) -> dict[str, Any]:
     config: dict[str, Any] = yaml.safe_load(config_path.read_text()) or {}
     result_summary: dict[str, Any] = json.loads(summary_path.read_text())
 
-    system_info = _merge_system_info(base)
-    if not system_info:
-        raise SubmissionBuildError(
-            f"Run {run_id}: archive is missing system info "
-            "(expected system_desc.json or mlperf-system-info-*.json)"
-        )
+    system_info = _load_system_desc(base, run_id, division, availability)
 
     runtime_settings_path = base / "runtime_settings.json"
     runtime_settings: dict[str, Any] = (
@@ -190,66 +212,35 @@ def _load_run_data(run_dir: Path, run_id: str) -> dict[str, Any]:
     }
 
 
-def _merge_system_info(base: Path) -> dict[str, Any]:
-    """Build a flat system_info dict from new-format run files.
+def _load_system_desc(base: Path, run_id: str, division: str, availability: str) -> dict[str, Any]:
+    """Load system_desc.json from a run folder and return the validated flat dict.
 
-    Reads system_desc.json, mlperf-system-info-*.json, and serving_config.json
-    and merges them into the flat field names expected by _write_system_description.
+    Applies the CLI-provided division and availability values, then validates
+    against the SystemDescription schema.
+
+    Raises:
+        SubmissionBuildError: If system_desc.json is absent or fails schema validation.
     """
-    merged: dict[str, Any] = {}
-
     sd_path = base / "system_desc.json"
-    if sd_path.exists():
-        sd: dict[str, Any] = json.loads(sd_path.read_text())
-        org = sd.get("organization_metadata", {}) or {}
-        sut = sd.get("system_under_test", {}) or {}
-        sys_meta = sut.get("system_metadata", {}) or {}
-        merged["submitter_org_names"] = org.get("submitter_org_name", "") or ""
-        merged["system_name"] = sys_meta.get("system_name", "") or ""
-        merged["system_category"] = sys_meta.get("system_category", "") or ""
-        merged["system_availability_status"] = (
-            sys_meta.get("system_availability_status", "") or ""
+    if not sd_path.exists():
+        raise SubmissionBuildError(
+            "Run archive is missing system_desc.json"
         )
-        merged["framework"] = sut.get("serving_framework", "") or ""
-
-    hw_paths = sorted(base.glob("mlperf-system-info-*.json"))
-    if hw_paths:
-        hw: dict[str, Any] = json.loads(hw_paths[0].read_text())
-        hw_ens = hw.get("hardware_ensemble", {}) or {}
-        proc = hw_ens.get("processor", {}) or {}
-        mem = hw_ens.get("host_memory", {}) or {}
-        accel = hw_ens.get("accelerator", {}) or {}
-        net = hw_ens.get("networking", {}) or {}
-        storage = hw_ens.get("storage", {}) or {}
-        sw = hw.get("software_ensemble", {}) or {}
-        merged.update({
-            "host_processor_model_name": proc.get("host_processor_model_name", "") or "",
-            "host_processors_per_node": proc.get("host_processors_per_node", 1),
-            "host_processor_core_count": proc.get("host_processor_core_count"),
-            "host_processor_vcpu_count": proc.get("host_processor_vcpu_count"),
-            "host_memory_capacity": mem.get("host_memory_capacity", "") or "",
-            "accelerator_model_name": accel.get("accelerator_model_name", "") or "",
-            "accelerators_per_node": accel.get("accelerators_per_node", 0),
-            "accelerator_memory_capacity": accel.get("accelerator_memory_capacity", "") or "",
-            "accelerator_memory_type": accel.get("accelerator_memory_type", "") or "",
-            "accelerator_interconnect": accel.get("accelerator_interconnect", "") or "",
-            "accelerator_host_interconnect": accel.get("accelerator_host_interconnect", "") or "",
-            "host_networking": net.get("host_networking", "") or "",
-            "host_network_card_count": net.get("host_network_card_count", "") or "",
-            "host_storage_capacity": storage.get("host_storage_capacity", "") or "",
-            "host_storage_type": storage.get("host_storage_type", "") or "",
-            "cooling": hw_ens.get("cooling") or "",
-            "operating_system": sw.get("operating_system", "") or "",
-            "other_software_stack": sw.get("other_software_stack") or "",
-        })
-
-    sc_path = base / "serving_config.json"
-    if sc_path.exists():
-        sc: dict[str, Any] = json.loads(sc_path.read_text())
-        if sc.get("framework"):
-            merged["framework"] = sc["framework"]
-
-    return merged
+    raw: dict[str, Any] = json.loads(sd_path.read_text())
+    # CLI-provided values are authoritative for these fields
+    raw["division"] = division
+    raw["system_availability_status"] = availability
+    try:
+        sd = SystemDescription.model_validate(raw)
+    except ValidationError as exc:
+        errors = "; ".join(
+            f"{'.'.join(str(loc) for loc in e['loc'])}: {e['msg']}"
+            for e in exc.errors()
+        )
+        raise SubmissionBuildError(
+            f"Run {run_id}: system_desc.json failed schema validation: {errors}"
+        ) from exc
+    return sd.model_dump(mode="json")
 
 
 def _load_extra_files(base: Path) -> dict[str, bytes]:
@@ -274,12 +265,12 @@ def _load_extra_files(base: Path) -> dict[str, bytes]:
     for p in sorted(base.glob("mlperf-system-info-*.json")):
         if p.is_file():
             extra[p.name] = p.read_bytes()
-    doc_dir = base / "documentation"
-    if doc_dir.is_dir():
-        for p in sorted(doc_dir.rglob("*")):
-            if p.is_file():
-                rel = p.relative_to(base)
-                extra[str(rel)] = p.read_bytes()
+    for subdir_name in ("documentation", "src"):
+        subdir = base / subdir_name
+        if subdir.is_dir():
+            for p in sorted(subdir.rglob("*")):
+                if p.is_file():
+                    extra[str(p.relative_to(base))] = p.read_bytes()
     return extra
 
 
@@ -297,8 +288,8 @@ def _group_runs(
 
 
 def _extract_system_id(system_info: dict[str, Any]) -> str:
-    name = system_info.get("system_name", "unknown_system") or "unknown_system"
-    return name.strip().replace(" ", "_")
+    sd = SystemDescription.model_validate(system_info)
+    return sd.system_name.strip().replace(" ", "_")
 
 
 def _extract_model(config: dict[str, Any]) -> str:
@@ -323,68 +314,12 @@ def _extract_concurrency(config: dict[str, Any]) -> int:
 def _write_system_description(
     submission_dir: Path,
     system_id: str,
-    model: str,
-    runs: list[dict[str, Any]],
-    division: str,
+    system_info: dict[str, Any],
 ) -> None:
     systems_dir = submission_dir / "systems"
     systems_dir.mkdir(parents=True, exist_ok=True)
-
-    # Derive max_supported_concurrency from the highest concurrency across all runs
-    concurrencies = [_extract_concurrency(r["config"]) for r in runs]
-    max_concurrency = max(concurrencies) if concurrencies else 64
-
-    si = runs[0]["system_info"]
-    cfg = runs[0]["config"]
-
-    endpoint_url = ""
-    ep_cfg = cfg.get("endpoint_config", {}) or {}
-    endpoints = ep_cfg.get("endpoints", []) or []
-    if endpoints:
-        endpoint_url = str(endpoints[0])
-
-    system_desc = {
-        "division": _normalize_division(division),
-        "publication_status": _normalize_publication_status(
-            si.get("system_availability_status", "Available")
-        ),
-        "benchmark_model": model,
-        "max_supported_concurrency": max(max_concurrency, 33),
-        "endpoint_url": endpoint_url or "http://localhost:8080",
-        "serving_framework": si.get("framework", "") or "",
-        "submitter": si.get("submitter_org_names", "") or "",
-        "system_name": si.get("system_name", system_id) or system_id,
-        "system_type": si.get("system_category", "") or "",
-        "system_type_detail": si.get("system_type_detail", "") or "",
-        "number_of_nodes": int(si.get("number_of_nodes", 1) or 1),
-        "host_processors_per_node": int(si.get("host_processors_per_node", 1) or 1),
-        "host_processor_model_name": si.get("host_processor_model_name", "") or "",
-        "host_processor_core_count": si.get("host_processor_core_count") or None,
-        "host_processor_vcpu_count": si.get("host_processor_vcpu_count") or None,
-        "host_memory_capacity": str(si.get("host_memory_capacity", "0 GB") or "0 GB"),
-        "host_storage_type": si.get("host_storage_type", "") or "",
-        "host_storage_capacity": si.get("host_storage_capacity", "") or "",
-        "host_networking": si.get("host_networking", "") or "",
-        "host_networking_topology": si.get("host_networking_topology", "") or "",
-        "accelerators_per_node": int(si.get("accelerators_per_node", 0) or 0),
-        "accelerator_model_name": si.get("accelerator_model_name", "") or "",
-        "accelerator_memory_capacity": si.get("accelerator_memory_capacity", "") or "",
-        "operating_system": si.get("operating_system", "") or "",
-        "accelerator_host_interconnect": si.get("accelerator_host_interconnect", "") or "",
-        "accelerator_interconnect": si.get("accelerator_interconnect", "") or "",
-        "accelerator_memory_type": si.get("accelerator_memory_type", "") or "",
-        "other_software_stack": si.get("other_software_stack", "") or "",
-        "cooling": si.get("cooling", "") or "",
-    }
-    # Ensure at least one of core_count / vcpu_count is set
-    if (
-        system_desc["host_processor_core_count"] is None
-        and system_desc["host_processor_vcpu_count"] is None
-    ):
-        system_desc["host_processor_core_count"] = 1
-
     (systems_dir / f"{system_id}.json").write_text(
-        json.dumps(system_desc, indent=2), encoding="utf-8"
+        json.dumps(system_info, indent=2), encoding="utf-8"
     )
 
 
@@ -438,7 +373,9 @@ def _write_pareto_entries(
         # Convert events.jsonl (JSONL) to a JSON array for the detail log
         extra_files = run.get("_extra_files", {})
         if "events.jsonl" in extra_files:
-            events = [json.loads(ln) for ln in extra_files["events.jsonl"].splitlines() if ln.strip()]
+            events = [
+                json.loads(ln) for ln in extra_files["events.jsonl"].splitlines() if ln.strip()
+            ]
             detail_bytes = json.dumps(events, indent=2).encode()
         else:
             detail_bytes = b"[]"
@@ -454,7 +391,7 @@ def _write_pareto_entries(
             dest.write_bytes(content)
 
 
-def _fmt_score(score: float | dict) -> str:
+def _fmt_score(score: float | dict[str, Any]) -> str:
     if isinstance(score, dict):
         return ", ".join(f"{k}={v}" for k, v in score.items())
     return f"{score:.4f}"
@@ -513,40 +450,24 @@ def _write_accuracy(
     accuracy_dir = submission_dir / "pareto" / system_id / model / "accuracy"
     accuracy_dir.mkdir(parents=True, exist_ok=True)
 
-    first_ds, first_data = next(iter(accuracy_scores.items()))
-    metric = first_data.get("dataset_name") or first_ds
-    raw_score = first_data.get("score", 0.0)
-    score: float | dict = raw_score if isinstance(raw_score, dict) else float(raw_score)
-
-    txt_lines = [
-        f"{entry.get('dataset_name') or ds}: {_fmt_score(entry.get('score', 0.0))}"
-        for ds, entry in accuracy_scores.items()
-    ]
-    (accuracy_dir / "accuracy.txt").write_text("\n".join(txt_lines) + "\n", encoding="utf-8")
-
-    accuracy_result = {
-        "metric": metric,
-        "score": score,
-        "quality_target": 0.0,
-        "passed": True,
-    }
     (accuracy_dir / "accuracy_result.json").write_text(
         json.dumps(accuracy_scores, indent=2), encoding="utf-8"
     )
 
     # Write a human-readable summary
-    txt_lines: list[str] = []
+    summary_lines: list[str] = []
     for ds_name, entry in accuracy_scores.items():
         raw = entry.get("score", {}) if isinstance(entry, dict) else {}
         if isinstance(raw, dict):
             metrics = ", ".join(
                 f"{k}={v}" for k, v in raw.items()
-                if isinstance(v, (int, float)) or (isinstance(v, str) and v.replace(".", "").isdigit())
+                if isinstance(v, (int, float))
+                or (isinstance(v, str) and v.replace(".", "").isdigit())
             )
-            txt_lines.append(f"{ds_name}: {metrics}" if metrics else ds_name)
+            summary_lines.append(f"{ds_name}: {metrics}" if metrics else ds_name)
         else:
-            txt_lines.append(f"{ds_name}: {raw}")
-    (accuracy_dir / "accuracy.txt").write_text("\n".join(txt_lines) + "\n", encoding="utf-8")
+            summary_lines.append(f"{ds_name}: {raw}")
+    (accuracy_dir / "accuracy.txt").write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
 
 
 def _write_documentation(submission_dir: Path, run_data: list[dict[str, Any]]) -> None:
@@ -562,22 +483,17 @@ def _write_documentation(submission_dir: Path, run_data: list[dict[str, Any]]) -
             dest.write_bytes(content)
 
 
-def _normalize_division(division: str) -> str:
-    mapping = {
-        "standardized": "Standardized",
-        "serviced": "Serviced",
-        "rdi": "RDI",
-    }
-    return mapping.get(division.lower(), division.title())
-
-
-def _normalize_publication_status(status: str) -> str:
-    mapping = {
-        "available": "Available",
-        "preview": "Preview",
-        "rdi": "RDI",
-    }
-    return mapping.get(str(status).lower(), "Available")
+def _write_src(submission_dir: Path, run_data: list[dict[str, Any]]) -> None:
+    """Copy src/ files from run archives into submission_dir/src/."""
+    src_dir = submission_dir / "src"
+    src_dir.mkdir(exist_ok=True)
+    for run in run_data:
+        for rel, content in run.get("_extra_files", {}).items():
+            if not rel.startswith("src/"):
+                continue
+            dest = src_dir / Path(rel).relative_to("src")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(content)
 
 
 def _slugify(name: str) -> str:

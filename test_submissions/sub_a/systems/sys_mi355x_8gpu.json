@@ -1,25 +1,26 @@
 {
-  "division": "Standardized",
-  "publication_status": "Available",
-  "benchmark_model": "gpt-oss-120b",
-  "max_supported_concurrency": 2048,
-  "endpoint_url": "http://localhost:8080",
-  "serving_framework": "vLLM",
-  "submitter": "Submitter-A",
+  "submitter_org_names": "Submitter-A",
   "system_name": "sys_mi355x_8gpu",
-  "system_type": "datacenter",
-  "system_type_detail": "",
-  "number_of_nodes": 1,
-  "host_processors_per_node": 2,
-  "host_processor_model_name": "AMD EPYC 9654",
-  "host_processor_core_count": 96,
-  "host_memory_capacity": "768 GB",
-  "host_storage_type": "NVMe SSD",
-  "host_storage_capacity": "30 TB",
-  "host_networking": "InfiniBand HDR",
-  "host_networking_topology": "Single switch",
-  "accelerators_per_node": 8,
-  "accelerator_model_name": "AMD Instinct MI355X",
-  "accelerator_memory_capacity": "288 GB",
-  "operating_system": "Ubuntu 22.04"
+  "system_category": "datacenter",
+  "system_availability_status": "Available",
+  "max_supported_concurrency": 2048,
+  "serving_framework": "vLLM",
+  "node_types": [
+    {
+      "system_node_ensemble_id": 0,
+      "number_of_nodes": 1,
+      "host_processor_model_name": "AMD EPYC 9654",
+      "host_processors_per_node": 2,
+      "host_processor_core_count": 96,
+      "host_memory_capacity": "768 GB",
+      "accelerator_model_name": "AMD Instinct MI355X",
+      "accelerators_per_node": 8,
+      "accelerator_memory_capacity": "288 GB",
+      "host_networking": "InfiniBand HDR",
+      "host_storage_capacity": "30 TB",
+      "host_storage_type": "NVMe SSD",
+      "operating_system": "Ubuntu 22.04"
+    }
+  ],
+  "division": "Standardized"
 }

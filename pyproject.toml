@@ -27,6 +27,8 @@ dev = [
     "pytest-cov>=5.0",
     "pytest-mock>=3.0",
     "ruff>=0.4",
+    "mypy>=1.10",
+    "types-PyYAML",
 ]
 docs = [
     "sphinx>=7.0",
@@ -67,6 +69,16 @@ source = ["src"]
 [tool.coverage.report]
 show_missing = true
 
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unreachable = true
+files = ["src"]
+
+[[tool.mypy.overrides]]
+module = ["yaml.*"]
+ignore_missing_imports = true
+
 [tool.ruff]
 src = ["src"]
 line-length = 100
@@ -81,10 +93,16 @@ select = [
     "B",   # flake8-bugbear (likely bugs / bad practices)
     "C4",  # flake8-comprehensions (unnecessary comprehension patterns)
     "SIM", # flake8-simplify
+    "D",   # pydocstyle (Google-style docstrings)
 ]
 ignore = [
     "SIM108", # ternary operator — sometimes less readable
+    "D105",   # magic methods don't need docstrings
+    "D107",   # __init__ docstrings belong on the class
 ]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.ruff.lint.isort]
 known-first-party = ["submission_checker"]
@@ -94,4 +112,5 @@ known-first-party = ["submission_checker"]
     "TCH",    # test files don't need TYPE_CHECKING optimisation
     "E501",   # long patch() target strings are unavoidable in test files
     "SIM117", # deeply-nested with-patch blocks are intentional for clarity
+    "D",      # docstrings not required in test files
 ]
