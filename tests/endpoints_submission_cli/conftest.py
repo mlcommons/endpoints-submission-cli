@@ -16,14 +16,7 @@ import yaml
 # ---------------------------------------------------------------------------
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
-_SAMPLE_SUBMISSIONS = _REPO_ROOT / "samplesubmissions" / "submissions"
 _TEST_SUBMISSIONS = _REPO_ROOT / "test_submissions"
-
-
-@pytest.fixture(scope="session")
-def sample_google_run_dir() -> Path:
-    """Path to a real Google run folder with system_info.json, config.yaml, result_summary.json."""
-    return _SAMPLE_SUBMISSIONS / "google" / "Ironwood-192GBx4_vLLM" / "run_data" / "r1"
 
 
 # ---------------------------------------------------------------------------

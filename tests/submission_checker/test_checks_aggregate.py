@@ -4,14 +4,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from submission_checker.models import (
-    AccuracyResult,
     MIN_QUERY_COUNT,
-    ModelContext,
+    AccuracyResult,
     PercentileStats,
     PointConfig,
     PointResult,
@@ -24,9 +21,7 @@ from .conftest import (
     _REGIONS,
     _config,
     _model_ctx,
-    _passed,
     _summary,
-    _system_desc,
 )
 
 # ---------------------------------------------------------------------------

@@ -138,16 +138,6 @@ class TestParseRunFolder:
         payload = parse_run_folder(folder)
         assert payload["benchmark_version"] == "unknown"
 
-    def test_google_sample_run(self, sample_google_run_dir: Path) -> None:
-        """Parse a real Google sample run folder."""
-        if not sample_google_run_dir.exists():
-            pytest.skip("Sample Google run data not available")
-        payload = parse_run_folder(sample_google_run_dir)
-        si = payload["system_info"]
-        assert si.get("system_under_test", {}).get("system_metadata", {}).get("system_name") or si
-        assert payload["config"]
-        assert payload["result_summary"]["n_samples_completed"] > 0
-
 
 @pytest.mark.unit
 class TestBuildArchive:

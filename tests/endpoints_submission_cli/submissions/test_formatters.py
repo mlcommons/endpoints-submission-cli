@@ -11,7 +11,6 @@ from endpoints_submission_cli.submissions.formatters import (
     print_submissions_table,
 )
 from tests.endpoints_submission_cli.conftest import (
-    RUN_ID,
     RUN_OUT,
     SUBMISSION_ID,
     SUBMISSION_OUT,

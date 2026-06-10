@@ -450,12 +450,6 @@ def _write_accuracy(
     accuracy_dir = submission_dir / "pareto" / system_id / model / "accuracy"
     accuracy_dir.mkdir(parents=True, exist_ok=True)
 
-    txt_lines = [
-        f"{entry.get('dataset_name') or ds}: {_fmt_score(entry.get('score', 0.0))}"
-        for ds, entry in accuracy_scores.items()
-    ]
-    (accuracy_dir / "accuracy.txt").write_text("\n".join(txt_lines) + "\n", encoding="utf-8")
-
     (accuracy_dir / "accuracy_result.json").write_text(
         json.dumps(accuracy_scores, indent=2), encoding="utf-8"
     )

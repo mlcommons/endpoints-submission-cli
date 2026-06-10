@@ -112,9 +112,13 @@ def submissions_update(
     added = [r for r in desired_run_ids if r not in original_run_ids]
     removed = [r for r in original_run_ids if r not in desired_run_ids]
     if added:
-        _console.print(f"[cyan]Adding {len(added)} run(s): {', '.join(r[:8] for r in added)}…[/cyan]")  # noqa: E501
+        _console.print(
+            f"[cyan]Adding {len(added)} run(s): {', '.join(r[:8] for r in added)}…[/cyan]"
+        )
     if removed:
-        _console.print(f"[cyan]Removing {len(removed)} run(s): {', '.join(r[:8] for r in removed)}…[/cyan]")  # noqa: E501
+        _console.print(
+            f"[cyan]Removing {len(removed)} run(s): {', '.join(r[:8] for r in removed)}…[/cyan]"
+        )
 
     if not added and not removed:
         if (target_availability_date is not None or publication_cycle is not None
