@@ -59,6 +59,7 @@ _REGIONS = compute_regions(_M)
 
 def _system_desc(
     division: Division = Division.STANDARDIZED,
+    max_supported_concurrency: int = 1024,
     **kwargs,
 ) -> SystemDescription:
     return SystemDescription(
@@ -66,6 +67,7 @@ def _system_desc(
         system_name="test-sys",
         system_category="datacenter",
         system_availability_status="Available",
+        max_supported_concurrency=max_supported_concurrency,
         serving_framework="vLLM",
         node_types=[_NODE_TYPE],
         division=division,

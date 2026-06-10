@@ -90,6 +90,7 @@ class SystemDescription(BaseModel):
     system_name: str
     system_category: str
     system_availability_status: SystemAvailabilityStatus
+    max_supported_concurrency: int
     system_size: str | None = None
     system_node_ensemble_count: int | None = None
     system_node_ensemble_total: int | None = None

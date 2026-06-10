@@ -105,6 +105,7 @@ _BASE_FLAT = {
     "system_name": "test-node",
     "system_category": "datacenter",
     "system_availability_status": "Available",
+    "max_supported_concurrency": 1024,
     "serving_framework": "vLLM 0.4.0",
     "node_types": [_NODE_TYPE],
     "division": "Standardized",

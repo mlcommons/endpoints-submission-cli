@@ -76,7 +76,7 @@ class TestInvalidSubmission:
 
     def test_missing_throughput_regions(self, invalid_submission):
         report = _check(invalid_submission)
-        # Only 3 points (c16, c38, c88); M=88 → low-throughput region is 33–36, not covered
+        # Only 3 points (c16, c38, c88); max_supported_concurrency=88 → LT region is 33–36, not covered
         assert _errors(report, "low-throughput-coverage")
 
 
@@ -265,6 +265,7 @@ _SYSTEM_DESC = {
     "system_name": "test-sys",
     "system_category": "datacenter",
     "system_availability_status": "Available",
+    "max_supported_concurrency": 1024,
     "serving_framework": "vLLM",
     "node_types": [
         {

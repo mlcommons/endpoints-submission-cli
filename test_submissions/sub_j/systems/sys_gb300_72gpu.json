@@ -3,6 +3,7 @@
   "system_name": "sys_gb300_72gpu",
   "system_category": "datacenter",
   "system_availability_status": "Available",
+  "max_supported_concurrency": 16384,
   "serving_framework": "TensorRT-LLM",
   "node_types": [
     {

@@ -3,6 +3,7 @@
   "system_name": "bad_system",
   "system_category": "datacenter",
   "system_availability_status": "Available",
+  "max_supported_concurrency": 88,
   "serving_framework": "custom 0.0.1",
   "node_types": [
     {

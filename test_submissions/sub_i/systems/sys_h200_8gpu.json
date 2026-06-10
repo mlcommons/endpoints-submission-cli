@@ -3,6 +3,7 @@
   "system_name": "sys_h200_8gpu",
   "system_category": "datacenter",
   "system_availability_status": "Available",
+  "max_supported_concurrency": 512,
   "serving_framework": "TensorRT-LLM",
   "node_types": [
     {

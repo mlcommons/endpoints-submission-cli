@@ -3,6 +3,7 @@
   "system_name": "sys_tpu_4chip",
   "system_category": "datacenter",
   "system_availability_status": "Available",
+  "max_supported_concurrency": 512,
   "serving_framework": "vLLM (TPU)",
   "node_types": [
     {

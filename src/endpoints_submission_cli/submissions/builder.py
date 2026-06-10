@@ -94,20 +94,33 @@ def build_submission_folder(
     # Group runs by system_id + model
     groups = _group_runs(run_data)
 
-    # Aggregate all runs per system_id so the system description uses the
-    # global max_concurrency even when multiple model groups share one system.
     runs_by_system: dict[str, list[dict[str, Any]]] = {}
     for (system_id, _model), runs in groups.items():
         runs_by_system.setdefault(system_id, []).extend(runs)
 
+    # Validate max_supported_concurrency consistency per system before writing anything
+    system_max_concurrency: dict[str, int] = {}
+    for system_id, system_runs in runs_by_system.items():
+        values = {r["system_info"].get("max_supported_concurrency") for r in system_runs}
+        if None in values:
+            raise SubmissionBuildError(
+                f"System {system_id}: system_desc.json is missing max_supported_concurrency"
+            )
+        if len(values) > 1:
+            raise SubmissionBuildError(
+                f"System {system_id}: runs have inconsistent max_supported_concurrency"
+                f" values: {sorted(values)}"
+            )
+        system_max_concurrency[system_id] = int(values.pop())
+
     written_systems: set[str] = set()
     for (system_id, model), runs in groups.items():
-        all_system_runs = runs_by_system[system_id]
         if system_id not in written_systems:
             _write_system_description(submission_dir, system_id, runs[0]["system_info"])
             written_systems.add(system_id)
-        max_concurrency = max(_extract_concurrency(r["config"]) for r in all_system_runs)
-        _write_pareto_entries(submission_dir, system_id, model, runs, max_concurrency)
+        _write_pareto_entries(
+            submission_dir, system_id, model, runs, system_max_concurrency[system_id]
+        )
         _write_accuracy(submission_dir, system_id, model, runs)
 
     # Create src/ for Standardized division submissions

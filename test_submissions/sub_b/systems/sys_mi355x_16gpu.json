@@ -3,6 +3,7 @@
   "system_name": "sys_mi355x_16gpu",
   "system_category": "datacenter",
   "system_availability_status": "Available",
+  "max_supported_concurrency": 2048,
   "serving_framework": "vLLM",
   "node_types": [
     {

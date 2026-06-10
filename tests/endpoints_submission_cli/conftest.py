@@ -60,6 +60,7 @@ _SYSTEM_DESC = {
     "system_name": "Test System",
     "system_category": "datacenter",
     "system_availability_status": "Available",
+    "max_supported_concurrency": 1024,
     "serving_framework": "vllm==0.4.2",
     "node_types": [
         {

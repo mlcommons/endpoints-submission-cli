@@ -3,6 +3,7 @@
   "system_name": "ACME H100x8 Node",
   "system_category": "datacenter",
   "system_availability_status": "Available",
+  "max_supported_concurrency": 1000,
   "serving_framework": "vLLM 0.4.2",
   "node_types": [
     {

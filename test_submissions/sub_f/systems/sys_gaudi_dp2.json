@@ -3,6 +3,7 @@
   "system_name": "sys_gaudi_dp2",
   "system_category": "datacenter",
   "system_availability_status": "Available",
+  "max_supported_concurrency": 1024,
   "serving_framework": "vLLM",
   "node_types": [
     {
