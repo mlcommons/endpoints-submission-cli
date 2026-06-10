@@ -503,7 +503,7 @@ def _normalize_system_availability_status(status: str) -> str:
         "preview": "Preview",
         "rdi": "RDI",
     }
-    normalized = mapping.get(str(status).strip().lower())
+    normalized = mapping.get(status.strip().lower())
     if normalized is None:
         raise SubmissionBuildError(
             f"Unknown availability status {status!r}. Must be one of: available, preview, rdi"
