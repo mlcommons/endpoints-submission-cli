@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 __all__ = ["AccuracyResult"]
@@ -44,15 +45,11 @@ class AccuracyResult(RootModel[dict[str, dict[str, Any]]]):
             if isinstance(raw_score, dict):
                 scores: dict[str, float] = {}
                 for k, v in raw_score.items():
-                    try:
+                    with contextlib.suppress(TypeError, ValueError):
                         scores[k] = float(v)
-                    except (TypeError, ValueError):
-                        pass
                 if scores:
                     result[ds_name] = scores
             elif raw_score is not None:
-                try:
+                with contextlib.suppress(TypeError, ValueError):
                     result[ds_name] = {"score": float(raw_score)}
-                except (TypeError, ValueError):
-                    pass
         return result

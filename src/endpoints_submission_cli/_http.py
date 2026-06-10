@@ -34,11 +34,13 @@ __all__ = [
 
 _DEFAULT_BASE_URL = "https://mlperf-endpoints-api-50577619532.us-central1.run.app"
 
-# All values are per-operation idle timeouts (time without a byte transferred), not wall-clock totals.
+# Per-operation idle timeouts (time without a byte transferred), not wall-clock totals.
 # A slow-but-steady transfer never times out; only a stalled connection does.
-_UPLOAD_TIMEOUT = httpx.Timeout(connect=10.0, write=300.0, read=120.0, pool=5.0)   # write: each chunk send; read: wait for server ack after full upload
-_DOWNLOAD_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=5.0)  # read: gap between received bytes; accommodates large archives on slow links
-_API_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=30.0, pool=5.0)        # standard JSON calls; no large payloads expected
+# write: each chunk send; read: wait for server ack after full upload
+_UPLOAD_TIMEOUT = httpx.Timeout(connect=10.0, write=300.0, read=120.0, pool=5.0)
+# read: gap between received bytes; accommodates large archives on slow links
+_DOWNLOAD_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=5.0)
+_API_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=30.0, pool=5.0)  # standard JSON calls
 
 
 def _base_url() -> str:

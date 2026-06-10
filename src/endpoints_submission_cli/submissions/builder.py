@@ -28,8 +28,9 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
-from ..exceptions import SubmissionBuildError
 from submission_checker.models.file import SystemDescription
+
+from ..exceptions import SubmissionBuildError
 
 __all__ = ["build_submission_folder", "create_bundle_archive", "extract_archive"]
 
@@ -254,8 +255,8 @@ def _load_extra_files(base: Path) -> dict[str, bytes]:
     if doc_dir.is_dir():
         for p in sorted(doc_dir.rglob("*")):
             if p.is_file():
-                rel = p.relative_to(base)
-                extra[str(rel)] = p.read_bytes()
+                doc_rel = p.relative_to(base)
+                extra[str(doc_rel)] = p.read_bytes()
     return extra
 
 
@@ -358,7 +359,9 @@ def _write_pareto_entries(
         # Convert events.jsonl (JSONL) to a JSON array for the detail log
         extra_files = run.get("_extra_files", {})
         if "events.jsonl" in extra_files:
-            events = [json.loads(ln) for ln in extra_files["events.jsonl"].splitlines() if ln.strip()]
+            events = [
+                json.loads(ln) for ln in extra_files["events.jsonl"].splitlines() if ln.strip()
+            ]
             detail_bytes = json.dumps(events, indent=2).encode()
         else:
             detail_bytes = b"[]"
@@ -374,7 +377,7 @@ def _write_pareto_entries(
             dest.write_bytes(content)
 
 
-def _fmt_score(score: float | dict) -> str:
+def _fmt_score(score: float | dict[str, Any]) -> str:
     if isinstance(score, dict):
         return ", ".join(f"{k}={v}" for k, v in score.items())
     return f"{score:.4f}"
@@ -433,40 +436,30 @@ def _write_accuracy(
     accuracy_dir = submission_dir / "pareto" / system_id / model / "accuracy"
     accuracy_dir.mkdir(parents=True, exist_ok=True)
 
-    first_ds, first_data = next(iter(accuracy_scores.items()))
-    metric = first_data.get("dataset_name") or first_ds
-    raw_score = first_data.get("score", 0.0)
-    score: float | dict = raw_score if isinstance(raw_score, dict) else float(raw_score)
-
     txt_lines = [
         f"{entry.get('dataset_name') or ds}: {_fmt_score(entry.get('score', 0.0))}"
         for ds, entry in accuracy_scores.items()
     ]
     (accuracy_dir / "accuracy.txt").write_text("\n".join(txt_lines) + "\n", encoding="utf-8")
 
-    accuracy_result = {
-        "metric": metric,
-        "score": score,
-        "quality_target": 0.0,
-        "passed": True,
-    }
     (accuracy_dir / "accuracy_result.json").write_text(
         json.dumps(accuracy_scores, indent=2), encoding="utf-8"
     )
 
     # Write a human-readable summary
-    txt_lines: list[str] = []
+    summary_lines: list[str] = []
     for ds_name, entry in accuracy_scores.items():
         raw = entry.get("score", {}) if isinstance(entry, dict) else {}
         if isinstance(raw, dict):
             metrics = ", ".join(
                 f"{k}={v}" for k, v in raw.items()
-                if isinstance(v, (int, float)) or (isinstance(v, str) and v.replace(".", "").isdigit())
+                if isinstance(v, (int, float))
+                or (isinstance(v, str) and v.replace(".", "").isdigit())
             )
-            txt_lines.append(f"{ds_name}: {metrics}" if metrics else ds_name)
+            summary_lines.append(f"{ds_name}: {metrics}" if metrics else ds_name)
         else:
-            txt_lines.append(f"{ds_name}: {raw}")
-    (accuracy_dir / "accuracy.txt").write_text("\n".join(txt_lines) + "\n", encoding="utf-8")
+            summary_lines.append(f"{ds_name}: {raw}")
+    (accuracy_dir / "accuracy.txt").write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
 
 
 def _write_documentation(submission_dir: Path, run_data: list[dict[str, Any]]) -> None:

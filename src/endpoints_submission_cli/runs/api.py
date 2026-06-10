@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -35,20 +35,17 @@ __all__ = [
 
 def list_runs(token: str) -> list[dict[str, Any]]:
     """GET /runs — list all runs for the authenticated user."""
-    result = _get("/runs", token)
-    return result  # type: ignore[return-value]
+    return cast(list[dict[str, Any]], _get("/runs", token))
 
 
 def create_run(token: str, payload: dict[str, Any]) -> dict[str, Any]:
     """POST /runs — register a new run."""
-    result = _post("/runs", token, json=payload)
-    return result  # type: ignore[return-value]
+    return cast(dict[str, Any], _post("/runs", token, json=payload))
 
 
 def get_run(token: str, run_id: str) -> dict[str, Any]:
     """GET /runs/{run_id} — fetch full run details."""
-    result = _get(f"/runs/{run_id}", token)
-    return result  # type: ignore[return-value]
+    return cast(dict[str, Any], _get(f"/runs/{run_id}", token))
 
 
 def delete_run(token: str, run_id: str) -> None:
@@ -72,7 +69,7 @@ def upload_run_archive(token: str, run_id: str, archive_path: Path) -> dict[str,
     GET /runs/{run_id}/archive/upload-url → {"upload_url": "...", "expires_in": 3600}
     PUT <upload_url>                      → streams file directly to object storage
     """
-    result = _get(f"/runs/{run_id}/archive/upload-url", token)
+    result = cast(dict[str, Any], _get(f"/runs/{run_id}/archive/upload-url", token))
     _put_to_signed_url(result["upload_url"], archive_path)
     return result
 
@@ -90,7 +87,7 @@ def download_run_archive(token: str, run_id: str, dest_dir: Path) -> Path:
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / f"{run_id}.tar.gz"
-    result = _get(f"/runs/{run_id}/archive", token)
+    result = cast(dict[str, Any], _get(f"/runs/{run_id}/archive", token))
     download_url = result["download_url"]
     try:
         with httpx.stream("GET", download_url, timeout=_DOWNLOAD_TIMEOUT) as r:

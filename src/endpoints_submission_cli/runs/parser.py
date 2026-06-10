@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -79,7 +79,7 @@ def _validate_required_files(path: Path) -> None:
 
 def _load_json(file_path: Path) -> dict[str, Any]:
     try:
-        return json.loads(file_path.read_text(encoding="utf-8"))
+        return cast(dict[str, Any], json.loads(file_path.read_text(encoding="utf-8")))
     except json.JSONDecodeError as exc:
         raise RunFolderError(f"Invalid JSON in {file_path.name}: {exc}") from exc
 

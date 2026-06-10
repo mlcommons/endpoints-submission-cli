@@ -1,4 +1,5 @@
-"""Model context — aggregate model-level validation (point count, coverage, consistency, accuracy)."""
+"""Model context — aggregate model-level validation (point count, coverage, consistency,
+accuracy)."""
 
 from __future__ import annotations
 
@@ -9,13 +10,13 @@ __all__ = ["ModelContext"]
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr, model_validator
 
-from ..regions import Regions
-from ..results import CheckResult, err, ok, warn
-from ..file.accuracy import AccuracyResult
 from ...accuracy_targets import get_thresholds
+from ..file.accuracy import AccuracyResult
 from ..file.point_config import PointConfig
 from ..file.point_summary import PointSummary
 from ..file.system import SystemDescription
+from ..regions import Regions
+from ..results import CheckResult, err, ok, warn
 
 _MIN_POINTS = 7
 _MAX_POINTS = 32
@@ -57,7 +58,12 @@ class ModelContext(BaseModel):
             )
         if n > _MAX_POINTS:
             self._check_results.append(
-                err("point-cap", f"{n} points exceed the {_MAX_POINTS}-point cap", self.points_dir, "#2, #8")
+                err(
+                    "point-cap",
+                    f"{n} points exceed the {_MAX_POINTS}-point cap",
+                    self.points_dir,
+                    "#2, #8",
+                )
             )
         return self
 

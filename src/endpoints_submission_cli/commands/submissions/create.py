@@ -7,6 +7,7 @@ from __future__ import annotations
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import click
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
@@ -14,6 +15,7 @@ from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn
 from ...exceptions import APIError, SubmissionBuildError, SubmissionCheckError
 from ...runs import api as runs_api
 from ...submissions import api as subs_api
+
 # from ...submissions import github as github_ops
 from ...submissions.builder import build_submission_folder, create_bundle_archive
 from ..common import _console, _get_token, _run_submission_checker
@@ -143,7 +145,9 @@ def submissions_create(
         # 2. Assemble submission folder
         _console.print("[cyan]Assembling submission folder…[/cyan]")
         try:
-            submission_dir = build_submission_folder(archives, division, availability, tmp_path / "bundle")
+            submission_dir = build_submission_folder(
+                archives, division, availability, tmp_path / "bundle"
+            )
         except SubmissionBuildError as exc:
             _console.print(f"[bold red]Build error:[/bold red] {exc}")
             sys.exit(1)
@@ -166,7 +170,7 @@ def submissions_create(
             return
 
         # 4. POST /submissions
-        payload: dict = {
+        payload: dict[str, Any] = {
             "division": division,
             "scenario": scenario,
             "availability": availability,
@@ -210,7 +214,8 @@ def submissions_create(
         branch = f"submission-{submission_id}"
         try:
             github_ops.prepare_submission_branch(
-                submission_dir, branch, target_repo, tmp_path / "gh"  # type: ignore[possibly-undefined]
+                submission_dir, branch, target_repo,  # type: ignore[possibly-undefined]
+                tmp_path / "gh"
             )
             pr_url, pr_number = github_ops.create_pr(submission_id, branch, target_repo)
         except GitHubError as exc:

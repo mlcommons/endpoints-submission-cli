@@ -12,6 +12,8 @@ __all__ = [
     "load_system_description",
 ]
 
+from typing import Any
+
 import yaml
 from pydantic import ValidationError
 
@@ -19,7 +21,7 @@ from .file import AccuracyResult, PointConfig, PointSummary, SystemDescription
 from .results import CheckResult, Severity
 
 
-def _load_json(path: Path) -> tuple[dict | None, str | None]:
+def _load_json(path: Path) -> tuple[dict[str, Any] | None, str | None]:
     try:
         return json.loads(path.read_text()), None
     except FileNotFoundError:
@@ -30,7 +32,7 @@ def _load_json(path: Path) -> tuple[dict | None, str | None]:
         return None, f"IO error reading {path.name}: {exc}"
 
 
-def _load_yaml(path: Path) -> tuple[dict | None, str | None]:
+def _load_yaml(path: Path) -> tuple[dict[str, Any] | None, str | None]:
     try:
         data = yaml.safe_load(path.read_text())
         if not isinstance(data, dict):
@@ -77,7 +79,7 @@ def load_system_description(
 
 
 def load_point_config(
-    path: Path, context: dict | None = None
+    path: Path, context: dict[str, Any] | None = None
 ) -> tuple[PointConfig | None, list[CheckResult]]:
     """Load and validate a ``point_<N>.yaml`` measurement-point config.
 
