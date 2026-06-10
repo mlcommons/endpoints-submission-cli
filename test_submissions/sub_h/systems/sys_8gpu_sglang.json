@@ -1,42 +1,26 @@
 {
-  "organization_metadata": {
-    "submitter_org_name": "Submitter-H"
-  },
-  "system_under_test": {
-    "system_metadata": {
-      "system_name": "sys_8gpu_sglang",
-      "system_category": "datacenter",
-      "system_availability_status": "Available"
-    },
-    "node_types": [
-      {
-        "system_node_ensemble_id": 0,
-        "number_of_nodes": 1,
-        "hardware_ensemble": {
-          "processor": {
-            "host_processor_model_name": "Intel Xeon Platinum 8480+",
-            "host_processors_per_node": 2,
-            "host_processor_core_count": 60
-          },
-          "host_memory": {"host_memory_capacity": "2 TiB"},
-          "accelerator": {
-            "accelerator_model_name": "NVIDIA H100-SXM5-80GB",
-            "accelerators_per_node": 8,
-            "accelerator_memory_capacity": "80 GB HBM3",
-            "accelerator_interconnect": "NVLink 4.0 900 GB/s"
-          },
-          "networking": {"host_networking": "InfiniBand NDR"},
-          "storage": {
-            "host_storage_type": "NVMe SSD",
-            "host_storage_capacity": "15 TB"
-          }
-        },
-        "software_ensemble": {"operating_system": "Ubuntu 22.04"}
-      }
-    ],
-    "serving_framework": "SGLang"
-  },
-  "model_metadata": {
-    "division": "Standardized"
-  }
+  "submitter_org_names": "Submitter-H",
+  "system_name": "sys_8gpu_sglang",
+  "system_category": "datacenter",
+  "system_availability_status": "Available",
+  "serving_framework": "SGLang",
+  "node_types": [
+    {
+      "system_node_ensemble_id": 0,
+      "number_of_nodes": 1,
+      "host_processor_model_name": "Intel Xeon Platinum 8480+",
+      "host_processors_per_node": 2,
+      "host_processor_core_count": 60,
+      "host_memory_capacity": "2 TiB",
+      "accelerator_model_name": "NVIDIA H100-SXM5-80GB",
+      "accelerators_per_node": 8,
+      "accelerator_memory_capacity": "80 GB HBM3",
+      "accelerator_interconnect": "NVLink 4.0 900 GB/s",
+      "host_networking": "InfiniBand NDR",
+      "host_storage_capacity": "15 TB",
+      "host_storage_type": "NVMe SSD",
+      "operating_system": "Ubuntu 22.04"
+    }
+  ],
+  "division": "Standardized"
 }

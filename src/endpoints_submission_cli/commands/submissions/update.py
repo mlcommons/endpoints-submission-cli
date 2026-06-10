@@ -175,7 +175,7 @@ def submissions_update(
         # Assemble submission folder
         _console.print("[cyan]Assembling submission folder…[/cyan]")
         try:
-            submission_dir = build_submission_folder(archives, division, tmp_path / "bundle", availability)
+            submission_dir = build_submission_folder(archives, division, availability, tmp_path / "bundle")
         except SubmissionBuildError as exc:
             _console.print(f"[bold red]Build error:[/bold red] {exc}")
             _rollback_update(resolved_token, submission_id, original_run_ids)

@@ -53,64 +53,38 @@ _SYSTEM_INFO = {
     "system_type_detail": "on-premise",
 }
 
-# Full nested system description (produced by get-mlperf-multi-node-system-info)
+# Flat system description
 _SYSTEM_DESC = {
-    "organization_metadata": {
-        "submitter_org_name": "TestOrg",
-        "submitter_contact": "test@testorg.com",
-    },
-    "system_under_test": {
-        "system_metadata": {
-            "system_name": "Test System",
-            "system_category": "datacenter",
-            "system_availability_status": "Available",
-        },
-        "node_types": [
-            {
-                "system_node_ensemble_id": 0,
-                "number_of_nodes": 1,
-                "hardware_ensemble": {
-                    "processor": {
-                        "host_processor_model_name": "AMD EPYC 9575F",
-                        "host_processors_per_node": 2,
-                        "host_processor_core_count": 64,
-                        "host_processor_vcpu_count": None,
-                    },
-                    "host_memory": {"host_memory_capacity": "512 GB"},
-                    "accelerator": {
-                        "accelerator_model_name": "NVIDIA H100 SXM5 80GB",
-                        "accelerators_per_node": 8,
-                        "accelerator_memory_capacity": "80 GB",
-                    },
-                    "networking": {
-                        "host_networking": "InfiniBand HDR",
-                        "host_network_card_count": "4x HDR",
-                    },
-                    "storage": {
-                        "host_storage_type": "NVMe SSD",
-                        "host_storage_capacity": "3.84 TB",
-                    },
-                },
-                "software_ensemble": {
-                    "operating_system": "Ubuntu 22.04",
-                    "other_software_stack": None,
-                },
-            }
-        ],
-        "serving_framework": "vllm==0.4.2",
-    },
-    "model_metadata": {
-        "division": "Standardized",
-        "model_id": "llama3.1-8b",
-        "model_name": "Llama 3.1 8B Instruct",
-    },
-    "dataset_metadata": {
-        "dataset_id": "cnn-dailymail",
-        "dataset_name": "cnn_dailymail",
-    },
-    "accuracy": {
-        "measured_accuracy_score": 0.45,
-    },
+    "submitter_org_names": "TestOrg",
+    "submitter_contact": "test@testorg.com",
+    "system_name": "Test System",
+    "system_category": "datacenter",
+    "system_availability_status": "Available",
+    "serving_framework": "vllm==0.4.2",
+    "node_types": [
+        {
+            "system_node_ensemble_id": 0,
+            "number_of_nodes": 1,
+            "host_processor_model_name": "AMD EPYC 9575F",
+            "host_processors_per_node": 2,
+            "host_processor_core_count": 64,
+            "host_memory_capacity": "512 GB",
+            "accelerator_model_name": "NVIDIA H100 SXM5 80GB",
+            "accelerators_per_node": 8,
+            "accelerator_memory_capacity": "80 GB",
+            "host_networking": "InfiniBand HDR",
+            "host_network_card_count": "4x HDR",
+            "host_storage_type": "NVMe SSD",
+            "host_storage_capacity": "3.84 TB",
+            "operating_system": "Ubuntu 22.04",
+        }
+    ],
+    "division": "Standardized",
+    "model_id": "llama3.1-8b",
+    "model_name": "Llama 3.1 8B Instruct",
+    "dataset_id": "cnn-dailymail",
+    "dataset_name": "cnn_dailymail",
+    "measured_accuracy_score": 0.45,
 }
 
 # Supplementary per-node hardware snapshot (still written to run folder)

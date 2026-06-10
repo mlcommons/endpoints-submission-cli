@@ -36,25 +36,17 @@ from submission_checker.models import (
 _NODE_TYPE = {
     "system_node_ensemble_id": 0,
     "number_of_nodes": 1,
-    "hardware_ensemble": {
-        "processor": {
-            "host_processor_model_name": "AMD EPYC",
-            "host_processors_per_node": 2,
-            "host_processor_core_count": 64,
-        },
-        "host_memory": {"host_memory_capacity": "512 GB"},
-        "accelerator": {
-            "accelerator_model_name": "H100",
-            "accelerators_per_node": 8,
-            "accelerator_memory_capacity": "80 GB",
-        },
-        "networking": {"host_networking": "InfiniBand"},
-        "storage": {
-            "host_storage_type": "NVMe",
-            "host_storage_capacity": "10 TB",
-        },
-    },
-    "software_ensemble": {"operating_system": "Ubuntu 22.04"},
+    "host_processor_model_name": "AMD EPYC",
+    "host_processors_per_node": 2,
+    "host_processor_core_count": 64,
+    "host_memory_capacity": "512 GB",
+    "accelerator_model_name": "H100",
+    "accelerators_per_node": 8,
+    "accelerator_memory_capacity": "80 GB",
+    "host_networking": "InfiniBand",
+    "host_storage_type": "NVMe",
+    "host_storage_capacity": "10 TB",
+    "operating_system": "Ubuntu 22.04",
 }
 
 _M = 1024
@@ -70,17 +62,13 @@ def _system_desc(
     **kwargs,
 ) -> SystemDescription:
     return SystemDescription(
-        organization_metadata={"submitter_org_name": "Test Org"},
-        system_under_test={
-            "system_metadata": {
-                "system_name": "test-sys",
-                "system_category": "datacenter",
-                "system_availability_status": "Available",
-            },
-            "node_types": [_NODE_TYPE],
-            "serving_framework": "vLLM",
-        },
-        model_metadata={"division": division},
+        submitter_org_names="Test Org",
+        system_name="test-sys",
+        system_category="datacenter",
+        system_availability_status="Available",
+        serving_framework="vLLM",
+        node_types=[_NODE_TYPE],
+        division=division,
         **kwargs,
     )
 

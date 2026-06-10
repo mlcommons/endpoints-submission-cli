@@ -99,23 +99,24 @@ class ModelContext(BaseModel):
         """§16: model name in system_desc must match the model directory name.
 
         The model directory name is derived from config.yaml's model_params.name
-        (last path component, slugified). system_desc.model_metadata.model_id is
-        the authoritative source; model_metadata.model_name is the fallback.
-        Both may be in HuggingFace format (e.g. "meta-llama/Llama-3.1-8B-Instruct")
-        so we take the last "/" component before comparing.
+        (last path component, slugified). system_desc.model_id is the authoritative
+        source; system_desc.model_name is the fallback. Both may be in HuggingFace
+        format (e.g. "meta-llama/Llama-3.1-8B-Instruct") so we take the last "/"
+        component before comparing.
 
         - system_desc has no model id/name  → warning (submitter hasn't filled it in)
         - system_desc model normalizes to a different name than the directory → error
         - they match → ok
         """
+        # Strips HuggingFace org prefix, lowercases, and replaces non-word chars with
+        # underscores so "meta-llama/Llama-3.1-8B" compares equal to "Llama-3.1-8B".
         def _normalize(name: str) -> str:
             part = name.split("/")[-1].strip()
             slug = re.sub(r"[^\w\-]", "_", part)
             slug = re.sub(r"_+", "_", slug).strip("_")
             return slug[:64]
 
-        mm = self.system_desc.model_metadata
-        sd_raw = (mm.model_id or mm.model_name or "").strip()
+        sd_raw = (self.system_desc.model_id or self.system_desc.model_name or "").strip()
 
         if not sd_raw:
             self._check_results.append(

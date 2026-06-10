@@ -143,7 +143,7 @@ def submissions_create(
         # 2. Assemble submission folder
         _console.print("[cyan]Assembling submission folder…[/cyan]")
         try:
-            submission_dir = build_submission_folder(archives, division, tmp_path / "bundle", availability)
+            submission_dir = build_submission_folder(archives, division, availability, tmp_path / "bundle")
         except SubmissionBuildError as exc:
             _console.print(f"[bold red]Build error:[/bold red] {exc}")
             sys.exit(1)

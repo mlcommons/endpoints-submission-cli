@@ -42,16 +42,16 @@ __all__ = ["build_submission_folder", "create_bundle_archive", "extract_archive"
 def build_submission_folder(
     run_archives: list[tuple[str, Path]],
     division: str,
-    work_dir: Path,
     availability: str,
+    work_dir: Path,
 ) -> Path:
     """Assemble a submission directory from a list of run archives.
 
     Args:
         run_archives: List of ``(run_id, archive_path)`` tuples.
         division: Submission division (e.g. ``"standardized"``).
-        work_dir: Base directory in which to build the submission tree.
         availability: Publication/availability status (e.g. ``"available"``).
+        work_dir: Base directory in which to build the submission tree.
 
     Returns:
         Path to the assembled org-level submission directory.
@@ -71,14 +71,21 @@ def build_submission_folder(
         for run_id, archive_path in run_archives:
             run_dir = Path(tmp) / run_id
             extract_archive(archive_path, run_dir)
-            data = _load_run_data(run_dir, run_id, normalized_division, normalized_availability)
+            data = _load_run_data(run_id, normalized_division, normalized_availability, run_dir)
             run_data.append(data)
+
+    if len(run_data) > 1:
+        first = run_data[0]["system_info"]
+        if not all(r["system_info"] == first for r in run_data[1:]):
+            import warnings
+            warnings.warn(
+                "Runs have inconsistent system_info; using the first run's data",
+                stacklevel=2,
+            )
 
     # Determine org name from the first run's system_info
     org_name = _slugify(
-        (run_data[0]["system_info"].get("organization_metadata") or {}).get(
-            "submitter_org_name", "org"
-        ) or "org"
+        run_data[0]["system_info"].get("submitter_org_names", "org") or "org"
     )
     submission_dir = work_dir / org_name
     submission_dir.mkdir(parents=True, exist_ok=True)
@@ -149,7 +156,7 @@ def extract_archive(archive_path: Path, dest_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _load_run_data(run_dir: Path, run_id: str, division: str, availability: str) -> dict[str, Any]:
+def _load_run_data(run_id: str, division: str, availability: str, run_dir: Path) -> dict[str, Any]:
     """Find and load required files from an extracted run archive.
 
     Uses config.yaml as the directory anchor. All supplementary files are read
@@ -193,13 +200,8 @@ def _load_run_data(run_dir: Path, run_id: str, division: str, availability: str)
 
 
 def _load_system_desc(base: Path, run_id: str, division: str, availability: str) -> dict[str, Any]:
-    """Load system_desc.json from a run folder and return the nested dict as-is.
-
-    The CLI-provided ``division`` and ``availability`` (already normalized) are
-    written into ``model_metadata.division`` and
-    ``system_under_test.system_metadata.system_availability_status`` before
-    validation so that placeholder values from the tool template never cause a
-    spurious validation failure.
+    """Load system_desc.json from a run folder, apply CLI-provided division and
+    availability, validate, and return the flat dict.
 
     Raises:
         SubmissionBuildError: If system_desc.json is absent or fails schema validation.
@@ -207,11 +209,12 @@ def _load_system_desc(base: Path, run_id: str, division: str, availability: str)
     sd_path = base / "system_desc.json"
     if not sd_path.exists():
         raise SubmissionBuildError(
-            f"Run {run_id}: archive is missing system_desc.json"
+            "Run archive is missing system_desc.json"
         )
     sd: dict[str, Any] = json.loads(sd_path.read_text())
-    sd.setdefault("model_metadata", {})["division"] = division
-    sd.setdefault("system_under_test", {}).setdefault("system_metadata", {})["system_availability_status"] = availability
+    # CLI-provided values are authoritative for these fields
+    sd["division"] = division
+    sd["system_availability_status"] = availability
     try:
         SystemDescription.model_validate(sd)
     except ValidationError as exc:
@@ -220,8 +223,7 @@ def _load_system_desc(base: Path, run_id: str, division: str, availability: str)
             for e in exc.errors()
         )
         raise SubmissionBuildError(
-            f"Run {run_id}: system_desc.json failed schema validation: {errors}. "
-            "Use get-mlperf-multi-node-system-info to generate the correct format."
+            f"Run {run_id}: system_desc.json failed schema validation: {errors}"
         ) from exc
     return sd
 
@@ -271,10 +273,8 @@ def _group_runs(
 
 
 def _extract_system_id(system_info: dict[str, Any]) -> str:
-    sut = system_info.get("system_under_test") or {}
-    sys_meta = sut.get("system_metadata") or {}
-    name = sys_meta.get("system_name", "unknown_system") or "unknown_system"
-    return name.strip().replace(" ", "_")
+    sd = SystemDescription.model_validate(system_info)
+    return sd.system_name.strip().replace(" ", "_")
 
 
 def _extract_model(config: dict[str, Any]) -> str:
@@ -489,7 +489,12 @@ def _normalize_division(division: str) -> str:
         "serviced": "Serviced",
         "rdi": "RDI",
     }
-    return mapping.get(division.strip().lower(), division.title())
+    normalized = mapping.get(division.strip().lower())
+    if normalized is None:
+        raise SubmissionBuildError(
+            f"Unknown division {division!r}. Must be one of: standardized, serviced, rdi"
+        )
+    return normalized
 
 
 def _normalize_system_availability_status(status: str) -> str:
@@ -498,7 +503,12 @@ def _normalize_system_availability_status(status: str) -> str:
         "preview": "Preview",
         "rdi": "RDI",
     }
-    return mapping.get(str(status).strip().lower(), "Available")
+    normalized = mapping.get(str(status).strip().lower())
+    if normalized is None:
+        raise SubmissionBuildError(
+            f"Unknown availability status {status!r}. Must be one of: available, preview, rdi"
+        )
+    return normalized
 
 
 def _slugify(name: str) -> str:

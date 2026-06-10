@@ -33,13 +33,8 @@ class TestParseRunFolder:
     def test_system_info_passthrough(self, run_folder: Path) -> None:
         payload = parse_run_folder(run_folder)
         si = payload["system_info"]
-        assert si["system_under_test"]["system_metadata"]["system_name"] == "Test System"
-        assert (
-            si["system_under_test"]["node_types"][0]["hardware_ensemble"]["accelerator"][
-                "accelerator_model_name"
-            ]
-            == "NVIDIA H100 SXM5 80GB"
-        )
+        assert si["system_name"] == "Test System"
+        assert si["node_types"][0]["accelerator_model_name"] == "NVIDIA H100 SXM5 80GB"
 
     def test_config_passthrough(self, run_folder: Path) -> None:
         payload = parse_run_folder(run_folder)

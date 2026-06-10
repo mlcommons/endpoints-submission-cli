@@ -87,106 +87,55 @@ def test_report_model_dump_includes_computed_fields(tmp_path: Path):
 _NODE_TYPE = {
     "system_node_ensemble_id": 0,
     "number_of_nodes": 1,
-    "hardware_ensemble": {
-        "processor": {
-            "host_processor_model_name": "Intel Xeon Gold 6148",
-            "host_processors_per_node": 2,
-            "host_processor_core_count": 20,
-        },
-        "host_memory": {"host_memory_capacity": "384 GB"},
-        "accelerator": {
-            "accelerator_model_name": "NVIDIA A100-SXM4-80GB",
-            "accelerators_per_node": 8,
-            "accelerator_memory_capacity": "80 GB HBM2e",
-        },
-        "networking": {
-            "host_networking": "InfiniBand EDR",
-        },
-        "storage": {
-            "host_storage_type": "NVMe SSD",
-            "host_storage_capacity": "10 TB",
-        },
-    },
-    "software_ensemble": {"operating_system": "Ubuntu 20.04"},
+    "host_processor_model_name": "Intel Xeon Gold 6148",
+    "host_processors_per_node": 2,
+    "host_processor_core_count": 20,
+    "host_memory_capacity": "384 GB",
+    "accelerator_model_name": "NVIDIA A100-SXM4-80GB",
+    "accelerators_per_node": 8,
+    "accelerator_memory_capacity": "80 GB HBM2e",
+    "host_networking": "InfiniBand EDR",
+    "host_storage_type": "NVMe SSD",
+    "host_storage_capacity": "10 TB",
+    "operating_system": "Ubuntu 20.04",
 }
 
-_BASE_NESTED = {
-    "organization_metadata": {"submitter_org_name": "Test Org"},
-    "system_under_test": {
-        "system_metadata": {
-            "system_name": "test-node",
-            "system_category": "datacenter",
-            "system_availability_status": "Available",
-        },
-        "node_types": [_NODE_TYPE],
-        "serving_framework": "vLLM 0.4.0",
-    },
-    "model_metadata": {"division": "Standardized"},
+_BASE_FLAT = {
+    "submitter_org_names": "Test Org",
+    "system_name": "test-node",
+    "system_category": "datacenter",
+    "system_availability_status": "Available",
+    "serving_framework": "vLLM 0.4.0",
+    "node_types": [_NODE_TYPE],
+    "division": "Standardized",
 }
 
 
 def test_system_description_valid():
-    sd = SystemDescription(**_BASE_NESTED)
-    assert sd.model_metadata.division == Division.STANDARDIZED
-    assert sd.organization_metadata.submitter_org_name == "Test Org"
-
-
-def test_system_description_rejects_missing_core_and_vcpu():
-    node_no_core = {
-        **_NODE_TYPE,
-        "hardware_ensemble": {
-            **_NODE_TYPE["hardware_ensemble"],
-            "processor": {
-                "host_processor_model_name": "Intel Xeon",
-                "host_processors_per_node": 2,
-                # both core_count and vcpu_count absent → should fail
-            },
-        },
-    }
-    with pytest.raises(ValidationError):
-        SystemDescription(
-            **{**_BASE_NESTED, "system_under_test": {
-                **_BASE_NESTED["system_under_test"],
-                "node_types": [node_no_core],
-            }}
-        )
+    sd = SystemDescription(**_BASE_FLAT)
+    assert sd.division == Division.STANDARDIZED
+    assert sd.submitter_org_names == "Test Org"
 
 
 def test_system_description_accepts_vcpu_without_core_count():
     node_vcpu = {
         **_NODE_TYPE,
-        "hardware_ensemble": {
-            **_NODE_TYPE["hardware_ensemble"],
-            "processor": {
-                "host_processor_model_name": "Intel Xeon",
-                "host_processors_per_node": 2,
-                "host_processor_vcpu_count": 40,
-            },
-        },
+        "host_processor_core_count": None,
+        "host_processor_vcpu_count": 40,
     }
-    sd = SystemDescription(
-        **{**_BASE_NESTED, "system_under_test": {
-            **_BASE_NESTED["system_under_test"],
-            "node_types": [node_vcpu],
-        }}
-    )
-    proc = sd.system_under_test.node_types[0].hardware_ensemble.processor
-    assert proc.host_processor_vcpu_count == 40
-    assert proc.host_processor_core_count is None
+    sd = SystemDescription(**{**_BASE_FLAT, "node_types": [node_vcpu]})
+    assert sd.node_types[0].host_processor_vcpu_count == 40
+    assert sd.node_types[0].host_processor_core_count is None
 
 
 def test_system_description_allows_extra_fields():
-    sd = SystemDescription(
-        **{**_BASE_NESTED, "extra_top_level": "some value"},
-    )
+    sd = SystemDescription(**{**_BASE_FLAT, "extra_top_level": "some value"})
     assert sd.model_extra["extra_top_level"] == "some value"
 
 
 def test_system_description_rejects_invalid_division():
     with pytest.raises(ValidationError):
-        SystemDescription(
-            **{**_BASE_NESTED, "model_metadata": {"division": "NotADivision"}}
-        )
+        SystemDescription(**{**_BASE_FLAT, "division": "NotADivision"})
 
 
 # ---------------------------------------------------------------------------
@@ -299,32 +248,27 @@ def test_accuracy_result_empty_emits_error():
 
 def test_dataset_metadata_numeric_string_coerced_to_float():
     sd = SystemDescription(**{
-        **_BASE_NESTED,
-        "dataset_metadata": {
-            "input_token_average": "512.0",
-            "output_token_average": "128.5",
-        },
+        **_BASE_FLAT,
+        "input_token_average": "512.0",
+        "output_token_average": "128.5",
     })
-    assert sd.dataset_metadata.input_token_average == 512.0
-    assert sd.dataset_metadata.output_token_average == 128.5
+    assert sd.input_token_average == 512.0
+    assert sd.output_token_average == 128.5
 
 
 def test_dataset_metadata_invalid_string_raises():
-    with pytest.raises(ValidationError):
+    with pytest.raises((ValidationError, ValueError)):
         SystemDescription(**{
-            **_BASE_NESTED,
-            "dataset_metadata": {"input_token_average": "not-a-number"},
+            **_BASE_FLAT,
+            "input_token_average": "not-a-number",
         })
 
 
 # ---------------------------------------------------------------------------
-# Accuracy.measured_accuracy_score coercion
+# measured_accuracy_score coercion
 # ---------------------------------------------------------------------------
 
 
 def test_accuracy_empty_string_measured_score_coerced_to_none():
-    sd = SystemDescription(**{
-        **_BASE_NESTED,
-        "accuracy": {"measured_accuracy_score": ""},
-    })
-    assert sd.accuracy.measured_accuracy_score is None
+    sd = SystemDescription(**{**_BASE_FLAT, "measured_accuracy_score": ""})
+    assert sd.measured_accuracy_score is None

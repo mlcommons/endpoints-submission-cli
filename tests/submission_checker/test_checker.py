@@ -261,41 +261,29 @@ class TestSubJ:
 # ---------------------------------------------------------------------------
 
 _SYSTEM_DESC = {
-    "organization_metadata": {"submitter_org_name": "Test Org"},
-    "system_under_test": {
-        "system_metadata": {
-            "system_name": "test-sys",
-            "system_category": "datacenter",
-            "system_availability_status": "Available",
-        },
-        "node_types": [
-            {
-                "system_node_ensemble_id": 0,
-                "number_of_nodes": 1,
-                "hardware_ensemble": {
-                    "processor": {
-                        "host_processor_model_name": "AMD EPYC",
-                        "host_processors_per_node": 2,
-                        "host_processor_core_count": 64,
-                    },
-                    "host_memory": {"host_memory_capacity": "512 GB"},
-                    "accelerator": {
-                        "accelerator_model_name": "H100",
-                        "accelerators_per_node": 8,
-                        "accelerator_memory_capacity": "80 GB",
-                    },
-                    "networking": {"host_networking": "InfiniBand"},
-                    "storage": {
-                        "host_storage_type": "NVMe",
-                        "host_storage_capacity": "10 TB",
-                    },
-                },
-                "software_ensemble": {"operating_system": "Ubuntu 22.04"},
-            }
-        ],
-        "serving_framework": "vLLM",
-    },
-    "model_metadata": {"division": "Serviced"},
+    "submitter_org_names": "Test Org",
+    "system_name": "test-sys",
+    "system_category": "datacenter",
+    "system_availability_status": "Available",
+    "serving_framework": "vLLM",
+    "node_types": [
+        {
+            "system_node_ensemble_id": 0,
+            "number_of_nodes": 1,
+            "host_processor_model_name": "AMD EPYC",
+            "host_processors_per_node": 2,
+            "host_processor_core_count": 64,
+            "host_memory_capacity": "512 GB",
+            "accelerator_model_name": "H100",
+            "accelerators_per_node": 8,
+            "accelerator_memory_capacity": "80 GB",
+            "host_networking": "InfiniBand",
+            "host_storage_type": "NVMe",
+            "host_storage_capacity": "10 TB",
+            "operating_system": "Ubuntu 22.04",
+        }
+    ],
+    "division": "Serviced",
 }
 
 _SUMMARY = {
@@ -549,7 +537,7 @@ class TestCheckerEdgeCases:
 
     def test_model_name_matches_dir(self, tmp_path):
         """ok when model_id in system_desc matches the model directory name."""
-        desc = {**_SYSTEM_DESC, "model_metadata": {"division": "Serviced", "model_id": "llama3-70b"}}
+        desc = {**_SYSTEM_DESC, "model_id": "llama3-70b"}
         root = _build_submission(tmp_path, system_desc=desc, model="llama3-70b")
         report = _check(root)
         ok_results = [r for r in report.results if r.rule == "model-name-consistency" and r.passed]
@@ -557,14 +545,14 @@ class TestCheckerEdgeCases:
 
     def test_model_name_mismatch_errors(self, tmp_path):
         """err when model_id in system_desc does not match the model directory name."""
-        desc = {**_SYSTEM_DESC, "model_metadata": {"division": "Serviced", "model_id": "mistral-7b"}}
+        desc = {**_SYSTEM_DESC, "model_id": "mistral-7b"}
         root = _build_submission(tmp_path, system_desc=desc, model="llama3-70b")
         report = _check(root)
         assert _errors(report, "model-name-consistency")
 
     def test_model_name_huggingface_format_matches(self, tmp_path):
         """ok when model_id uses HuggingFace org/name format — last component compared."""
-        desc = {**_SYSTEM_DESC, "model_metadata": {"division": "Serviced", "model_id": "meta-llama/llama3-70b"}}
+        desc = {**_SYSTEM_DESC, "model_id": "meta-llama/llama3-70b"}
         root = _build_submission(tmp_path, system_desc=desc, model="llama3-70b")
         report = _check(root)
         ok_results = [r for r in report.results if r.rule == "model-name-consistency" and r.passed]

@@ -181,7 +181,7 @@ class SubmissionChecker:
             results.append(_err("region-computation", str(exc), system_json, "#7"))
             return results
 
-        src = SrcDir(root=self.submission_path, division=system_desc.model_metadata.division)
+        src = SrcDir(root=self.submission_path, division=system_desc.division)
         results.extend(src._check_results)
 
         system_pareto = SystemPareto(pareto_dir=pareto_dir, system_id=system_id)
