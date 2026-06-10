@@ -5,7 +5,7 @@
 Run folder layout:
 
     <run_folder>/
-        system_desc.json              — org/model/dataset metadata
+        system_desc.json              — org/system/model/dataset metadata (flat format)
         config.yaml                   — benchmark configuration
         result_summary.json           — raw benchmark metrics
         run_metadata.json             — run-level metadata
@@ -13,8 +13,6 @@ Run folder layout:
         events.jsonl                  — per-event log
         report.txt                    — human-readable report
         sample_idx_map.json           — sample index mapping
-        serving_config.json           — serving framework details
-        mlperf-system-info-*.json     — per-node hardware snapshots
         metrics/final_snapshot.json   — metrics snapshot
 """
 
@@ -31,7 +29,7 @@ from ..exceptions import RunFolderError
 
 __all__ = ["parse_run_folder", "build_archive"]
 
-_REQUIRED_FILES = ("config.yaml", "result_summary.json")
+_REQUIRED_FILES = ("system_desc.json", "config.yaml", "result_summary.json")
 
 
 def parse_run_folder(path: Path) -> dict[str, Any]:
@@ -53,7 +51,7 @@ def parse_run_folder(path: Path) -> dict[str, Any]:
 
     _validate_required_files(path)
 
-    system_info = _load_system_info(path)
+    system_info = _load_json(path / "system_desc.json")
     config = _load_yaml(path / "config.yaml")
     result_summary = _load_json(path / "result_summary.json")
 
@@ -76,15 +74,7 @@ def _validate_required_files(path: Path) -> None:
         raise RunFolderError(
             f"Run folder {path} is missing required file(s): {', '.join(missing)}"
         )
-    if not (path / "system_desc.json").exists():
-        raise RunFolderError(
-            f"Run folder {path} is missing system_desc.json"
-        )
 
-
-def _load_system_info(path: Path) -> dict[str, Any]:
-    """Load system_desc.json and return the nested dict as-is."""
-    return _load_json(path / "system_desc.json")
 
 
 def _load_json(file_path: Path) -> dict[str, Any]:
