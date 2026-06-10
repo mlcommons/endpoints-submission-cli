@@ -7,7 +7,7 @@ from typing import Optional, Union
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-__all__ = ["Division", "NodeType", "SystemDescription"]
+__all__ = ["Division", "NodeType", "SystemAvailabilityStatus", "SystemDescription"]
 
 
 class Division(str, Enum):
@@ -15,6 +15,14 @@ class Division(str, Enum):
 
     STANDARDIZED = "Standardized"
     SERVICED = "Serviced"
+    RDI = "RDI"
+
+
+class SystemAvailabilityStatus(str, Enum):
+    """System availability status (§8.2)."""
+
+    AVAILABLE = "Available"
+    PREVIEW = "Preview"
     RDI = "RDI"
 
 
@@ -82,7 +90,7 @@ class SystemDescription(BaseModel):
     # System metadata
     system_name: str
     system_category: str
-    system_availability_status: str
+    system_availability_status: SystemAvailabilityStatus
     system_size: Optional[str] = None
     system_node_ensemble_count: Optional[int] = None
     system_node_ensemble_total: Optional[int] = None

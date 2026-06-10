@@ -3,12 +3,13 @@
 from .accuracy import AccuracyResult
 from .point_config import PointConfig, RuntimeSettings
 from .point_summary import PercentileStats, PointSummary
-from .system import Division, NodeType, SystemDescription
+from .system import Division, NodeType, SystemAvailabilityStatus, SystemDescription
 
 __all__ = [
     "AccuracyResult",
     "Division",
     "NodeType",
+    "SystemAvailabilityStatus",
     "PercentileStats",
     "PointConfig",
     "PointSummary",
