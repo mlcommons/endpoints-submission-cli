@@ -22,6 +22,7 @@ import json
 import re
 import tarfile
 import tempfile
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -64,21 +65,19 @@ def build_submission_folder(
     if not run_archives:
         raise SubmissionBuildError("At least one run archive is required")
 
-    # Extract all archives into temp dirs and load their content
-    normalized_division = _normalize_division(division)
-    normalized_availability = _normalize_system_availability_status(availability)
+    # Extract all archives into temp dirs and load their content.
+    # division and availability normalization is handled by SystemDescription validators.
     run_data: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory() as tmp:
         for run_id, archive_path in run_archives:
             run_dir = Path(tmp) / run_id
             extract_archive(archive_path, run_dir)
-            data = _load_run_data(run_id, normalized_division, normalized_availability, run_dir)
+            data = _load_run_data(run_id, division, availability, run_dir)
             run_data.append(data)
 
     if len(run_data) > 1:
         first = run_data[0]["system_info"]
         if not all(r["system_info"] == first for r in run_data[1:]):
-            import warnings
             warnings.warn(
                 "Runs have inconsistent system_info; using the first run's data",
                 stacklevel=2,
@@ -123,9 +122,9 @@ def build_submission_folder(
         )
         _write_accuracy(submission_dir, system_id, model, runs)
 
-    # Create src/ for Standardized division submissions
-    if normalized_division == "Standardized":
-        (submission_dir / "src").mkdir(exist_ok=True)
+    # Copy src/ for Standardized division submissions (mirrors documentation/ handling)
+    if run_data[0]["system_info"].get("division") == "Standardized":
+        _write_src(submission_dir, run_data)
 
     _write_documentation(submission_dir, run_data)
 
@@ -214,8 +213,10 @@ def _load_run_data(run_id: str, division: str, availability: str, run_dir: Path)
 
 
 def _load_system_desc(base: Path, run_id: str, division: str, availability: str) -> dict[str, Any]:
-    """Load system_desc.json from a run folder, apply CLI-provided division and
-    availability, validate, and return the flat dict.
+    """Load system_desc.json from a run folder and return the validated flat dict.
+
+    Applies the CLI-provided division and availability values, then validates
+    against the SystemDescription schema.
 
     Raises:
         SubmissionBuildError: If system_desc.json is absent or fails schema validation.
@@ -225,12 +226,12 @@ def _load_system_desc(base: Path, run_id: str, division: str, availability: str)
         raise SubmissionBuildError(
             "Run archive is missing system_desc.json"
         )
-    sd: dict[str, Any] = json.loads(sd_path.read_text())
+    raw: dict[str, Any] = json.loads(sd_path.read_text())
     # CLI-provided values are authoritative for these fields
-    sd["division"] = division
-    sd["system_availability_status"] = availability
+    raw["division"] = division
+    raw["system_availability_status"] = availability
     try:
-        SystemDescription.model_validate(sd)
+        sd = SystemDescription.model_validate(raw)
     except ValidationError as exc:
         errors = "; ".join(
             f"{'.'.join(str(loc) for loc in e['loc'])}: {e['msg']}"
@@ -239,7 +240,7 @@ def _load_system_desc(base: Path, run_id: str, division: str, availability: str)
         raise SubmissionBuildError(
             f"Run {run_id}: system_desc.json failed schema validation: {errors}"
         ) from exc
-    return sd
+    return sd.model_dump(mode="json")
 
 
 def _load_extra_files(base: Path) -> dict[str, bytes]:
@@ -264,12 +265,12 @@ def _load_extra_files(base: Path) -> dict[str, bytes]:
     for p in sorted(base.glob("mlperf-system-info-*.json")):
         if p.is_file():
             extra[p.name] = p.read_bytes()
-    doc_dir = base / "documentation"
-    if doc_dir.is_dir():
-        for p in sorted(doc_dir.rglob("*")):
-            if p.is_file():
-                doc_rel = p.relative_to(base)
-                extra[str(doc_rel)] = p.read_bytes()
+    for subdir_name in ("documentation", "src"):
+        subdir = base / subdir_name
+        if subdir.is_dir():
+            for p in sorted(subdir.rglob("*")):
+                if p.is_file():
+                    extra[str(p.relative_to(base))] = p.read_bytes()
     return extra
 
 
@@ -488,33 +489,17 @@ def _write_documentation(submission_dir: Path, run_data: list[dict[str, Any]]) -
             dest.write_bytes(content)
 
 
-
-def _normalize_division(division: str) -> str:
-    mapping = {
-        "standardized": "Standardized",
-        "serviced": "Serviced",
-        "rdi": "RDI",
-    }
-    normalized = mapping.get(division.strip().lower())
-    if normalized is None:
-        raise SubmissionBuildError(
-            f"Unknown division {division!r}. Must be one of: standardized, serviced, rdi"
-        )
-    return normalized
-
-
-def _normalize_system_availability_status(status: str) -> str:
-    mapping = {
-        "available": "Available",
-        "preview": "Preview",
-        "rdi": "RDI",
-    }
-    normalized = mapping.get(status.strip().lower())
-    if normalized is None:
-        raise SubmissionBuildError(
-            f"Unknown availability status {status!r}. Must be one of: available, preview, rdi"
-        )
-    return normalized
+def _write_src(submission_dir: Path, run_data: list[dict[str, Any]]) -> None:
+    """Copy src/ files from run archives into submission_dir/src/."""
+    src_dir = submission_dir / "src"
+    src_dir.mkdir(exist_ok=True)
+    for run in run_data:
+        for rel, content in run.get("_extra_files", {}).items():
+            if not rel.startswith("src/"):
+                continue
+            dest = src_dir / Path(rel).relative_to("src")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(content)
 
 
 def _slugify(name: str) -> str:

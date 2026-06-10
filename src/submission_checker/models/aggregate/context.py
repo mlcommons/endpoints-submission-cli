@@ -1,5 +1,7 @@
-"""Model context — aggregate model-level validation (point count, coverage, consistency,
-accuracy)."""
+"""Model context — aggregate model-level validation (point count, coverage, consistency).
+
+Handles accuracy and overall compliance checks.
+"""
 
 from __future__ import annotations
 

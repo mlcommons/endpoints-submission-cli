@@ -66,8 +66,7 @@ class SubmissionChecker:
     # ------------------------------------------------------------------
 
     def run(self) -> Report:
-        """Run all §9.1 automated checks and return an aggregated
-        :class:`~submission_checker.models.Report`.
+        """Run all §9.1 automated checks and return an aggregated report.
 
         Returns:
             A :class:`~submission_checker.models.Report` with every

@@ -93,10 +93,16 @@ select = [
     "B",   # flake8-bugbear (likely bugs / bad practices)
     "C4",  # flake8-comprehensions (unnecessary comprehension patterns)
     "SIM", # flake8-simplify
+    "D",   # pydocstyle (Google-style docstrings)
 ]
 ignore = [
     "SIM108", # ternary operator — sometimes less readable
+    "D105",   # magic methods don't need docstrings
+    "D107",   # __init__ docstrings belong on the class
 ]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.ruff.lint.isort]
 known-first-party = ["submission_checker"]
@@ -106,4 +112,5 @@ known-first-party = ["submission_checker"]
     "TCH",    # test files don't need TYPE_CHECKING optimisation
     "E501",   # long patch() target strings are unavoidable in test files
     "SIM117", # deeply-nested with-patch blocks are intentional for clarity
+    "D",      # docstrings not required in test files
 ]

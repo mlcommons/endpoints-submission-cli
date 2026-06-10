@@ -117,6 +117,32 @@ class SystemDescription(BaseModel):
     # Accuracy
     measured_accuracy_score: str | float | None = None
 
+    @field_validator("division", mode="before")
+    @classmethod
+    def _coerce_division(cls, v: object) -> object:
+        if isinstance(v, str):
+            mapping = {"standardized": "Standardized", "serviced": "Serviced", "rdi": "RDI"}
+            normalized = mapping.get(v.strip().lower())
+            if normalized is not None:
+                return normalized
+            raise ValueError(
+                f"Unknown division {v!r}. Must be one of: standardized, serviced, rdi"
+            )
+        return v
+
+    @field_validator("system_availability_status", mode="before")
+    @classmethod
+    def _coerce_availability(cls, v: object) -> object:
+        if isinstance(v, str):
+            mapping = {"available": "Available", "preview": "Preview", "rdi": "RDI"}
+            normalized = mapping.get(v.strip().lower())
+            if normalized is not None:
+                return normalized
+            raise ValueError(
+                f"Unknown availability {v!r}. Must be one of: available, preview, rdi"
+            )
+        return v
+
     @field_validator("input_token_average", "output_token_average", mode="before")
     @classmethod
     def _coerce_tokens_to_float(cls, v: object) -> object:
