@@ -112,13 +112,15 @@ def build_submission_folder(
             )
         system_max_concurrency[system_id] = int(values.pop())
 
+    max_tps = _compute_max_tps(run_data)
+
     written_systems: set[str] = set()
     for (system_id, model), runs in groups.items():
         if system_id not in written_systems:
             _write_system_description(submission_dir, system_id, runs[0]["system_info"])
             written_systems.add(system_id)
         _write_pareto_entries(
-            submission_dir, system_id, model, runs, system_max_concurrency[system_id]
+            submission_dir, system_id, model, runs, system_max_concurrency[system_id], max_tps
         )
         _write_accuracy(submission_dir, system_id, model, runs)
 
@@ -323,12 +325,29 @@ def _write_system_description(
     )
 
 
+def _compute_max_tps(run_data: list[dict[str, Any]]) -> float | None:
+    """Return the max system_tps across all runs, or None if unavailable."""
+    values = []
+    for run in run_data:
+        meta_bytes = run.get("_extra_files", {}).get("run_metadata.json")
+        if not meta_bytes:
+            continue
+        try:
+            tps = json.loads(meta_bytes).get("system_tps")
+            if tps is not None:
+                values.append(float(tps))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+    return max(values) if values else None
+
+
 def _write_pareto_entries(
     submission_dir: Path,
     system_id: str,
     model: str,
     runs: list[dict[str, Any]],
     max_concurrency: int,
+    max_tps: float | None = None,
 ) -> None:
     from submission_checker.models import classify_concurrency, compute_regions
 
@@ -386,6 +405,15 @@ def _write_pareto_entries(
 
         # Copy all supplementary files into the result directory, preserving subdirs
         for rel_path, content in extra_files.items():
+            if rel_path == "run_metadata.json" and max_tps and max_tps > 0:
+                try:
+                    metadata = json.loads(content)
+                    run_tps = metadata.get("system_tps")
+                    if run_tps is not None:
+                        metadata["tps_utilization"] = float(run_tps) / max_tps
+                        content = json.dumps(metadata, indent=2).encode()
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    pass
             dest = result_dir / rel_path
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(content)

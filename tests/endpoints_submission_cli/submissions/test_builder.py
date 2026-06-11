@@ -13,6 +13,7 @@ import yaml
 
 from endpoints_submission_cli.exceptions import SubmissionBuildError
 from endpoints_submission_cli.submissions.builder import (
+    _compute_max_tps,
     _slugify,
     build_submission_folder,
     create_bundle_archive,
@@ -201,6 +202,85 @@ class TestCreateBundleArchive:
             assert bundle == expected
         finally:
             expected.unlink(missing_ok=True)
+
+
+@pytest.mark.unit
+class TestComputeMaxTps:
+    def _make_run(self, system_tps: float | None) -> dict:
+        meta: dict = {"system_tps": system_tps} if system_tps is not None else {}
+        return {"_extra_files": {"run_metadata.json": json.dumps(meta).encode()}}
+
+    def test_single_run(self) -> None:
+        run_data = [self._make_run(1000.0)]
+        assert _compute_max_tps(run_data) == 1000.0
+
+    def test_multiple_runs_returns_max(self) -> None:
+        run_data = [self._make_run(500.0), self._make_run(1500.0), self._make_run(1000.0)]
+        assert _compute_max_tps(run_data) == 1500.0
+
+    def test_missing_run_metadata_returns_none(self) -> None:
+        run_data = [{"_extra_files": {}}]
+        assert _compute_max_tps(run_data) is None
+
+    def test_null_system_tps_skipped(self) -> None:
+        run_data = [self._make_run(None), self._make_run(800.0)]
+        assert _compute_max_tps(run_data) == 800.0
+
+
+@pytest.mark.unit
+class TestTpsUtilizationInjection:
+    def _make_archive_with_metadata(
+        self, run_folder: Path, system_tps: float, concurrency: int, tmp_path: Path, name: str
+    ) -> Path:
+        import shutil
+
+        folder = tmp_path / name
+        shutil.copytree(run_folder, folder)
+        cfg = yaml.safe_load((folder / "config.yaml").read_text())
+        cfg["settings"]["load_pattern"]["target_concurrency"] = concurrency
+        (folder / "config.yaml").write_text(yaml.dump(cfg))
+        (folder / "run_metadata.json").write_text(
+            json.dumps({"system_tps": system_tps, "tps_utilization": None})
+        )
+        archive = tmp_path / f"{name}.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname=name)
+        return archive
+
+    def test_tps_utilization_written_for_single_run(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
+        archive = self._make_archive_with_metadata(run_folder, 1000.0, 4, tmp_path, "run1")
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        meta_files = list(sub_dir.rglob("run_metadata.json"))
+        assert len(meta_files) == 1
+        data = json.loads(meta_files[0].read_text())
+        assert data["tps_utilization"] == pytest.approx(1.0)
+
+    def test_tps_utilization_normalized_across_runs(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
+        a1 = self._make_archive_with_metadata(run_folder, 1000.0, 4, tmp_path, "run1")
+        a2 = self._make_archive_with_metadata(run_folder, 2000.0, 8, tmp_path, "run2")
+        sub_dir = build_submission_folder(
+            [("run-001", a1), ("run-002", a2)],
+            "standardized",
+            "available",
+            tmp_path / "sub",
+        )
+        meta_files = sorted(sub_dir.rglob("run_metadata.json"))
+        assert len(meta_files) == 2
+        utilizations = sorted(json.loads(p.read_text())["tps_utilization"] for p in meta_files)
+        assert utilizations == pytest.approx([0.5, 1.0])
+
+    def test_no_run_metadata_no_crash(self, run_archive: Path, tmp_path: Path) -> None:
+        # run_archive fixture has no run_metadata.json — should build without error
+        sub_dir = build_submission_folder(
+            [("run-001", run_archive)], "standardized", "available", tmp_path
+        )
+        assert sub_dir.is_dir()
 
 
 @pytest.mark.unit
