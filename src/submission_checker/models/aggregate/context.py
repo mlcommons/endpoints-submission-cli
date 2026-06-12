@@ -192,7 +192,11 @@ class ModelContext(BaseModel):
         if self.accuracy_result is None:
             return self  # file missing/invalid already reported by checker.py
 
-        json_path = (self.accuracy_dir / "results.json") if self.accuracy_dir else (self.model_dir / "results.json")
+        json_path = (
+            (self.accuracy_dir / "results.json")
+            if self.accuracy_dir
+            else (self.model_dir / "results.json")
+        )
         target = get_thresholds(self.model_dir.name)
 
         if target is None:

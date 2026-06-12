@@ -60,7 +60,12 @@ class SrcDir(BaseModel):
         src_dir = self.root / "src" / self.model
         if src_dir.is_dir():
             self._check_results.append(
-                ok("src-dir", f"src/{self.model}/ present (required for Standardized division)", src_dir, "#1")
+                ok(
+                    "src-dir",
+                    f"src/{self.model}/ present (required for Standardized division)",
+                    src_dir,
+                    "#1",
+                )
             )
         else:
             self._check_results.append(

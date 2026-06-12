@@ -207,7 +207,9 @@ class SubmissionChecker:
         results: list[CheckResult] = []
         benchmark_model = model_dir.name
 
-        src = SrcDir(root=self.submission_path, division=system_desc.division, model=benchmark_model)
+        src = SrcDir(
+            root=self.submission_path, division=system_desc.division, model=benchmark_model
+        )
         results.extend(src._check_results)
 
         model_structure = ModelDir(
