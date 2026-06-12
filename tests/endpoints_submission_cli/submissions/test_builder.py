@@ -80,26 +80,17 @@ class TestBuildSubmissionFolder:
         sub_dir = build_submission_folder(
             [("run-001", run_archive)], "standardized", "available", tmp_path
         )
-        summaries = list(sub_dir.rglob("mlperf_endpoints_log_summary.json"))
+        summaries = list(sub_dir.rglob("results_summary.json"))
         assert len(summaries) == 1
         data = json.loads(summaries[0].read_text())
         assert "n_samples_completed" in data
         assert "duration_ns" in data
 
-    def test_log_detail_created(self, run_archive: Path, tmp_path: Path) -> None:
+    def test_accuracy_file_created(self, run_archive: Path, tmp_path: Path) -> None:
         sub_dir = build_submission_folder(
             [("run-001", run_archive)], "standardized", "available", tmp_path
         )
-        details = list(sub_dir.rglob("mlperf_endpoints_log_detail.json"))
-        assert len(details) == 1
-
-    def test_accuracy_files_created(self, run_archive: Path, tmp_path: Path) -> None:
-        sub_dir = build_submission_folder(
-            [("run-001", run_archive)], "standardized", "available", tmp_path
-        )
-        acc_txts = list(sub_dir.rglob("accuracy.txt"))
-        acc_jsons = list(sub_dir.rglob("accuracy_result.json"))
-        assert len(acc_txts) == 1
+        acc_jsons = list(sub_dir.rglob("accuracy/results.json"))
         assert len(acc_jsons) == 1
 
     def test_empty_run_list_raises(self, tmp_path: Path) -> None:

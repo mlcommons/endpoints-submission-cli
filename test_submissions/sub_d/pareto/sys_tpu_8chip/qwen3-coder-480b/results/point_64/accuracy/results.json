@@ -1,0 +1,9 @@
+{
+  "metric": "humaneval",
+  "score": 0.45,
+  "quality_target": 0.43,
+  "passed": true,
+  "num_samples": 500,
+  "extractor": "ExactMatchExtractor",
+  "n_repeats": 1
+}

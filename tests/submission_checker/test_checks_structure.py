@@ -62,15 +62,14 @@ class TestModelDir:
         model_dir = tmp_path / "model"
         model_dir.mkdir()
         (model_dir / "points").mkdir()
-        (model_dir / "results").mkdir()
-        # accuracy/ absent
+        # results/ intentionally absent
         md = ModelDir(root=model_dir, system_id="sys-x", benchmark_model="llama3-70b")
         assert any(r.severity == Severity.ERROR for r in md._check_results)
 
     def test_all_present(self, tmp_path):
         model_dir = tmp_path / "model"
         model_dir.mkdir()
-        for d in ("points", "results", "accuracy"):
+        for d in ("points", "results"):
             (model_dir / d).mkdir()
         md = ModelDir(root=model_dir, system_id="sys-x", benchmark_model="llama3-70b")
         assert _passed(md._check_results)
@@ -79,20 +78,19 @@ class TestModelDir:
         md = ModelDir(root=tmp_path, system_id="sys-x", benchmark_model="llama3-70b")
         assert md.points_dir == tmp_path / "points"
         assert md.results_dir == tmp_path / "results"
-        assert md.accuracy_dir == tmp_path / "accuracy"
 
 
 @pytest.mark.unit
 class TestSrcDir:
     def test_standardized_missing_src(self, tmp_path):
-        sd = SrcDir(root=tmp_path, division=Division.STANDARDIZED)
+        sd = SrcDir(root=tmp_path, division=Division.STANDARDIZED, model="llama3-70b")
         assert any(r.severity == Severity.ERROR for r in sd._check_results)
 
     def test_standardized_src_present(self, tmp_path):
-        (tmp_path / "src").mkdir()
-        sd = SrcDir(root=tmp_path, division=Division.STANDARDIZED)
+        (tmp_path / "src" / "llama3-70b").mkdir(parents=True)
+        sd = SrcDir(root=tmp_path, division=Division.STANDARDIZED, model="llama3-70b")
         assert _passed(sd._check_results)
 
     def test_non_standardized_skipped(self, tmp_path):
-        sd = SrcDir(root=tmp_path, division=Division.SERVICED)
+        sd = SrcDir(root=tmp_path, division=Division.SERVICED, model="llama3-70b")
         assert sd._check_results == []

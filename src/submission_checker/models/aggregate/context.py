@@ -35,7 +35,7 @@ class ModelContext(BaseModel):
     model_dir: Path
     regions: Regions
     points_dir: Path
-    accuracy_dir: Path
+    accuracy_dir: Path | None = None
     all_point_count: int
     valid_points: list[tuple[Path, PointConfig]]
     loaded_points: list[tuple[PointConfig, PointSummary]]
@@ -192,7 +192,7 @@ class ModelContext(BaseModel):
         if self.accuracy_result is None:
             return self  # file missing/invalid already reported by checker.py
 
-        json_path = self.accuracy_dir / "accuracy_result.json"
+        json_path = (self.accuracy_dir / "results.json") if self.accuracy_dir else (self.model_dir / "results.json")
         target = get_thresholds(self.model_dir.name)
 
         if target is None:

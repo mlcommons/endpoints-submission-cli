@@ -282,10 +282,10 @@ def _find_result_dirs(submission_path: Path) -> list[Path]:
 def _parse_result_dir(path: Path) -> dict[str, Any]:
     """Parse a submission result directory into a RunCreate payload.
 
-    Like parse_run_folder but reads mlperf_endpoints_log_summary.json
+    Like parse_run_folder but reads results_summary.json
     (the submission folder name) instead of result_summary.json.
     """
-    for fname in ("system_desc.json", "config.yaml", "mlperf_endpoints_log_summary.json"):
+    for fname in ("system_desc.json", "config.yaml", "results_summary.json"):
         if not (path / fname).exists():
             raise RunFolderError(f"Result directory {path} is missing {fname}")
 
@@ -305,10 +305,10 @@ def _parse_result_dir(path: Path) -> dict[str, Any]:
     try:
         result_summary = cast(
             dict[str, Any],
-            json.loads((path / "mlperf_endpoints_log_summary.json").read_text()),
+            json.loads((path / "results_summary.json").read_text()),
         )
     except json.JSONDecodeError as exc:
-        raise RunFolderError(f"Invalid JSON in mlperf_endpoints_log_summary.json: {exc}") from exc
+        raise RunFolderError(f"Invalid JSON in results_summary.json: {exc}") from exc
 
     now_utc = datetime.now(tz=timezone.utc)
     duration_s: float = result_summary.get("duration_ns", 0) / 1e9

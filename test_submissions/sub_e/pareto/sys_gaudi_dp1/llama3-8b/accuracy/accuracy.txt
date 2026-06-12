@@ -1,1 +1,0 @@
-cnn_dailymail_validation: 0.4500

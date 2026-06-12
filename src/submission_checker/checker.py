@@ -111,16 +111,13 @@ class SubmissionChecker:
         for system_json in system_jsons:
             report.results.extend(self._check_system(system_json, pareto_dir))
 
-        # §15: at least one model in the submission must have both accuracy files.
-        has_full_accuracy = any(
-            (p.parent / "accuracy.txt").exists()
-            for p in pareto_dir.rglob("accuracy_result.json")
-        )
+        # §15: at least one model in the submission must have an accuracy/results.json.
+        has_full_accuracy = any(True for _ in pareto_dir.rglob("accuracy/results.json"))
         if has_full_accuracy:
             report.results.append(
                 _ok(
                     "accuracy-present",
-                    "At least one model has both accuracy files",
+                    "At least one model has accuracy/results.json",
                     pareto_dir,
                     "#15",
                 )
@@ -129,7 +126,7 @@ class SubmissionChecker:
             report.results.append(
                 _err(
                     "accuracy-present",
-                    "No model in this submission has both accuracy_result.json and accuracy.txt",
+                    "No model in this submission has accuracy/results.json",
                     pareto_dir,
                     "#15",
                 )
@@ -174,9 +171,6 @@ class SubmissionChecker:
             results.append(_err("region-computation", str(exc), system_json, "#7"))
             return results
 
-        src = SrcDir(root=self.submission_path, division=system_desc.division)
-        results.extend(src._check_results)
-
         system_pareto = SystemPareto(pareto_dir=pareto_dir, system_id=system_id)
         results.extend(system_pareto._check_results)
         if any(r.severity == Severity.ERROR for r in system_pareto._check_results):
@@ -213,6 +207,9 @@ class SubmissionChecker:
         results: list[CheckResult] = []
         benchmark_model = model_dir.name
 
+        src = SrcDir(root=self.submission_path, division=system_desc.division, model=benchmark_model)
+        results.extend(src._check_results)
+
         model_structure = ModelDir(
             root=model_dir, system_id=system_id, benchmark_model=benchmark_model
         )
@@ -222,7 +219,6 @@ class SubmissionChecker:
 
         points_dir = model_structure.points_dir
         results_dir = model_structure.results_dir
-        accuracy_dir = model_structure.accuracy_dir
 
         point_yamls = sorted(points_dir.glob("point_*.yaml"))
         if not point_yamls:
@@ -266,8 +262,7 @@ class SubmissionChecker:
             valid_points.append((yaml_path, config))
 
             point_result_dir = results_dir / f"point_{config.concurrency}"
-            summary_path = point_result_dir / "mlperf_endpoints_log_summary.json"
-            detail_path = point_result_dir / "mlperf_endpoints_log_detail.json"
+            summary_path = point_result_dir / "results_summary.json"
 
             if not summary_path.exists():
                 results.append(
@@ -280,17 +275,6 @@ class SubmissionChecker:
                     )
                 )
                 continue
-
-            if not detail_path.exists():
-                results.append(
-                    _err(
-                        "result-detail-present",
-                        f"Missing detail log for point_{config.concurrency}:"
-                        f" {detail_path.relative_to(self.submission_path)}",
-                        detail_path,
-                        "#1",
-                    )
-                )
 
             summary, load_results = load_result_summary(summary_path)
             results.extend(load_results)
@@ -305,32 +289,29 @@ class SubmissionChecker:
             results.extend(point_result._check_results)
             loaded_points.append((config, summary))
 
-        # Load accuracy — run() enforces that at least one model in the
-        # submission has both accuracy files. Per-model warnings are only
-        # emitted when the accuracy/ directory exists but files within it
-        # are absent (implying a partially-filled accuracy directory).
+        # Load accuracy from per-point result dirs. Per-model warnings are only
+        # emitted when a point has an accuracy/ dir but files within it are absent.
+        # run() enforces that at least one model in the submission has both files.
+        accuracy_dir: Path | None = None
         accuracy_result = None
-        if accuracy_dir.is_dir():
-            txt_path = accuracy_dir / "accuracy.txt"
-            if not txt_path.exists():
+        for config, _ in loaded_points:
+            pd = results_dir / f"point_{config.concurrency}" / "accuracy"
+            if not pd.is_dir():
+                continue
+            json_p = pd / "results.json"
+            if not json_p.exists():
                 results.append(
-                    _warn("accuracy-file", "Missing accuracy/accuracy.txt", txt_path, "#15")
+                    _warn("accuracy-file",
+                          f"Missing results.json in point_{config.concurrency}/accuracy/",
+                          json_p, "#15")
                 )
-            json_path = accuracy_dir / "accuracy_result.json"
-            if not json_path.exists():
-                results.append(
-                    _warn(
-                        "accuracy-file",
-                        "Missing accuracy/accuracy_result.json",
-                        json_path,
-                        "#15",
-                    )
-                )
-            else:
-                accuracy_result, acc_results = load_accuracy_result(json_path)
+            elif accuracy_result is None:
+                accuracy_result, acc_results = load_accuracy_result(json_p)
                 results.extend(acc_results)
                 if any(r.severity == Severity.ERROR for r in acc_results):
                     accuracy_result = None
+                else:
+                    accuracy_dir = pd
 
         # ModelContext validates point-count, regional-coverage, config-consistency, accuracy-gate
         model_ctx = ModelContext(

@@ -329,7 +329,6 @@ def _build_submission(
     concurrencies: list[int] | None = None,
     write_runs: bool = True,
     write_results: bool = True,
-    write_accuracy: bool = True,
     write_accuracy_json: bool = True,
     accuracy_data: dict | None = None,
     model: str = "llama3-70b",
@@ -347,8 +346,7 @@ def _build_submission(
     model_dir = pareto_dir / system_id / model
     points_dir = model_dir / "points"
     results_dir = model_dir / "results"
-    accuracy_dir = model_dir / "accuracy"
-    for d in (points_dir, results_dir, accuracy_dir):
+    for d in (points_dir, results_dir):
         d.mkdir(parents=True)
 
     if write_runs:
@@ -359,14 +357,14 @@ def _build_submission(
         for c in concs:
             result_dir = results_dir / f"point_{c}"
             result_dir.mkdir(parents=True)
-            (result_dir / "mlperf_endpoints_log_summary.json").write_text(json.dumps(_SUMMARY))
-            (result_dir / "mlperf_endpoints_log_detail.json").write_text("{}")
-
-    if write_accuracy:
-        (accuracy_dir / "accuracy.txt").write_text("ROUGE-1: 0.45")
-    if write_accuracy_json:
-        data = accuracy_data if accuracy_data is not None else _ACCURACY
-        (accuracy_dir / "accuracy_result.json").write_text(json.dumps(data))
+            (result_dir / "results_summary.json").write_text(json.dumps(_SUMMARY))
+            # Write accuracy inside the first point only; checker scans all points
+            if c == concs[0]:
+                accuracy_dir = result_dir / "accuracy"
+                accuracy_dir.mkdir()
+                if write_accuracy_json:
+                    data = accuracy_data if accuracy_data is not None else _ACCURACY
+                    (accuracy_dir / "results.json").write_text(json.dumps(data))
 
     return root
 
@@ -425,12 +423,12 @@ class TestCheckerEdgeCases:
         assert _errors(report, "benchmark-model-dir")
 
     def test_missing_model_subdirs_early_exit(self, tmp_path):
-        """pareto-subdir error when points/ or results/ or accuracy/ is absent."""
+        """pareto-subdir error when points/ or results/ is absent."""
         (tmp_path / "systems").mkdir()
         (tmp_path / "documentation").mkdir()
         (tmp_path / "systems" / "test-sys.json").write_text(json.dumps(_SYSTEM_DESC))
         model_dir = tmp_path / "pareto" / "test-sys" / "llama3-70b"
-        # Only points/ present — results/ and accuracy/ missing
+        # Only points/ present — results/ missing
         (model_dir / "points").mkdir(parents=True)
         report = _check(tmp_path)
         assert _errors(report, "pareto-subdir")
@@ -449,38 +447,19 @@ class TestCheckerEdgeCases:
         report = _check(root)
         assert _errors(report, "result-file-present")
 
-    def test_missing_detail_log(self, tmp_path):
-        """result-detail-present error when mlperf_endpoints_log_detail.json is absent."""
-        root = _build_submission(tmp_path)
-        # Remove the detail log for one point
-        detail = root / "pareto" / "test-sys" / "llama3-70b" / "results" / "point_16" / "mlperf_endpoints_log_detail.json"
-        detail.unlink()
-        report = _check(root)
-        assert _errors(report, "result-detail-present")
-
     def test_invalid_result_log(self, tmp_path):
         """result-file-valid error when the result log JSON is malformed."""
         root = _build_submission(tmp_path)
         # Overwrite one summary with invalid JSON
         bad_path = root / "pareto" / "test-sys" / "llama3-70b" / "results" / "point_16"
         bad_path.mkdir(parents=True, exist_ok=True)
-        (bad_path / "mlperf_endpoints_log_summary.json").write_text("{bad")
-        (bad_path / "mlperf_endpoints_log_detail.json").write_text("{}")
+        (bad_path / "results_summary.json").write_text("{bad")
         report = _check(root)
         assert _errors(report, "result-file-valid")
 
-    def test_missing_accuracy_txt(self, tmp_path):
-        """accuracy-file warning when accuracy/accuracy.txt is absent;
-        accuracy-present error because no model has both accuracy files."""
-        root = _build_submission(tmp_path, write_accuracy=False)
-        report = _check(root)
-        assert _warnings(report, "accuracy-file")
-        assert not _errors(report, "accuracy-file")
-        assert _errors(report, "accuracy-present")
-
-    def test_missing_accuracy_json(self, tmp_path):
-        """accuracy-file warning when accuracy/accuracy_result.json is absent;
-        accuracy-present error because no model in the submission has accuracy."""
+    def test_missing_accuracy_results_json(self, tmp_path):
+        """accuracy-file warning when accuracy/results.json is absent;
+        accuracy-present error because no model has accuracy data."""
         root = _build_submission(tmp_path, write_accuracy_json=False)
         report = _check(root)
         assert _warnings(report, "accuracy-file")
@@ -488,7 +467,7 @@ class TestCheckerEdgeCases:
         assert _errors(report, "accuracy-present")
 
     def test_invalid_accuracy_json(self, tmp_path):
-        """accuracy-valid error when accuracy_result.json is malformed."""
+        """accuracy-valid error when accuracy/results.json is malformed."""
         root = _build_submission(
             tmp_path,
             accuracy_data={"cnn_dailymail": "not-a-dict"},  # value must be a dict
@@ -505,8 +484,7 @@ class TestCheckerEdgeCases:
         # Also add the matching result dir so it doesn't error on result-file-present
         result_dir = root / "pareto" / "test-sys" / "llama3-70b" / "results" / "point_64"
         result_dir.mkdir(parents=True, exist_ok=True)
-        (result_dir / "mlperf_endpoints_log_summary.json").write_text(json.dumps(_SUMMARY))
-        (result_dir / "mlperf_endpoints_log_detail.json").write_text("{}")
+        (result_dir / "results_summary.json").write_text(json.dumps(_SUMMARY))
         report = _check(root)
         assert _warnings(report, "point-filename-concurrency")
 
@@ -568,8 +546,7 @@ class TestCheckerEdgeCases:
         bad_name.write_text(yaml.dump(_make_run_yaml(64)))
         result_dir = root / "pareto" / "test-sys" / "llama3-70b" / "results" / "point_64"
         result_dir.mkdir(parents=True, exist_ok=True)
-        (result_dir / "mlperf_endpoints_log_summary.json").write_text(json.dumps(_SUMMARY))
-        (result_dir / "mlperf_endpoints_log_detail.json").write_text("{}")
+        (result_dir / "results_summary.json").write_text(json.dumps(_SUMMARY))
         report = _check(root)
         # No run-filename-concurrency warning — the ValueError was swallowed
         assert not _warnings(report, "point-filename-concurrency")
