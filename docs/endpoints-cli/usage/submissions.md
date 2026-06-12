@@ -60,6 +60,7 @@ Create a new submission from one or more registered runs. This command runs the 
 ```bash
 endpoints-submission-cli submissions create \
   --division DIVISION \
+  --scenario SCENARIO \
   --availability AVAILABILITY \
   --run-ids RUN_ID \
   [--run-ids RUN_ID ...] \
@@ -74,6 +75,7 @@ endpoints-submission-cli submissions create \
 | Flag | Required | Description |
 |---|---|---|
 | `--division` | yes | `standardized`, `serviced`, or `rdi`. |
+| `--scenario` | yes | `cop` (Client-on-Premises) or `con` (Client-over-Network). |
 | `--availability` | yes | `available`, `preview`, or `rdi`. |
 | `--run-ids RUN_ID` | yes (repeatable) | Run UUID to include. Pass the flag once per run. |
 | `--token TOKEN` | no | API key. |
@@ -93,12 +95,14 @@ endpoints-submission-cli submissions create \
 # Basic submission with one run
 endpoints-submission-cli submissions create \
   --division standardized \
+  --scenario cop \
   --availability available \
   --run-ids d5d9873e-5eca-4f8d-a487-4be1cb8b440c
 
 # Multiple runs
 endpoints-submission-cli submissions create \
   --division standardized \
+  --scenario cop \
   --availability available \
   --run-ids d5d9873e-5eca-4f8d-a487-4be1cb8b440c \
   --run-ids f7e6d5c4-b3a2-1098-7654-321fedcba098
@@ -106,6 +110,7 @@ endpoints-submission-cli submissions create \
 # Preview availability with required date
 endpoints-submission-cli submissions create \
   --division standardized \
+  --scenario con \
   --availability preview \
   --run-ids d5d9873e-5eca-4f8d-a487-4be1cb8b440c \
   --target-availability-date 2025-09-01
@@ -113,6 +118,7 @@ endpoints-submission-cli submissions create \
 # Dry run — check compliance without submitting
 endpoints-submission-cli submissions create \
   --division standardized \
+  --scenario cop \
   --availability available \
   --run-ids d5d9873e-5eca-4f8d-a487-4be1cb8b440c \
   --dry-run

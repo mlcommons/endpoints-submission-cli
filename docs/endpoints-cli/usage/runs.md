@@ -96,25 +96,40 @@ Archive: gs://mlperf-runs/d5d9873e-…/d5d9873e-….tar.gz
 
 ## runs get
 
-Fetch full details of a single run.
+Fetch full details of a single run and optionally download its archive.
 
 ```bash
 endpoints-submission-cli runs get \
   --run-id RUN_ID \
+  [--download-to DIR] \
   [--token TOKEN]
 ```
 
 | Flag | Required | Description |
 |---|---|---|
 | `--run-id RUN_ID` | yes | Run UUID. |
+| `--download-to DIR` | no | Directory to download the run archive (`.tar.gz`) into. Created automatically if it does not exist. |
 | `--token TOKEN` | no | API key. |
 
-Output is JSON (syntax-highlighted in a terminal, plain when piped).
+Run details are always printed as JSON (syntax-highlighted in a terminal, plain when piped). When `--download-to` is provided, the archive is saved as `<run-id>.tar.gz` inside the specified directory and the saved path is printed on a separate line after the JSON.
 
 **Example:**
 
 ```bash
+# Fetch run details only
 endpoints-submission-cli runs get --run-id d5d9873e-5eca-4f8d-a487-4be1cb8b440c
+
+# Fetch details and download the archive to ./downloads/
+endpoints-submission-cli runs get \
+  --run-id d5d9873e-5eca-4f8d-a487-4be1cb8b440c \
+  --download-to ./downloads
+```
+
+**Output (with `--download-to`):**
+
+```
+{ ... }  ← run details JSON
+Archive saved to ./downloads/d5d9873e-5eca-4f8d-a487-4be1cb8b440c.tar.gz
 ```
 
 ---
@@ -156,6 +171,11 @@ endpoints-submission-cli runs pin \
   [--token TOKEN]
 ```
 
+| Flag | Required | Description |
+|---|---|---|
+| `--run-id RUN_ID` | yes | Run UUID. |
+| `--token TOKEN` | no | API key. |
+
 **Example:**
 
 ```bash
@@ -174,6 +194,11 @@ endpoints-submission-cli runs unpin \
   --run-id RUN_ID \
   [--token TOKEN]
 ```
+
+| Flag | Required | Description |
+|---|---|---|
+| `--run-id RUN_ID` | yes | Run UUID. |
+| `--token TOKEN` | no | API key. |
 
 **Example:**
 
