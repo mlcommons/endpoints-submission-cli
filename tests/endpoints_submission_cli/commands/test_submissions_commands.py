@@ -10,10 +10,11 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from endpoints_submission_cli.exceptions import APIError, GitHubError
+from endpoints_submission_cli.exceptions import APIError, GitHubError, SubmissionCheckError
 from endpoints_submission_cli.main import app
 from tests.endpoints_submission_cli.conftest import (
     RUN_ID,
+    RUN_OUT,
     SUBMISSION_ID,
     SUBMISSION_OUT,
 )
@@ -321,6 +322,165 @@ class TestSubmissionsWithdraw:
                         ["submissions", "withdraw", "--submission-id", SUBMISSION_ID, *_TOKEN_ARGS],
                     )
         assert result.exit_code == 1
+
+
+_CREATE_LOCAL_BASE_ARGS = [
+    "submissions", "create-local",
+    "--division", "standardized",
+    "--scenario", "cop",
+    "--availability", "available",
+]
+
+_FAKE_BUNDLE = b"bundle"
+_FAKE_RUN_PAYLOAD = {
+    "benchmark_version": "abc123",
+    "started_at": "2025-04-28T09:00:00+00:00",
+    "finished_at": "2025-04-28T10:00:00+00:00",
+    "system_info": {},
+    "config": {},
+    "result_summary": {},
+}
+
+
+def _make_submission_dir(tmp_path: Path, n_points: int = 2) -> Path:
+    """Create a minimal assembled submission directory with n_points result dirs."""
+    sub = tmp_path / "sub"
+    for i in range(1, n_points + 1):
+        point_dir = sub / "pareto" / "sys_a" / "Llama-3-8B" / "results" / f"point_{i * 4}"
+        point_dir.mkdir(parents=True)
+        (point_dir / "system_desc.json").write_text("{}")
+    return sub
+
+
+@pytest.mark.unit
+class TestSubmissionsCreateLocal:
+    def _invoke(self, submission_dir: Path, *extra: str) -> object:
+        return _runner.invoke(
+            app,
+            [
+                *_CREATE_LOCAL_BASE_ARGS,
+                "--path", str(submission_dir),
+                *_TOKEN_ARGS,
+                *extra,
+            ],
+        )
+
+    def test_create_local_success(self, tmp_path: Path) -> None:
+        sub = _make_submission_dir(tmp_path)
+        fake_bundle = tmp_path / "bundle.tar.gz"
+        fake_bundle.write_bytes(_FAKE_BUNDLE)
+
+        with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
+            with patch("endpoints_submission_cli.commands.submissions.create_local._run_submission_checker"):
+                with patch(
+                    "endpoints_submission_cli.commands.submissions.create_local._parse_result_dir",
+                    return_value=_FAKE_RUN_PAYLOAD,
+                ):
+                    with patch(
+                        "endpoints_submission_cli.runs.api.create_run", return_value=RUN_OUT
+                    ) as mock_create_run:
+                        with patch("endpoints_submission_cli.commands.submissions.create_local.build_archive", return_value=fake_bundle):
+                            with patch("endpoints_submission_cli.runs.api.upload_run_archive"):
+                                with patch(
+                                    "endpoints_submission_cli.submissions.api.create_submission",
+                                    return_value=SUBMISSION_OUT,
+                                ) as mock_create_sub:
+                                    with patch(
+                                        "endpoints_submission_cli.commands.submissions.create_local.create_bundle_archive",
+                                        return_value=fake_bundle,
+                                    ):
+                                        with patch("endpoints_submission_cli.submissions.api.upload_submission_archive"):
+                                            with patch("endpoints_submission_cli.submissions.api.update_submission"):
+                                                result = self._invoke(sub)
+        assert result.exit_code == 0, result.output
+        assert SUBMISSION_ID in result.output
+        assert mock_create_run.call_count == 2
+        mock_create_sub.assert_called_once()
+
+    def test_create_local_dry_run(self, tmp_path: Path) -> None:
+        sub = _make_submission_dir(tmp_path)
+        with patch("endpoints_submission_cli.commands.submissions.create_local._run_submission_checker"):
+            result = self._invoke(sub, "--dry-run")
+        assert result.exit_code == 0
+        assert "dry-run" in result.output
+
+    def test_create_local_no_result_dirs_exits_1(self, tmp_path: Path) -> None:
+        sub = tmp_path / "empty_sub"
+        sub.mkdir()
+        result = self._invoke(sub)
+        assert result.exit_code == 1
+
+    def test_create_local_checker_failure_exits_1(self, tmp_path: Path) -> None:
+        sub = _make_submission_dir(tmp_path)
+        with patch(
+            "endpoints_submission_cli.commands.submissions.create_local._run_submission_checker",
+            side_effect=SubmissionCheckError("1 error"),
+        ):
+            result = self._invoke(sub)
+        assert result.exit_code == 1
+
+    def test_create_local_run_upload_failure_rolls_back(self, tmp_path: Path) -> None:
+        sub = _make_submission_dir(tmp_path)
+        fake_bundle = tmp_path / "a.tar.gz"
+        fake_bundle.write_bytes(_FAKE_BUNDLE)
+        run1_out = {**RUN_OUT, "id": "aaaa-1111"}
+        call_count = {"n": 0}
+
+        def _create_run_side_effect(*_a, **_kw):
+            return run1_out
+
+        def _upload_side_effect(*_a, **_kw):
+            call_count["n"] += 1
+            if call_count["n"] >= 2:
+                raise APIError("upload failed")
+
+        with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
+            with patch("endpoints_submission_cli.commands.submissions.create_local._run_submission_checker"):
+                with patch(
+                    "endpoints_submission_cli.commands.submissions.create_local._parse_result_dir",
+                    return_value=_FAKE_RUN_PAYLOAD,
+                ):
+                    with patch("endpoints_submission_cli.runs.api.create_run", side_effect=_create_run_side_effect):
+                        with patch("endpoints_submission_cli.commands.submissions.create_local.build_archive", return_value=fake_bundle):
+                            with patch("endpoints_submission_cli.runs.api.upload_run_archive", side_effect=_upload_side_effect):
+                                with patch("endpoints_submission_cli.runs.api.delete_run_archive"):
+                                    with patch("endpoints_submission_cli.runs.api.delete_run") as mock_delete:
+                                        result = self._invoke(sub)
+        assert result.exit_code == 1
+        assert mock_delete.call_count >= 1
+
+    def test_create_local_submission_upload_failure_withdraws(self, tmp_path: Path) -> None:
+        sub = _make_submission_dir(tmp_path)
+        fake_bundle = tmp_path / "bundle.tar.gz"
+        fake_bundle.write_bytes(_FAKE_BUNDLE)
+
+        with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
+            with patch("endpoints_submission_cli.commands.submissions.create_local._run_submission_checker"):
+                with patch(
+                    "endpoints_submission_cli.commands.submissions.create_local._parse_result_dir",
+                    return_value=_FAKE_RUN_PAYLOAD,
+                ):
+                    with patch("endpoints_submission_cli.runs.api.create_run", return_value=RUN_OUT):
+                        with patch("endpoints_submission_cli.commands.submissions.create_local.build_archive", return_value=fake_bundle):
+                            with patch("endpoints_submission_cli.runs.api.upload_run_archive"):
+                                with patch(
+                                    "endpoints_submission_cli.submissions.api.create_submission",
+                                    return_value=SUBMISSION_OUT,
+                                ):
+                                    with patch(
+                                        "endpoints_submission_cli.commands.submissions.create_local.create_bundle_archive",
+                                        return_value=fake_bundle,
+                                    ):
+                                        with patch(
+                                            "endpoints_submission_cli.submissions.api.upload_submission_archive",
+                                            side_effect=APIError("upload failed"),
+                                        ):
+                                            with patch(
+                                                "endpoints_submission_cli.submissions.api.withdraw_submission"
+                                            ) as mock_withdraw:
+                                                result = self._invoke(sub)
+        assert result.exit_code == 1
+        mock_withdraw.assert_called_once_with(TOKEN, SUBMISSION_ID)
 
 
 def _make_fake_archive(tmp_path: Path) -> Path:
