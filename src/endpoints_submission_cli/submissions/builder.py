@@ -405,6 +405,8 @@ def _write_pareto_entries(
                         content = json.dumps(metadata, indent=2).encode()
                 except (json.JSONDecodeError, TypeError, ValueError):
                     pass
+            if rel_path == "results.json":
+                content = _truncate_responses(content)
             dest = result_dir / rel_path
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(content)
@@ -414,14 +416,39 @@ def _write_pareto_entries(
             _write_accuracy_fallback(result_dir, run)
 
 
+_RESPONSES_LIMIT = 10 * 1024  # 10 KB
+
+
+def _truncate_responses(content: bytes) -> bytes:
+    """Truncate the responses list in a results.json payload to stay under 10 KB."""
+    try:
+        data = json.loads(content)
+    except (json.JSONDecodeError, ValueError):
+        return content
+    responses = data.get("responses")
+    if not isinstance(responses, list) or not responses:
+        return content
+    # Walk items and stop as soon as adding the next one would exceed the limit.
+    # Each item contributes its own bytes plus 2 for the ", " separator after the first.
+    total = 2  # "[]"
+    idx = 0
+    for i, r in enumerate(responses):
+        total += len(json.dumps(r).encode()) + (2 if i > 0 else 0)
+        if total > _RESPONSES_LIMIT:
+            break
+        idx = i + 1
+    data["responses"] = responses[:idx]
+    return json.dumps(data, indent=2).encode()
+
+
 def _write_accuracy_fallback(result_dir: Path, run: dict[str, Any]) -> None:
     """Write per-point accuracy/ files from results.json when the archive has no accuracy/ dir.
 
-    Called only when accuracy/accuracy_result.json is absent from the run's extra_files
+    Called only when accuracy/results.json is absent from the run's extra_files
     (i.e. the run archive did not include an accuracy/ directory). Sources accuracy_scores
     from results.json.
 
-    The written accuracy_result.json format:
+    The written results.json format:
         {"<dataset_name>": {"score": {...}, "num_samples": N, ...}}
     """
     results_bytes = run.get("_extra_files", {}).get("results.json")
@@ -459,10 +486,12 @@ def _write_src(submission_dir: Path, run_data: list[dict[str, Any]]) -> None:
     """Copy src/ files from run archives into submission_dir/src/<model>/."""
     for run in run_data:
         model = _extract_model(run["config"])
+        src_model_dir = submission_dir / "src" / model
+        src_model_dir.mkdir(parents=True, exist_ok=True)
         for rel, content in run.get("_extra_files", {}).items():
             if not rel.startswith("src/"):
                 continue
-            dest = submission_dir / "src" / model / Path(rel).relative_to("src")
+            dest = src_model_dir / Path(rel).relative_to("src")
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(content)
 

@@ -15,6 +15,7 @@ from endpoints_submission_cli.exceptions import SubmissionBuildError
 from endpoints_submission_cli.submissions.builder import (
     _compute_max_tps,
     _slugify,
+    _truncate_responses,
     build_submission_folder,
     create_bundle_archive,
     extract_archive,
@@ -272,6 +273,43 @@ class TestTpsUtilizationInjection:
             [("run-001", run_archive)], "standardized", "available", tmp_path
         )
         assert sub_dir.is_dir()
+
+
+@pytest.mark.unit
+class TestTruncateResponses:
+    def _make_content(self, n_responses: int) -> bytes:
+        data = {
+            "config": {"mode": "perf"},
+            "results": {"total": n_responses},
+            "responses": [{"text": "hello world", "idx": i} for i in range(n_responses)],
+        }
+        return json.dumps(data).encode()
+
+    def test_small_responses_unchanged(self) -> None:
+        content = self._make_content(2)
+        result = json.loads(_truncate_responses(content))
+        assert len(result["responses"]) == 2
+
+    def test_large_responses_truncated_under_10kb(self) -> None:
+        content = self._make_content(10_000)
+        result_bytes = _truncate_responses(content)
+        result = json.loads(result_bytes)
+        assert len(json.dumps(result["responses"]).encode()) <= 10 * 1024
+
+    def test_other_keys_preserved(self) -> None:
+        content = self._make_content(10_000)
+        result = json.loads(_truncate_responses(content))
+        assert result["config"] == {"mode": "perf"}
+        assert result["results"]["total"] == 10_000
+
+    def test_no_responses_key_unchanged(self) -> None:
+        data = {"config": {}, "results": {}}
+        content = json.dumps(data).encode()
+        assert _truncate_responses(content) == content
+
+    def test_invalid_json_returned_as_is(self) -> None:
+        content = b"not json"
+        assert _truncate_responses(content) == content
 
 
 @pytest.mark.unit
