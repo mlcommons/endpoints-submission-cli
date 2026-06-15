@@ -198,19 +198,11 @@ def _load_run_data(run_id: str, division: str, availability: str, run_dir: Path)
 
     system_info = _load_system_desc(base, run_id, division, availability)
 
-    runtime_settings_path = base / "runtime_settings.json"
-    runtime_settings: dict[str, Any] = (
-        json.loads(runtime_settings_path.read_text())
-        if runtime_settings_path.exists()
-        else {}
-    )
-
     return {
         "run_id": run_id,
         "system_info": system_info,
         "config": config,
         "result_summary": result_summary,
-        "runtime_settings": runtime_settings,
         "_extra_files": _load_extra_files(base),
     }
 
@@ -361,10 +353,9 @@ def _write_pareto_entries(
         points_dir.mkdir(parents=True, exist_ok=True)
         result_dir.mkdir(parents=True, exist_ok=True)
 
-        # Build point YAML from config.yaml + runtime_settings.json
+        # Build point YAML from config.yaml
         cfg_settings = run["config"].get("settings", {}) or {}
         load_pattern = cfg_settings.get("load_pattern", {}) or {}
-        rt_json = run.get("runtime_settings", {}) or {}
         client_cfg = cfg_settings.get("client", {}) or {}
         runtime_cfg = cfg_settings.get("runtime", {}) or {}
         warmup_cfg = cfg_settings.get("warmup", {}) or {}
@@ -384,7 +375,6 @@ def _write_pareto_entries(
             )
 
         runtime_settings_out: dict[str, Any] = {
-            **rt_json,
             "load_pattern": load_pattern.get("type", "concurrency"),
             "stream_all_chunks": stream_all_chunks,
             "min_duration_ms": runtime_cfg.get("min_duration_ms", 600_000),
