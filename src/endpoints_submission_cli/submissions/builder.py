@@ -365,15 +365,45 @@ def _write_pareto_entries(
         cfg_settings = run["config"].get("settings", {}) or {}
         load_pattern = cfg_settings.get("load_pattern", {}) or {}
         rt_json = run.get("runtime_settings", {}) or {}
+        client_cfg = cfg_settings.get("client", {}) or {}
+        runtime_cfg = cfg_settings.get("runtime", {}) or {}
+        warmup_cfg = cfg_settings.get("warmup", {}) or {}
         datasets = run["config"].get("datasets", []) or []
         dataset_name = (
             datasets[0].get("name", "") if datasets and isinstance(datasets[0], dict) else ""
         )
 
+        # §6.5 requires stream_all_chunks=true for all performance runs.
+        # Read from config.yaml and error out if false — the run is non-compliant.
+        stream_all_chunks = client_cfg.get("stream_all_chunks", True)
+        if not stream_all_chunks:
+            raise SubmissionBuildError(
+                f"Run concurrency={concurrency}: config.yaml has stream_all_chunks=false. "
+                "§6.5 requires stream_all_chunks=true for all performance runs to enable "
+                "accurate per-token timing. Fix the run configuration before submitting."
+            )
+
         runtime_settings_out: dict[str, Any] = {
             **rt_json,
             "load_pattern": load_pattern.get("type", "concurrency"),
-            "stream_all_chunks": True,
+            "stream_all_chunks": stream_all_chunks,
+            "min_duration_ms": runtime_cfg.get("min_duration_ms", 600_000),
+        }
+        if (n_samples := runtime_cfg.get("n_samples_to_issue")) is not None:
+            runtime_settings_out["min_sample_count"] = n_samples
+
+        # §8.3 warmup disclosure block — mapped from config.yaml settings.warmup.
+        # Fields duration_s, requests_issued, requests_completed, data_source,
+        # concurrency, and initialization_steps are submission metadata; populate
+        # from config where available and leave unknown fields as null.
+        warmup_out: dict[str, Any] = {
+            "enabled": warmup_cfg.get("enabled", False),
+            "duration_s": warmup_cfg.get("duration_s"),
+            "requests_issued": warmup_cfg.get("requests_issued"),
+            "requests_completed": warmup_cfg.get("requests_completed"),
+            "data_source": warmup_cfg.get("data_source"),
+            "concurrency": warmup_cfg.get("concurrency"),
+            "initialization_steps": warmup_cfg.get("initialization_steps"),
         }
 
         point_cfg: dict[str, Any] = {
@@ -381,6 +411,7 @@ def _write_pareto_entries(
             "region": classify_concurrency(concurrency, regions),
             "dataset": dataset_name,
             "runtime_settings": runtime_settings_out,
+            "warmup": warmup_out,
         }
         (points_dir / f"point_{concurrency}.yaml").write_text(
             yaml.dump(point_cfg, default_flow_style=False), encoding="utf-8"
