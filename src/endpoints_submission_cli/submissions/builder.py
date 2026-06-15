@@ -350,7 +350,7 @@ def _write_pareto_entries(
 ) -> None:
     from submission_checker.models import classify_concurrency, compute_regions
 
-    regions = compute_regions(max(max_concurrency, 33))
+    regions = compute_regions(max_concurrency)
 
     for run in runs:
         concurrency = _extract_concurrency(run["config"])
@@ -369,9 +369,16 @@ def _write_pareto_entries(
             datasets[0].get("name", "") if datasets and isinstance(datasets[0], dict) else ""
         )
 
+        lp_from_config = load_pattern.get("type", "concurrency")
+        if "load_pattern" in rt_json and rt_json["load_pattern"] != lp_from_config:
+            warnings.warn(
+                f"runtime_settings.load_pattern={rt_json['load_pattern']!r} overridden"
+                f" by config.yaml value {lp_from_config!r}",
+                stacklevel=2,
+            )
         runtime_settings_out: dict[str, Any] = {
             **rt_json,
-            "load_pattern": load_pattern.get("type", "concurrency"),
+            "load_pattern": lp_from_config,
         }
 
         point_cfg: dict[str, Any] = {
