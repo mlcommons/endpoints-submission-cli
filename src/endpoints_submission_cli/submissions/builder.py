@@ -251,7 +251,6 @@ def _load_extra_files(base: Path) -> dict[str, bytes]:
     extra: dict[str, bytes] = {}
     candidates = [
         "config.yaml",
-        "events.jsonl",
         "results.json",
         "run_metadata.json",
         "sample_idx_map.json",
@@ -373,7 +372,6 @@ def _write_pareto_entries(
         runtime_settings_out: dict[str, Any] = {
             **rt_json,
             "load_pattern": load_pattern.get("type", "concurrency"),
-            "stream_all_chunks": True,
         }
 
         point_cfg: dict[str, Any] = {
@@ -491,7 +489,7 @@ def _write_src(submission_dir: Path, run_data: list[dict[str, Any]]) -> None:
         for rel, content in run.get("_extra_files", {}).items():
             if not rel.startswith("src/"):
                 continue
-            dest = src_model_dir / Path(rel).relative_to("src")
+            dest = submission_dir / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(content)
 
