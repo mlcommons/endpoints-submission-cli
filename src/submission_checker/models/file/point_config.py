@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-__all__ = ["PointConfig", "RuntimeSettings"]
+__all__ = ["PointConfig", "RuntimeSettings", "WarmupSpec"]
 
 from pydantic import (
     BaseModel,
@@ -21,6 +21,37 @@ from ..results import CheckResult, err, ok, warn
 _VALID_REGIONS = frozenset(
     {"low_latency", "low_throughput", "med_throughput", "high_throughput", "submitters_choice"}
 )
+
+
+class WarmupSpec(BaseModel):
+    """Warmup procedure declaration required by §6.3.3.
+
+    Attributes:
+        duration_s: Total warmup duration in seconds.
+        requests_issued: Number of requests sent during warmup.
+        requests_completed: Number of requests that completed successfully.
+        data_source: Description of the warmup data and its origin.
+        concurrency: Concurrency level used during warmup.
+        initialization_steps: Platform-specific setup steps completed before TEST_STARTED.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    duration_s: float = Field(gt=0)
+    requests_issued: int = Field(ge=0)
+    requests_completed: int = Field(ge=0)
+    data_source: str = Field(min_length=1)
+    concurrency: int = Field(gt=0)
+    initialization_steps: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_completed_le_issued(self) -> WarmupSpec:
+        if self.requests_completed > self.requests_issued:
+            raise ValueError(
+                f"requests_completed ({self.requests_completed})"
+                f" > requests_issued ({self.requests_issued})"
+            )
+        return self
 
 
 class RuntimeSettings(BaseModel):
@@ -58,6 +89,31 @@ class PointConfig(BaseModel):
     region: str | None = None
     dataset: str = ""
     runtime_settings: RuntimeSettings = Field(default_factory=RuntimeSettings)
+    warmup: WarmupSpec | None = None
+
+    @model_validator(mode="after")
+    def _check_warmup(self, info: ValidationInfo) -> PointConfig:
+        """§6.3.3: warmup declaration is required for every measurement point."""
+        path: Path | None = (info.context or {}).get("yaml_path")
+        if self.warmup is None:
+            self._check_results.append(
+                err(
+                    "warmup-present",
+                    f"Point {self.concurrency}: missing warmup declaration (§6.3.3)",
+                    path,
+                    "#6.3.3",
+                )
+            )
+        else:
+            self._check_results.append(
+                ok(
+                    "warmup-present",
+                    f"Point {self.concurrency}: warmup declaration present",
+                    path,
+                    "#6.3.3",
+                )
+            )
+        return self
 
     @model_validator(mode="after")
     def _check_load_pattern(self, info: ValidationInfo) -> PointConfig:

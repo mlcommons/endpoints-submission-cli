@@ -11,6 +11,7 @@ from submission_checker.models import (
     PointConfig,
     Severity,
 )
+from submission_checker.models.file.point_config import WarmupSpec
 
 from .conftest import _REGIONS
 
@@ -203,3 +204,55 @@ class TestAccuracyResultModel:
             r.rule == "accuracy-valid" and r.severity == Severity.ERROR
             for r in ar._check_results
         )
+
+
+_WARMUP = {
+    "duration_s": 60.0,
+    "requests_issued": 640,
+    "requests_completed": 640,
+    "data_source": "llm-perf-dataset-v1 validation split",
+    "concurrency": 64,
+    "initialization_steps": ["model loaded", "kv-cache warmed"],
+}
+
+
+@pytest.mark.unit
+class TestWarmupValidator:
+    def test_missing_warmup_is_error(self, tmp_path):
+        config = PointConfig.model_validate(
+            {"concurrency": 64},
+            context={"yaml_path": tmp_path / "point_64.yaml"},
+        )
+        assert any(
+            r.rule == "warmup-present" and r.severity == Severity.ERROR
+            for r in config._check_results
+        )
+
+    def test_warmup_present_is_ok(self, tmp_path):
+        config = PointConfig.model_validate(
+            {"concurrency": 64, "warmup": _WARMUP},
+            context={"yaml_path": tmp_path / "point_64.yaml"},
+        )
+        assert any(
+            r.rule == "warmup-present" and r.severity == Severity.INFO
+            for r in config._check_results
+        )
+
+    def test_warmup_fields_parsed(self):
+        w = WarmupSpec(**_WARMUP)
+        assert w.duration_s == 60.0
+        assert w.requests_issued == 640
+        assert w.requests_completed == 640
+        assert w.data_source == "llm-perf-dataset-v1 validation split"
+        assert w.concurrency == 64
+        assert w.initialization_steps == ["model loaded", "kv-cache warmed"]
+
+    def test_initialization_steps_defaults_empty(self):
+        w = WarmupSpec(
+            duration_s=30.0,
+            requests_issued=100,
+            requests_completed=100,
+            data_source="test data",
+            concurrency=8,
+        )
+        assert w.initialization_steps == []
