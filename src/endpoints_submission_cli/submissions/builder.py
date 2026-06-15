@@ -363,31 +363,16 @@ def _write_pareto_entries(
             datasets[0].get("name", "") if datasets and isinstance(datasets[0], dict) else ""
         )
 
-        # §6.5 requires stream_all_chunks=true for all performance runs.
-        # Read from config.yaml and error out if false — the run is non-compliant.
-        stream_all_chunks = client_cfg.get("stream_all_chunks", True)
-        if not stream_all_chunks:
-            raise SubmissionBuildError(
-                f"Run concurrency={concurrency}: config.yaml has stream_all_chunks=false. "
-                "§6.5 requires stream_all_chunks=true for all performance runs to enable "
-                "accurate per-token timing. Fix the run configuration before submitting."
-            )
-            
+        stream_all_chunks = client_cfg.get("stream_all_chunks")
         lp_from_config = load_pattern.get("type", "concurrency")
-        if "load_pattern" in rt_json and rt_json["load_pattern"] != lp_from_config:
-            warnings.warn(
-                f"runtime_settings.load_pattern={rt_json['load_pattern']!r} overridden"
-                f" by config.yaml value {lp_from_config!r}",
-                stacklevel=2,
-            )
 
         runtime_settings_out: dict[str, Any] = {
             "load_pattern": lp_from_config,
             "stream_all_chunks": stream_all_chunks,
-            "min_duration_ms": runtime_cfg.get("min_duration_ms", 600_000),
+            "min_duration_ms": runtime_cfg.get("min_duration_ms"),
         }
-        if (n_samples := runtime_cfg.get("n_samples_to_issue")) is not None:
-            runtime_settings_out["min_sample_count"] = n_samples
+        if runtime_cfg.get("n_samples_to_issue") is not None:
+            runtime_settings_out["min_sample_count"] = runtime_cfg.get("n_samples_to_issue")
 
         # §8.3 warmup disclosure block — mapped from config.yaml settings.warmup.
         # Fields duration_s, requests_issued, requests_completed, data_source,

@@ -297,31 +297,20 @@ class TestPointYamlFromConfig:
             tar.add(folder, arcname=name)
         return archive
 
-    def test_stream_all_chunks_true_builds_successfully(self, run_folder: Path, tmp_path: Path) -> None:
-        """stream_all_chunks=true in config → submission builds, point YAML has true."""
+    @pytest.mark.parametrize("value", [True, False])
+    def test_stream_all_chunks_written_from_config(self, value: bool, run_folder: Path, tmp_path: Path) -> None:
+        """stream_all_chunks is read from config.yaml and written as-is; checker validates compliance."""
         archive = self._make_archive(
             run_folder,
-            {"settings": {"client": {"stream_all_chunks": True}}},
+            {"settings": {"client": {"stream_all_chunks": value}}},
             tmp_path,
         )
         sub_dir = build_submission_folder(
-            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+            [("run-001", archive)], "standardized", "available", tmp_path / f"sub_{value}"
         )
         point_yaml = next(sub_dir.rglob("point_*.yaml"))
         data = yaml.safe_load(point_yaml.read_text())
-        assert data["runtime_settings"]["stream_all_chunks"] is True
-
-    def test_stream_all_chunks_false_raises(self, run_folder: Path, tmp_path: Path) -> None:
-        """stream_all_chunks=false in config → SubmissionBuildError citing §6.5."""
-        archive = self._make_archive(
-            run_folder,
-            {"settings": {"client": {"stream_all_chunks": False}}},
-            tmp_path,
-        )
-        with pytest.raises(SubmissionBuildError, match="§6.5"):
-            build_submission_folder(
-                [("run-001", archive)], "standardized", "available", tmp_path / "sub"
-            )
+        assert data["runtime_settings"]["stream_all_chunks"] is value
 
     def test_min_duration_ms_from_config(self, run_folder: Path, tmp_path: Path) -> None:
         """min_duration_ms is read from config.yaml settings.runtime."""
@@ -337,29 +326,23 @@ class TestPointYamlFromConfig:
         data = yaml.safe_load(point_yaml.read_text())
         assert data["runtime_settings"]["min_duration_ms"] == 1_200_000
 
-    def test_min_duration_ms_defaults_to_600000(self, run_folder: Path, tmp_path: Path) -> None:
-        """min_duration_ms defaults to 600000 when absent from config.yaml."""
-        archive = self._make_archive(
-            run_folder,
-            {"settings": {"runtime": {"min_duration_ms": None}}},
-            tmp_path,
-        )
-        # Remove the key entirely
+    def test_min_duration_ms_null_when_absent(self, run_folder: Path, tmp_path: Path) -> None:
+        """min_duration_ms is null in point YAML when absent from config.yaml."""
         folder = tmp_path / "run_nodur"
         import shutil
         shutil.copytree(run_folder, folder)
         cfg = yaml.safe_load((folder / "config.yaml").read_text())
         cfg["settings"]["runtime"].pop("min_duration_ms", None)
         (folder / "config.yaml").write_text(yaml.dump(cfg))
-        archive2 = tmp_path / "run_nodur.tar.gz"
-        with tarfile.open(archive2, "w:gz") as tar:
+        archive = tmp_path / "run_nodur.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
             tar.add(folder, arcname="run_nodur")
         sub_dir = build_submission_folder(
-            [("run-001", archive2)], "standardized", "available", tmp_path / "sub"
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
         )
         point_yaml = next(sub_dir.rglob("point_*.yaml"))
         data = yaml.safe_load(point_yaml.read_text())
-        assert data["runtime_settings"]["min_duration_ms"] == 600_000
+        assert data["runtime_settings"]["min_duration_ms"] is None
 
     def test_min_sample_count_from_n_samples_to_issue(self, run_folder: Path, tmp_path: Path) -> None:
         """min_sample_count in point YAML comes from n_samples_to_issue in config.yaml."""
