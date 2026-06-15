@@ -7,13 +7,15 @@ into the SubmissionChecker-compatible layout:
 
     <org>/
       systems/<system_id>.json
+      src/<benchmark_model>/
+          <endpoint interface code>
       pareto/<system_id>/<model>/points/point_<concurrency>.yaml
       pareto/<system_id>/<model>/results/point_<concurrency>/
-          mlperf_endpoints_log_summary.json
-          mlperf_endpoints_log_detail.json
-      pareto/<system_id>/<model>/accuracy/
-          accuracy_result.json
-          accuracy.txt
+          results_summary.json
+          config.yaml
+          accuracy/
+              results.json
+      documentation/
 """
 
 from __future__ import annotations
@@ -122,7 +124,6 @@ def build_submission_folder(
         _write_pareto_entries(
             submission_dir, system_id, model, runs, system_max_concurrency[system_id], max_tps
         )
-        _write_accuracy(submission_dir, system_id, model, runs)
 
     # Copy src/ for Standardized division submissions (mirrors documentation/ handling)
     if run_data[0]["system_info"].get("division") == "Standardized":
@@ -250,15 +251,13 @@ def _load_extra_files(base: Path) -> dict[str, bytes]:
     extra: dict[str, bytes] = {}
     candidates = [
         "config.yaml",
-        "events.jsonl",
         "results.json",
         "run_metadata.json",
         "sample_idx_map.json",
         "serving_config.json",
         "report.txt",
         "metrics/final_snapshot.json",
-        "accuracy/accuracy_result.json",
-        "accuracy/accuracy.txt",
+        "accuracy/results.json",
     ]
     for rel in candidates:
         p = base / rel
@@ -351,7 +350,7 @@ def _write_pareto_entries(
 ) -> None:
     from submission_checker.models import classify_concurrency, compute_regions
 
-    regions = compute_regions(max(max_concurrency, 33))
+    regions = compute_regions(max_concurrency)
 
     for run in runs:
         concurrency = _extract_concurrency(run["config"])
@@ -370,10 +369,16 @@ def _write_pareto_entries(
             datasets[0].get("name", "") if datasets and isinstance(datasets[0], dict) else ""
         )
 
+        lp_from_config = load_pattern.get("type", "concurrency")
+        if "load_pattern" in rt_json and rt_json["load_pattern"] != lp_from_config:
+            warnings.warn(
+                f"runtime_settings.load_pattern={rt_json['load_pattern']!r} overridden"
+                f" by config.yaml value {lp_from_config!r}",
+                stacklevel=2,
+            )
         runtime_settings_out: dict[str, Any] = {
             **rt_json,
-            "load_pattern": load_pattern.get("type", "concurrency"),
-            "stream_all_chunks": True,
+            "load_pattern": lp_from_config,
         }
 
         point_cfg: dict[str, Any] = {
@@ -386,19 +391,10 @@ def _write_pareto_entries(
             yaml.dump(point_cfg, default_flow_style=False), encoding="utf-8"
         )
 
-        (result_dir / "mlperf_endpoints_log_summary.json").write_text(
+        (result_dir / "results_summary.json").write_text(
             json.dumps(run["result_summary"], indent=2), encoding="utf-8"
         )
-        # Convert events.jsonl (JSONL) to a JSON array for the detail log
         extra_files = run.get("_extra_files", {})
-        if "events.jsonl" in extra_files:
-            events = [
-                json.loads(ln) for ln in extra_files["events.jsonl"].splitlines() if ln.strip()
-            ]
-            detail_bytes = json.dumps(events, indent=2).encode()
-        else:
-            detail_bytes = b"[]"
-        (result_dir / "mlperf_endpoints_log_detail.json").write_bytes(detail_bytes)
         (result_dir / "system_desc.json").write_text(
             json.dumps(run["system_info"], indent=2), encoding="utf-8"
         )
@@ -414,88 +410,68 @@ def _write_pareto_entries(
                         content = json.dumps(metadata, indent=2).encode()
                 except (json.JSONDecodeError, TypeError, ValueError):
                     pass
+            if rel_path == "results.json":
+                content = _truncate_responses(content)
             dest = result_dir / rel_path
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(content)
 
-
-def _fmt_score(score: float | dict[str, Any]) -> str:
-    if isinstance(score, dict):
-        return ", ".join(f"{k}={v}" for k, v in score.items())
-    return f"{score:.4f}"
+        # Fallback: if the archive had no accuracy/results.json, derive from results.json
+        if "accuracy/results.json" not in extra_files:
+            _write_accuracy_fallback(result_dir, run)
 
 
-def _write_accuracy(
-    submission_dir: Path,
-    system_id: str,
-    model: str,
-    runs: list[dict[str, Any]],
-) -> None:
-    """Write accuracy/ files, preferring a pre-computed accuracy_result.json from the archive.
+_RESPONSES_LIMIT = 10 * 1024  # 10 KB
 
-    Priority:
-    1. accuracy/accuracy_result.json in the archive (if it contains accuracy_scores).
-    2. accuracy_scores in results.json — fallback when no pre-computed file exists.
 
-    The written accuracy_result.json preserves the accuracy_scores nested format:
+def _truncate_responses(content: bytes) -> bytes:
+    """Truncate the responses list in a results.json payload to stay under 10 KB."""
+    try:
+        data = json.loads(content)
+    except (json.JSONDecodeError, ValueError):
+        return content
+    responses = data.get("responses")
+    if not isinstance(responses, list) or not responses:
+        return content
+    # Walk items and stop as soon as adding the next one would exceed the limit.
+    # Each item contributes its own bytes plus 2 for the ", " separator after the first.
+    total = 2  # "[]"
+    idx = 0
+    for i, r in enumerate(responses):
+        total += len(json.dumps(r).encode()) + (2 if i > 0 else 0)
+        if total > _RESPONSES_LIMIT:
+            break
+        idx = i + 1
+    data["responses"] = responses[:idx]
+    return json.dumps(data, indent=2).encode()
+
+
+def _write_accuracy_fallback(result_dir: Path, run: dict[str, Any]) -> None:
+    """Write per-point accuracy/ files from results.json when the archive has no accuracy/ dir.
+
+    Called only when accuracy/results.json is absent from the run's extra_files
+    (i.e. the run archive did not include an accuracy/ directory). Sources accuracy_scores
+    from results.json.
+
+    The written results.json format:
         {"<dataset_name>": {"score": {...}, "num_samples": N, ...}}
     """
-    accuracy_scores: dict[str, Any] | None = None
-
-    # Primary: accuracy/accuracy_result.json bundled with the run
-    for run in runs:
-        ar_bytes = run.get("_extra_files", {}).get("accuracy/accuracy_result.json")
-        if not ar_bytes:
-            continue
-        try:
-            ar_data = json.loads(ar_bytes)
-        except json.JSONDecodeError:
-            continue
-        if "accuracy_scores" in ar_data:
-            scores = ar_data["accuracy_scores"]
-            if scores:
-                accuracy_scores = scores
-                break
-
-    # Fallback: accuracy_scores in results.json
-    if accuracy_scores is None:
-        for run in runs:
-            results_bytes = run.get("_extra_files", {}).get("results.json")
-            if not results_bytes:
-                continue
-            try:
-                parsed = json.loads(results_bytes)
-            except json.JSONDecodeError:
-                continue
-            scores = parsed.get("accuracy_scores")
-            if scores:
-                accuracy_scores = scores
-                break
-
+    results_bytes = run.get("_extra_files", {}).get("results.json")
+    if not results_bytes:
+        return
+    try:
+        parsed = json.loads(results_bytes)
+    except json.JSONDecodeError:
+        return
+    accuracy_scores: dict[str, Any] | None = parsed.get("accuracy_scores")
     if not accuracy_scores:
         return
 
-    accuracy_dir = submission_dir / "pareto" / system_id / model / "accuracy"
+    accuracy_dir = result_dir / "accuracy"
     accuracy_dir.mkdir(parents=True, exist_ok=True)
-
-    (accuracy_dir / "accuracy_result.json").write_text(
+    (accuracy_dir / "results.json").write_text(
         json.dumps(accuracy_scores, indent=2), encoding="utf-8"
     )
-
-    # Write a human-readable summary
-    summary_lines: list[str] = []
-    for ds_name, entry in accuracy_scores.items():
-        raw = entry.get("score", {}) if isinstance(entry, dict) else {}
-        if isinstance(raw, dict):
-            metrics = ", ".join(
-                f"{k}={v}" for k, v in raw.items()
-                if isinstance(v, (int, float))
-                or (isinstance(v, str) and v.replace(".", "").isdigit())
-            )
-            summary_lines.append(f"{ds_name}: {metrics}" if metrics else ds_name)
-        else:
-            summary_lines.append(f"{ds_name}: {raw}")
-    (accuracy_dir / "accuracy.txt").write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
 
 
 def _write_documentation(submission_dir: Path, run_data: list[dict[str, Any]]) -> None:
@@ -512,14 +488,15 @@ def _write_documentation(submission_dir: Path, run_data: list[dict[str, Any]]) -
 
 
 def _write_src(submission_dir: Path, run_data: list[dict[str, Any]]) -> None:
-    """Copy src/ files from run archives into submission_dir/src/."""
-    src_dir = submission_dir / "src"
-    src_dir.mkdir(exist_ok=True)
+    """Copy src/ files from run archives into submission_dir/src/<model>/."""
     for run in run_data:
+        model = _extract_model(run["config"])
+        src_model_dir = submission_dir / "src" / model
+        src_model_dir.mkdir(parents=True, exist_ok=True)
         for rel, content in run.get("_extra_files", {}).items():
             if not rel.startswith("src/"):
                 continue
-            dest = src_dir / Path(rel).relative_to("src")
+            dest = submission_dir / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(content)
 

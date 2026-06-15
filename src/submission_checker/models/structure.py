@@ -45,27 +45,33 @@ class SubmissionDir(BaseModel):
 
 
 class SrcDir(BaseModel):
-    """Validates src/ exists for Standardized division submissions (§2.2.1)."""
+    """Validates src/<model>/ exists for Standardized division submissions (§2.2.1)."""
 
     _check_results: list[CheckResult] = PrivateAttr(default_factory=list)
 
     root: Path
     division: Division
+    model: str
 
     @model_validator(mode="after")
     def _check_src(self) -> SrcDir:
         if self.division != Division.STANDARDIZED:
             return self
-        src_dir = self.root / "src"
+        src_dir = self.root / "src" / self.model
         if src_dir.is_dir():
             self._check_results.append(
-                ok("src-dir", "src/ present (required for Standardized division)", src_dir, "#1")
+                ok(
+                    "src-dir",
+                    f"src/{self.model}/ present (required for Standardized division)",
+                    src_dir,
+                    "#1",
+                )
             )
         else:
             self._check_results.append(
                 err(
                     "src-dir",
-                    "Missing src/ directory (required for Standardized division)",
+                    f"Missing src/{self.model}/ directory (required for Standardized division)",
                     src_dir,
                     "#1",
                 )
@@ -102,7 +108,7 @@ class SystemPareto(BaseModel):
 
 
 class ModelDir(BaseModel):
-    """Validates points/, results/, and accuracy/ exist under a benchmark-model directory."""
+    """Validates points/ and results/ exist under a benchmark-model directory."""
 
     _check_results: list[CheckResult] = PrivateAttr(default_factory=list)
 
@@ -122,15 +128,9 @@ class ModelDir(BaseModel):
         """Path to the results/ subdirectory."""
         return self.root / "results"
 
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def accuracy_dir(self) -> Path:
-        """Path to the accuracy/ subdirectory."""
-        return self.root / "accuracy"
-
     @model_validator(mode="after")
     def _check_subdirs(self) -> ModelDir:
-        for name in ("points", "results", "accuracy"):
+        for name in ("points", "results"):
             path = self.root / name
             if path.is_dir():
                 self._check_results.append(

@@ -15,6 +15,7 @@ from endpoints_submission_cli.exceptions import SubmissionBuildError
 from endpoints_submission_cli.submissions.builder import (
     _compute_max_tps,
     _slugify,
+    _truncate_responses,
     build_submission_folder,
     create_bundle_archive,
     extract_archive,
@@ -80,26 +81,17 @@ class TestBuildSubmissionFolder:
         sub_dir = build_submission_folder(
             [("run-001", run_archive)], "standardized", "available", tmp_path
         )
-        summaries = list(sub_dir.rglob("mlperf_endpoints_log_summary.json"))
+        summaries = list(sub_dir.rglob("results_summary.json"))
         assert len(summaries) == 1
         data = json.loads(summaries[0].read_text())
         assert "n_samples_completed" in data
         assert "duration_ns" in data
 
-    def test_log_detail_created(self, run_archive: Path, tmp_path: Path) -> None:
+    def test_accuracy_file_created(self, run_archive: Path, tmp_path: Path) -> None:
         sub_dir = build_submission_folder(
             [("run-001", run_archive)], "standardized", "available", tmp_path
         )
-        details = list(sub_dir.rglob("mlperf_endpoints_log_detail.json"))
-        assert len(details) == 1
-
-    def test_accuracy_files_created(self, run_archive: Path, tmp_path: Path) -> None:
-        sub_dir = build_submission_folder(
-            [("run-001", run_archive)], "standardized", "available", tmp_path
-        )
-        acc_txts = list(sub_dir.rglob("accuracy.txt"))
-        acc_jsons = list(sub_dir.rglob("accuracy_result.json"))
-        assert len(acc_txts) == 1
+        acc_jsons = list(sub_dir.rglob("accuracy/results.json"))
         assert len(acc_jsons) == 1
 
     def test_empty_run_list_raises(self, tmp_path: Path) -> None:
@@ -281,6 +273,43 @@ class TestTpsUtilizationInjection:
             [("run-001", run_archive)], "standardized", "available", tmp_path
         )
         assert sub_dir.is_dir()
+
+
+@pytest.mark.unit
+class TestTruncateResponses:
+    def _make_content(self, n_responses: int) -> bytes:
+        data = {
+            "config": {"mode": "perf"},
+            "results": {"total": n_responses},
+            "responses": [{"text": "hello world", "idx": i} for i in range(n_responses)],
+        }
+        return json.dumps(data).encode()
+
+    def test_small_responses_unchanged(self) -> None:
+        content = self._make_content(2)
+        result = json.loads(_truncate_responses(content))
+        assert len(result["responses"]) == 2
+
+    def test_large_responses_truncated_under_10kb(self) -> None:
+        content = self._make_content(10_000)
+        result_bytes = _truncate_responses(content)
+        result = json.loads(result_bytes)
+        assert len(json.dumps(result["responses"]).encode()) <= 10 * 1024
+
+    def test_other_keys_preserved(self) -> None:
+        content = self._make_content(10_000)
+        result = json.loads(_truncate_responses(content))
+        assert result["config"] == {"mode": "perf"}
+        assert result["results"]["total"] == 10_000
+
+    def test_no_responses_key_unchanged(self) -> None:
+        data = {"config": {}, "results": {}}
+        content = json.dumps(data).encode()
+        assert _truncate_responses(content) == content
+
+    def test_invalid_json_returned_as_is(self) -> None:
+        content = b"not json"
+        assert _truncate_responses(content) == content
 
 
 @pytest.mark.unit

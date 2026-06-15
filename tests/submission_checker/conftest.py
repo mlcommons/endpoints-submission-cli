@@ -121,14 +121,12 @@ def _model_ctx(
     model_dir.mkdir(exist_ok=True)
     (model_dir / "points").mkdir(exist_ok=True)
     (model_dir / "results").mkdir(exist_ok=True)
-    (model_dir / "accuracy").mkdir(exist_ok=True)
     return ModelContext(
         system_id="test-sys",
         system_desc=system_desc or _system_desc(),
         model_dir=model_dir,
         regions=_REGIONS,
         points_dir=model_dir / "points",
-        accuracy_dir=model_dir / "accuracy",
         all_point_count=all_point_count,
         valid_points=valid_points or [],
         loaded_points=loaded_points or [],
