@@ -243,7 +243,6 @@ def _load_extra_files(base: Path) -> dict[str, bytes]:
     extra: dict[str, bytes] = {}
     candidates = [
         "config.yaml",
-        "events.jsonl",
         "results.json",
         "run_metadata.json",
         "sample_idx_map.json",
@@ -343,7 +342,7 @@ def _write_pareto_entries(
 ) -> None:
     from submission_checker.models import classify_concurrency, compute_regions
 
-    regions = compute_regions(max(max_concurrency, 33))
+    regions = compute_regions(max_concurrency)
 
     for run in runs:
         concurrency = _extract_concurrency(run["config"])
@@ -373,9 +372,17 @@ def _write_pareto_entries(
                 "§6.5 requires stream_all_chunks=true for all performance runs to enable "
                 "accurate per-token timing. Fix the run configuration before submitting."
             )
+            
+        lp_from_config = load_pattern.get("type", "concurrency")
+        if "load_pattern" in rt_json and rt_json["load_pattern"] != lp_from_config:
+            warnings.warn(
+                f"runtime_settings.load_pattern={rt_json['load_pattern']!r} overridden"
+                f" by config.yaml value {lp_from_config!r}",
+                stacklevel=2,
+            )
 
         runtime_settings_out: dict[str, Any] = {
-            "load_pattern": load_pattern.get("type", "concurrency"),
+            "load_pattern": lp_from_config,
             "stream_all_chunks": stream_all_chunks,
             "min_duration_ms": runtime_cfg.get("min_duration_ms", 600_000),
         }
@@ -512,7 +519,7 @@ def _write_src(submission_dir: Path, run_data: list[dict[str, Any]]) -> None:
         for rel, content in run.get("_extra_files", {}).items():
             if not rel.startswith("src/"):
                 continue
-            dest = src_model_dir / Path(rel).relative_to("src")
+            dest = submission_dir / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(content)
 
