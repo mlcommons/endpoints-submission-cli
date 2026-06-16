@@ -276,6 +276,136 @@ class TestTpsUtilizationInjection:
 
 
 @pytest.mark.unit
+class TestPointYamlFromConfig:
+    """Tests that point YAML fields are sourced from config.yaml."""
+
+    def _make_archive(self, run_folder: Path, cfg_patch: dict, tmp_path: Path, name: str = "run") -> Path:
+        import shutil
+
+        folder = tmp_path / name
+        shutil.copytree(run_folder, folder)
+        cfg = yaml.safe_load((folder / "config.yaml").read_text())
+        # Deep-merge cfg_patch into cfg
+        for k, v in cfg_patch.items():
+            if isinstance(v, dict) and isinstance(cfg.get(k), dict):
+                cfg[k].update(v)
+            else:
+                cfg[k] = v
+        (folder / "config.yaml").write_text(yaml.dump(cfg))
+        archive = tmp_path / f"{name}.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname=name)
+        return archive
+
+    @pytest.mark.parametrize("value", [True, False])
+    def test_stream_all_chunks_written_from_config(self, value: bool, run_folder: Path, tmp_path: Path) -> None:
+        """stream_all_chunks is read from config.yaml and written as-is; checker validates compliance."""
+        archive = self._make_archive(
+            run_folder,
+            {"settings": {"client": {"stream_all_chunks": value}}},
+            tmp_path,
+        )
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / f"sub_{value}"
+        )
+        point_yaml = next(sub_dir.rglob("point_*.yaml"))
+        data = yaml.safe_load(point_yaml.read_text())
+        assert data["runtime_settings"]["stream_all_chunks"] is value
+
+    def test_min_duration_ms_from_config(self, run_folder: Path, tmp_path: Path) -> None:
+        """min_duration_ms is read from config.yaml settings.runtime."""
+        archive = self._make_archive(
+            run_folder,
+            {"settings": {"runtime": {"min_duration_ms": 1_200_000}}},
+            tmp_path,
+        )
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        point_yaml = next(sub_dir.rglob("point_*.yaml"))
+        data = yaml.safe_load(point_yaml.read_text())
+        assert data["runtime_settings"]["min_duration_ms"] == 1_200_000
+
+    def test_min_duration_ms_null_when_absent(self, run_folder: Path, tmp_path: Path) -> None:
+        """min_duration_ms is null in point YAML when absent from config.yaml."""
+        folder = tmp_path / "run_nodur"
+        import shutil
+        shutil.copytree(run_folder, folder)
+        cfg = yaml.safe_load((folder / "config.yaml").read_text())
+        cfg["settings"]["runtime"].pop("min_duration_ms", None)
+        (folder / "config.yaml").write_text(yaml.dump(cfg))
+        archive = tmp_path / "run_nodur.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname="run_nodur")
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        point_yaml = next(sub_dir.rglob("point_*.yaml"))
+        data = yaml.safe_load(point_yaml.read_text())
+        assert data["runtime_settings"]["min_duration_ms"] is None
+
+    def test_min_sample_count_from_n_samples_to_issue(self, run_folder: Path, tmp_path: Path) -> None:
+        """min_sample_count in point YAML comes from n_samples_to_issue in config.yaml."""
+        sub_dir = build_submission_folder(
+            [("run-001", self._make_archive(
+                run_folder,
+                {"settings": {"runtime": {"n_samples_to_issue": 5000}}},
+                tmp_path,
+            ))],
+            "standardized", "available", tmp_path / "sub",
+        )
+        point_yaml = next(sub_dir.rglob("point_*.yaml"))
+        data = yaml.safe_load(point_yaml.read_text())
+        assert data["runtime_settings"]["min_sample_count"] == 5000
+
+    def test_min_sample_count_absent_when_not_in_config(self, run_folder: Path, tmp_path: Path) -> None:
+        """min_sample_count is omitted from point YAML when n_samples_to_issue absent."""
+        folder = tmp_path / "run_nosamples"
+        import shutil
+        shutil.copytree(run_folder, folder)
+        cfg = yaml.safe_load((folder / "config.yaml").read_text())
+        cfg["settings"]["runtime"].pop("n_samples_to_issue", None)
+        (folder / "config.yaml").write_text(yaml.dump(cfg))
+        archive = tmp_path / "run_nosamples.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname="run_nosamples")
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        point_yaml = next(sub_dir.rglob("point_*.yaml"))
+        data = yaml.safe_load(point_yaml.read_text())
+        assert "min_sample_count" not in data["runtime_settings"]
+
+    def test_warmup_block_present_in_point_yaml(self, run_archive: Path, tmp_path: Path) -> None:
+        """point_N.yaml always includes a warmup block (§8.3 §6.3.3)."""
+        sub_dir = build_submission_folder(
+            [("run-001", run_archive)], "standardized", "available", tmp_path
+        )
+        point_yaml = next(sub_dir.rglob("point_*.yaml"))
+        data = yaml.safe_load(point_yaml.read_text())
+        assert "warmup" in data
+        warmup = data["warmup"]
+        # All §6.3.3 fields must be present (may be null)
+        for field in ("enabled", "duration_s", "requests_issued", "requests_completed",
+                      "data_source", "concurrency", "initialization_steps"):
+            assert field in warmup, f"warmup.{field} missing from point YAML"
+
+    def test_warmup_enabled_from_config(self, run_folder: Path, tmp_path: Path) -> None:
+        """warmup.enabled is read from config.yaml settings.warmup.enabled."""
+        archive = self._make_archive(
+            run_folder,
+            {"settings": {"warmup": {"enabled": True}}},
+            tmp_path,
+        )
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        point_yaml = next(sub_dir.rglob("point_*.yaml"))
+        data = yaml.safe_load(point_yaml.read_text())
+        assert data["warmup"]["enabled"] is True
+
+
+@pytest.mark.unit
 class TestTruncateResponses:
     def _make_content(self, n_responses: int) -> bytes:
         data = {
