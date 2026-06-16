@@ -377,7 +377,7 @@ def _write_pareto_entries(
         points_dir = model_dir / "points"
         if run_type == "accuracy":
             yaml_dir = model_dir / "accuracy"
-            result_dir = model_dir / "accuracy" / f"point_{concurrency}"
+            result_dir = model_dir / "results" / f"point_{concurrency}" / "accuracy"
         else:
             yaml_dir = points_dir
             result_dir = model_dir / "results" / f"point_{concurrency}"
@@ -423,7 +423,10 @@ def _write_pareto_entries(
             json.dumps(run["system_info"], indent=2), encoding="utf-8"
         )
 
-        # Copy all supplementary files into the result directory, preserving subdirs
+        # Copy all supplementary files into the result directory, preserving subdirs.
+        # For accuracy runs result_dir is already .../accuracy/, so strip the leading
+        # "accuracy/" prefix from archive paths to avoid double-nesting.
+        _acc_prefix = "accuracy/"
         for rel_path, content in extra_files.items():
             if rel_path == "run_metadata.json" and max_tps and max_tps > 0:
                 try:
@@ -436,7 +439,12 @@ def _write_pareto_entries(
                     pass
             if rel_path == "results.json":
                 content = _truncate_responses(content)
-            dest = result_dir / rel_path
+            dest_rel = (
+                rel_path[len(_acc_prefix):]
+                if run_type == "accuracy" and rel_path.startswith(_acc_prefix)
+                else rel_path
+            )
+            dest = result_dir / dest_rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(content)
 

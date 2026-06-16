@@ -230,9 +230,9 @@ class TestBuildSubmissionFolder:
         assert len(model_dirs) == 1
         model_dir = model_dirs[0]
         assert (model_dir / "accuracy" / "point_4.yaml").exists()
-        assert (model_dir / "accuracy" / "point_4" / "results_summary.json").exists()
+        assert (model_dir / "results" / "point_4" / "accuracy" / "results_summary.json").exists()
         assert not (model_dir / "points" / "point_4.yaml").exists()
-        assert not (model_dir / "results" / "point_4").exists()
+        assert not (model_dir / "results" / "point_4" / "results_summary.json").exists()
 
 
 @pytest.mark.unit
