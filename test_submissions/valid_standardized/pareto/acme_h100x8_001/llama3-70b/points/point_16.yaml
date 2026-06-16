@@ -4,3 +4,12 @@ runtime_settings:
   load_pattern: concurrency
   min_duration_ms: 600000
   stream_all_chunks: true
+warmup:
+  duration_s: 60.0
+  requests_issued: 160
+  requests_completed: 160
+  data_source: llm-perf-dataset-v1 validation split
+  concurrency: 16
+  initialization_steps:
+  - model loaded
+  - kv-cache warmed
