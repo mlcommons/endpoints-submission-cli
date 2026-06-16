@@ -315,9 +315,8 @@ def _extract_concurrency(config: dict[str, Any]) -> int:
 def _extract_run_type(config: dict[str, Any]) -> str:
     """Return 'accuracy' or 'performance' based on the first dataset type."""
     datasets = config.get("datasets", []) or []
-    if datasets and isinstance(datasets[0], dict):
-        if datasets[0].get("type") == "accuracy":
-            return "accuracy"
+    if datasets and isinstance(datasets[0], dict) and datasets[0].get("type") == "accuracy":
+        return "accuracy"
     return "performance"
 
 

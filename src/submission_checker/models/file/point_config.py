@@ -30,7 +30,8 @@ class RuntimeSettings(BaseModel):
         load_pattern: Load pattern type — must be ``"concurrency"`` for submissions (§6.1).
         min_duration_ms: Minimum steady-state duration in milliseconds (§6.2).
         min_sample_count: Minimum completed queries required (§6.4). ``None`` = no override.
-        stream_all_chunks: Must be ``True`` for all performance runs to enable per-token timing (§6.5).
+        stream_all_chunks: Must be ``True`` for all performance runs to enable per-token timing
+            (§6.5).
     """
 
     model_config = ConfigDict(extra="allow")
