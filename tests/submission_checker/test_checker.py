@@ -358,6 +358,7 @@ def _build_submission(
             result_dir = results_dir / f"point_{c}"
             result_dir.mkdir(parents=True)
             (result_dir / "results_summary.json").write_text(json.dumps(_SUMMARY))
+            (result_dir / "config.yaml").write_text(yaml.dump({"concurrency": c}))
             # Write accuracy inside the first point only; checker scans all points
             if c == concs[0]:
                 accuracy_dir = result_dir / "accuracy"
@@ -447,6 +448,16 @@ class TestCheckerEdgeCases:
         report = _check(root)
         assert _errors(report, "result-file-present")
 
+    def test_missing_config_yaml(self, tmp_path):
+        """result-file-present error when config.yaml is absent from a result dir."""
+        root = _build_submission(tmp_path)
+        config_yaml = (
+            root / "pareto" / "test-sys" / "llama3-70b" / "results" / "point_16" / "config.yaml"
+        )
+        config_yaml.unlink()
+        report = _check(root)
+        assert _errors(report, "result-file-present")
+
     def test_invalid_result_log(self, tmp_path):
         """result-file-valid error when the result log JSON is malformed."""
         root = _build_submission(tmp_path)
@@ -458,12 +469,11 @@ class TestCheckerEdgeCases:
         assert _errors(report, "result-file-valid")
 
     def test_missing_accuracy_results_json(self, tmp_path):
-        """accuracy-file warning when accuracy/results.json is absent;
+        """accuracy-file error when accuracy/results.json is absent;
         accuracy-present error because no model has accuracy data."""
         root = _build_submission(tmp_path, write_accuracy_json=False)
         report = _check(root)
-        assert _warnings(report, "accuracy-file")
-        assert not _errors(report, "accuracy-file")
+        assert _errors(report, "accuracy-file")
         assert _errors(report, "accuracy-present")
 
     def test_invalid_accuracy_json(self, tmp_path):
