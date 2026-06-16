@@ -101,7 +101,7 @@ def load_point_config(
 
 
 def load_result_summary(path: Path) -> tuple[PointSummary | None, list[CheckResult]]:
-    """Load and validate ``mlperf_endpoints_log_summary.json``.
+    """Load and validate ``results_summary.json``.
 
     Returns:
         A ``(model, check_results)`` pair.  On success the model is not None and

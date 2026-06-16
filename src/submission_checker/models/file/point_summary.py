@@ -22,7 +22,7 @@ class PercentileStats(BaseModel):
 
 
 class PointSummary(BaseModel):
-    """Parsed contents of ``results/point_<N>/mlperf_endpoints_log_summary.json``.
+    """Parsed contents of ``results/point_<N>/results_summary.json``.
 
     Follows the endpoints tool ``Report`` msgspec.Struct schema.  Raw timing values
     are in nanoseconds; derived millisecond / token-rate fields are computed
