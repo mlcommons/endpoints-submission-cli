@@ -171,6 +171,69 @@ class TestBuildSubmissionFolder:
         data = json.loads(jsons[0].read_text())
         assert data["division"] == "Serviced"
 
+    def _make_archive(
+        self, run_folder: Path, tmp_path: Path, name: str, concurrency: int, run_type: str
+    ) -> Path:
+        import shutil
+
+        folder = tmp_path / name
+        shutil.copytree(run_folder, folder)
+        cfg = yaml.safe_load((folder / "config.yaml").read_text())
+        cfg["settings"]["load_pattern"]["target_concurrency"] = concurrency
+        cfg["datasets"][0]["type"] = run_type
+        (folder / "config.yaml").write_text(yaml.dump(cfg))
+        archive = tmp_path / f"{name}.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname=name)
+        return archive
+
+    def test_duplicate_performance_concurrency_raises(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
+        a1 = self._make_archive(run_folder, tmp_path, "run1", 4, "performance")
+        a2 = self._make_archive(run_folder, tmp_path, "run2", 4, "performance")
+        with pytest.raises(SubmissionBuildError, match="Duplicate"):
+            build_submission_folder(
+                [("run-001", a1), ("run-002", a2)], "standardized", "available", tmp_path / "sub"
+            )
+
+    def test_duplicate_accuracy_concurrency_raises(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
+        a1 = self._make_archive(run_folder, tmp_path, "run1", 4, "accuracy")
+        a2 = self._make_archive(run_folder, tmp_path, "run2", 4, "accuracy")
+        with pytest.raises(SubmissionBuildError, match="Duplicate"):
+            build_submission_folder(
+                [("run-001", a1), ("run-002", a2)], "standardized", "available", tmp_path / "sub"
+            )
+
+    def test_perf_and_accuracy_same_concurrency_ok(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
+        a_perf = self._make_archive(run_folder, tmp_path, "perf", 4, "performance")
+        a_acc = self._make_archive(run_folder, tmp_path, "acc", 4, "accuracy")
+        sub_dir = build_submission_folder(
+            [("run-perf", a_perf), ("run-acc", a_acc)],
+            "standardized",
+            "available",
+            tmp_path / "sub",
+        )
+        assert (sub_dir / "pareto").glob("*/*/points/point_4.yaml").__next__().exists()
+        assert (sub_dir / "pareto").glob("*/*/accuracy/point_4.yaml").__next__().exists()
+
+    def test_accuracy_run_routed_to_accuracy(self, run_folder: Path, tmp_path: Path) -> None:
+        a_acc = self._make_archive(run_folder, tmp_path, "acc", 4, "accuracy")
+        sub_dir = build_submission_folder(
+            [("run-acc", a_acc)], "standardized", "available", tmp_path / "sub"
+        )
+        model_dirs = list((sub_dir / "pareto").glob("*/*"))
+        assert len(model_dirs) == 1
+        model_dir = model_dirs[0]
+        assert (model_dir / "accuracy" / "point_4.yaml").exists()
+        assert (model_dir / "accuracy" / "point_4" / "results_summary.json").exists()
+        assert not (model_dir / "points" / "point_4.yaml").exists()
+        assert not (model_dir / "results" / "point_4").exists()
+
 
 @pytest.mark.unit
 class TestCreateBundleArchive:

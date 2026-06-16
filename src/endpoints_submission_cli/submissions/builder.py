@@ -312,6 +312,15 @@ def _extract_concurrency(config: dict[str, Any]) -> int:
     return int(config.get("target_concurrency", 1))
 
 
+def _extract_run_type(config: dict[str, Any]) -> str:
+    """Return 'accuracy' or 'performance' based on the first dataset type."""
+    datasets = config.get("datasets", []) or []
+    if datasets and isinstance(datasets[0], dict):
+        if datasets[0].get("type") == "accuracy":
+            return "accuracy"
+    return "performance"
+
+
 def _write_system_description(
     submission_dir: Path,
     system_id: str,
@@ -352,12 +361,28 @@ def _write_pareto_entries(
 
     regions = compute_regions(max_concurrency)
 
+    # At most 1 perf + 1 acc run per concurrency (may change; stated here explicitly).
+    seen: set[tuple[int, str]] = set()
+    for run in runs:
+        run_type = _extract_run_type(run["config"])
+        c = _extract_concurrency(run["config"])
+        key = (c, run_type)
+        if key in seen:
+            raise SubmissionBuildError(f"Duplicate {run_type} run at concurrency {c}")
+        seen.add(key)
+
     for run in runs:
         concurrency = _extract_concurrency(run["config"])
+        run_type = _extract_run_type(run["config"])
         model_dir = submission_dir / "pareto" / system_id / model
         points_dir = model_dir / "points"
-        result_dir = model_dir / "results" / f"point_{concurrency}"
-        points_dir.mkdir(parents=True, exist_ok=True)
+        if run_type == "accuracy":
+            yaml_dir = model_dir / "accuracy"
+            result_dir = model_dir / "accuracy" / f"point_{concurrency}"
+        else:
+            yaml_dir = points_dir
+            result_dir = model_dir / "results" / f"point_{concurrency}"
+        yaml_dir.mkdir(parents=True, exist_ok=True)
         result_dir.mkdir(parents=True, exist_ok=True)
 
         # Build point YAML from config.yaml + runtime_settings.json
@@ -387,7 +412,7 @@ def _write_pareto_entries(
             "dataset": dataset_name,
             "runtime_settings": runtime_settings_out,
         }
-        (points_dir / f"point_{concurrency}.yaml").write_text(
+        (yaml_dir / f"point_{concurrency}.yaml").write_text(
             yaml.dump(point_cfg, default_flow_style=False), encoding="utf-8"
         )
 

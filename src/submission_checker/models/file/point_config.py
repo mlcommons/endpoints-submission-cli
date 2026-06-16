@@ -30,7 +30,7 @@ class RuntimeSettings(BaseModel):
         load_pattern: Load pattern type — must be ``"concurrency"`` for submissions (§6.1).
         min_duration_ms: Minimum steady-state duration in milliseconds (§6.2).
         min_sample_count: Minimum completed queries required (§6.4). ``None`` = no override.
-        stream_all_chunks: Must be ``True`` for all submission performance runs (§6.5).
+        stream_all_chunks: Must be ``True`` for all performance runs to enable per-token timing (§6.5).
     """
 
     model_config = ConfigDict(extra="allow")
@@ -95,7 +95,7 @@ class PointConfig(BaseModel):
 
     @model_validator(mode="after")
     def _check_streaming(self, info: ValidationInfo) -> PointConfig:
-        """§13: stream_all_chunks must be True for all submission points."""
+        """§6.5: stream_all_chunks must be True for all performance runs."""
         path: Path | None = (info.context or {}).get("yaml_path")
         if not self.runtime_settings.stream_all_chunks:
             self._check_results.append(
@@ -103,7 +103,7 @@ class PointConfig(BaseModel):
                     "streaming-config",
                     f"Point {self.concurrency}: stream_all_chunks must be True",
                     path,
-                    "#13",
+                    "#6.5",
                 )
             )
         else:
@@ -112,7 +112,7 @@ class PointConfig(BaseModel):
                     "streaming-config",
                     f"Point {self.concurrency}: stream_all_chunks=True",
                     path,
-                    "#13",
+                    "#6.5",
                 )
             )
         return self

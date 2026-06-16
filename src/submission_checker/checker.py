@@ -278,6 +278,18 @@ class SubmissionChecker:
                 )
                 continue
 
+            config_yaml_path = point_result_dir / "config.yaml"
+            if not config_yaml_path.exists():
+                results.append(
+                    _err(
+                        "result-file-present",
+                        f"Missing config.yaml for point_{config.concurrency}:"
+                        f" {config_yaml_path.relative_to(self.submission_path)}",
+                        config_yaml_path,
+                        "#8.1",
+                    )
+                )
+
             summary, load_results = load_result_summary(summary_path)
             results.extend(load_results)
             if summary is None:
@@ -303,9 +315,9 @@ class SubmissionChecker:
             json_p = pd / "results.json"
             if not json_p.exists():
                 results.append(
-                    _warn("accuracy-file",
-                          f"Missing results.json in point_{config.concurrency}/accuracy/",
-                          json_p, "#15")
+                    _err("accuracy-file",
+                         f"Missing results.json in point_{config.concurrency}/accuracy/",
+                         json_p, "#15")
                 )
             elif accuracy_result is None:
                 accuracy_result, acc_results = load_accuracy_result(json_p)
