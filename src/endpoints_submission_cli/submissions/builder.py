@@ -376,13 +376,13 @@ def _write_pareto_entries(
         model_dir = submission_dir / "pareto" / system_id / model
         points_dir = model_dir / "points"
         if run_type == "accuracy":
-            yaml_dir = model_dir / "accuracy"
             result_dir = model_dir / "results" / f"point_{concurrency}" / "accuracy"
+            yaml_dir = result_dir
         else:
-            yaml_dir = points_dir
             result_dir = model_dir / "results" / f"point_{concurrency}"
-        yaml_dir.mkdir(parents=True, exist_ok=True)
+            yaml_dir = points_dir
         result_dir.mkdir(parents=True, exist_ok=True)
+        yaml_dir.mkdir(parents=True, exist_ok=True)
 
         # Build point YAML from config.yaml + runtime_settings.json
         cfg_settings = run["config"].get("settings", {}) or {}
