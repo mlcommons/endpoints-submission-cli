@@ -5,7 +5,9 @@
 from __future__ import annotations
 
 import json
+import shutil
 import tarfile
+import warnings
 from pathlib import Path
 
 import pytest
@@ -390,3 +392,73 @@ class TestSlugify:
     def test_long_name_truncated(self) -> None:
         long = "A" * 100
         assert len(_slugify(long)) <= 64
+
+
+@pytest.mark.unit
+class TestSystemInfoConsistency:
+    """Tests for the multi-run system_info consistency check and its boundary conditions.
+
+    The check is: if len(run_data) > 1 and not all system_infos are equal, warn.
+    Two mutations are targeted here:
+      - `not all(...)` → `all(...)` (inverted logic)
+      - `first = run_data[0]["system_info"]` → `first = None` (wrong reference)
+    """
+
+    def _make_archive(self, run_folder: Path, tmp_path: Path, name: str, **overrides: str) -> Path:
+        folder = tmp_path / name
+        shutil.copytree(run_folder, folder)
+        if overrides:
+            sd = json.loads((folder / "system_desc.json").read_text())
+            sd.update(overrides)
+            (folder / "system_desc.json").write_text(json.dumps(sd))
+        archive = tmp_path / f"{name}.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname=name)
+        return archive
+
+    def test_inconsistent_system_info_warns(self, run_folder: Path, tmp_path: Path) -> None:
+        a1 = self._make_archive(run_folder, tmp_path, "run1")
+        a2 = self._make_archive(
+            run_folder, tmp_path, "run2", system_name="Completely Different System"
+        )
+        with pytest.warns(UserWarning, match="inconsistent system_info"):
+            build_submission_folder(
+                [("run-001", a1), ("run-002", a2)],
+                "standardized",
+                "available",
+                tmp_path / "sub",
+            )
+
+    def test_consistent_system_info_no_warning(self, run_folder: Path, tmp_path: Path) -> None:
+        a1 = self._make_archive(run_folder, tmp_path, "run1")
+        # Identical system_desc, only concurrency differs (not part of system_info).
+        folder2 = tmp_path / "run2"
+        shutil.copytree(run_folder, folder2)
+        cfg = yaml.safe_load((folder2 / "config.yaml").read_text())
+        cfg["settings"]["load_pattern"]["target_concurrency"] = 16
+        (folder2 / "config.yaml").write_text(yaml.dump(cfg))
+        a2 = tmp_path / "run2.tar.gz"
+        with tarfile.open(a2, "w:gz") as tar:
+            tar.add(folder2, arcname="run2")
+
+        caught: list[warnings.WarningMessage] = []
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            build_submission_folder(
+                [("run-001", a1), ("run-002", a2)],
+                "standardized",
+                "available",
+                tmp_path / "sub",
+            )
+        consistency_warns = [w for w in caught if "inconsistent system_info" in str(w.message)]
+        assert len(consistency_warns) == 0
+
+    def test_single_run_no_consistency_check(self, run_archive: Path, tmp_path: Path) -> None:
+        # len(run_data) == 1: the > 1 guard must prevent the check from running at all.
+        # The > 1 → >= 1 mutation would enter the block but produce no warning (vacuous
+        # all() over an empty slice), so we verify the output is structurally correct
+        # rather than the warning count here — covered by the two tests above.
+        sub_dir = build_submission_folder(
+            [("run-001", run_archive)], "standardized", "available", tmp_path
+        )
+        assert sub_dir.is_dir()
