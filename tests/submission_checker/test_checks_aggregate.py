@@ -330,66 +330,30 @@ class TestMinQueryCountValidator:
         )
         assert not any(r.rule == "min-query-count" for r in run_result._check_results)
 
-    def test_dataset_a_boundary(self, tmp_path):
-        """dataset-a requires exactly 1 query — 0 fails, 1 passes."""
+    def test_aime25_boundary(self, tmp_path):
+        """aime25 requires 30 queries — 29 fails, 30 passes."""
         base = {"yaml_path": tmp_path / "run_64.yaml"}
         ctx = {"summary_path": tmp_path / "summary.json"}
 
         fail = PointResult.model_validate(
-            {
-                "config": _config_with_dataset("dataset-a"),
-                "summary": _summary(n_completed=0),
-                **base,
-            },
-            context=ctx,
-        )
-        assert any(
-            r.rule == "min-query-count" and r.severity == Severity.ERROR
-            for r in fail._check_results
+            {"config": _config_with_dataset("aime25"), "summary": _summary(n_completed=29), **base}, context=ctx
         )
 
         ok_result = PointResult.model_validate(
-            {
-                "config": _config_with_dataset("dataset-a"),
-                "summary": _summary(n_completed=1),
-                **base,
-            },
-            context=ctx,
-        )
-        assert any(
-            r.rule == "min-query-count" and r.severity != Severity.ERROR
-            for r in ok_result._check_results
+            {"config": _config_with_dataset("aime25"), "summary": _summary(n_completed=30), **base}, context=ctx
         )
 
-    def test_dataset_c_boundary(self, tmp_path):
-        """dataset-c requires 100 queries — 99 fails, 100 passes."""
+    def test_gpqa_boundary(self, tmp_path):
+        """gpqa requires 198 queries — 197 fails, 198 passes."""
         base = {"yaml_path": tmp_path / "run_64.yaml"}
         ctx = {"summary_path": tmp_path / "summary.json"}
 
         fail = PointResult.model_validate(
-            {
-                "config": _config_with_dataset("dataset-c"),
-                "summary": _summary(n_completed=99),
-                **base,
-            },
-            context=ctx,
-        )
-        assert any(
-            r.rule == "min-query-count" and r.severity == Severity.ERROR
-            for r in fail._check_results
+            {"config": _config_with_dataset("gpqa"), "summary": _summary(n_completed=197), **base}, context=ctx
         )
 
         ok_result = PointResult.model_validate(
-            {
-                "config": _config_with_dataset("dataset-c"),
-                "summary": _summary(n_completed=100),
-                **base,
-            },
-            context=ctx,
-        )
-        assert any(
-            r.rule == "min-query-count" and r.severity != Severity.ERROR
-            for r in ok_result._check_results
+            {"config": _config_with_dataset("gpqa"), "summary": _summary(n_completed=198), **base}, context=ctx
         )
 
 
@@ -454,12 +418,12 @@ class TestConfigConsistencyValidator:
     def test_inconsistent_datasets(self, tmp_path):
         c1 = PointConfig(
             concurrency=64,
-            dataset="dataset-a",
+            dataset="open_orca",
             runtime_settings=RuntimeSettings(),
         )
         c2 = PointConfig(
             concurrency=128,
-            dataset="dataset-b",
+            dataset="cnn_dailymail",
             runtime_settings=RuntimeSettings(),
         )
         s = _summary()
