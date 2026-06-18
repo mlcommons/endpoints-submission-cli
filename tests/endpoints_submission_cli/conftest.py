@@ -127,10 +127,17 @@ _CONFIG = {
         "runtime": {
             "min_duration_ms": 600000,
             "max_duration_ms": 3600000,
+            "n_samples_to_issue": 2000,
         },
         "load_pattern": {
             "type": "concurrency",
             "target_concurrency": 4,
+        },
+        "client": {
+            "stream_all_chunks": True,
+        },
+        "warmup": {
+            "enabled": False,
         },
     },
     "endpoint_config": {
