@@ -192,17 +192,11 @@ def _load_run_data(run_id: str, division: str, availability: str, run_dir: Path)
 
     system_info = _load_system_desc(base, run_id, division, availability)
 
-    runtime_settings_path = base / "runtime_settings.json"
-    runtime_settings: dict[str, Any] = (
-        json.loads(runtime_settings_path.read_text()) if runtime_settings_path.exists() else {}
-    )
-
     return {
         "run_id": run_id,
         "system_info": system_info,
         "config": config,
         "result_summary": result_summary,
-        "runtime_settings": runtime_settings,
         "_extra_files": _load_extra_files(base),
     }
 
@@ -301,6 +295,14 @@ def _extract_concurrency(config: dict[str, Any]) -> int:
     return int(config.get("target_concurrency", 1))
 
 
+def _extract_run_type(config: dict[str, Any]) -> str:
+    """Return 'accuracy' or 'performance' based on the first dataset type."""
+    datasets = config.get("datasets", []) or []
+    if datasets and isinstance(datasets[0], dict) and datasets[0].get("type") == "accuracy":
+        return "accuracy"
+    return "performance"
+
+
 def _write_system_description(
     submission_dir: Path,
     system_id: str,
@@ -341,33 +343,64 @@ def _write_pareto_entries(
 
     regions = compute_regions(max_concurrency)
 
+    # At most 1 perf + 1 acc run per concurrency (may change; stated here explicitly).
+    seen: set[tuple[int, str]] = set()
+    for run in runs:
+        run_type = _extract_run_type(run["config"])
+        c = _extract_concurrency(run["config"])
+        key = (c, run_type)
+        if key in seen:
+            raise SubmissionBuildError(f"Duplicate {run_type} run at concurrency {c}")
+        seen.add(key)
+
     for run in runs:
         concurrency = _extract_concurrency(run["config"])
+        run_type = _extract_run_type(run["config"])
         model_dir = submission_dir / "pareto" / system_id / model
         points_dir = model_dir / "points"
-        result_dir = model_dir / "results" / f"point_{concurrency}"
-        points_dir.mkdir(parents=True, exist_ok=True)
+        if run_type == "accuracy":
+            result_dir = model_dir / "results" / f"point_{concurrency}" / "accuracy"
+            yaml_dir = result_dir
+        else:
+            result_dir = model_dir / "results" / f"point_{concurrency}"
+            yaml_dir = points_dir
         result_dir.mkdir(parents=True, exist_ok=True)
+        yaml_dir.mkdir(parents=True, exist_ok=True)
 
-        # Build point YAML from config.yaml + runtime_settings.json
+        # Build point YAML from config.yaml
         cfg_settings = run["config"].get("settings", {}) or {}
         load_pattern = cfg_settings.get("load_pattern", {}) or {}
-        rt_json = run.get("runtime_settings", {}) or {}
+        client_cfg = cfg_settings.get("client", {}) or {}
+        runtime_cfg = cfg_settings.get("runtime", {}) or {}
+        warmup_cfg = cfg_settings.get("warmup", {}) or {}
         datasets = run["config"].get("datasets", []) or []
         dataset_name = (
             datasets[0].get("name", "") if datasets and isinstance(datasets[0], dict) else ""
         )
 
+        stream_all_chunks = client_cfg.get("stream_all_chunks")
         lp_from_config = load_pattern.get("type", "concurrency")
-        if "load_pattern" in rt_json and rt_json["load_pattern"] != lp_from_config:
-            warnings.warn(
-                f"runtime_settings.load_pattern={rt_json['load_pattern']!r} overridden"
-                f" by config.yaml value {lp_from_config!r}",
-                stacklevel=2,
-            )
+
         runtime_settings_out: dict[str, Any] = {
-            **rt_json,
             "load_pattern": lp_from_config,
+            "stream_all_chunks": stream_all_chunks,
+            "min_duration_ms": runtime_cfg.get("min_duration_ms"),
+        }
+        if runtime_cfg.get("n_samples_to_issue") is not None:
+            runtime_settings_out["min_sample_count"] = runtime_cfg.get("n_samples_to_issue")
+
+        # §8.3 warmup disclosure block — mapped from config.yaml settings.warmup.
+        # Fields duration_s, requests_issued, requests_completed, data_source,
+        # concurrency, and initialization_steps are submission metadata; populate
+        # from config where available and leave unknown fields as null.
+        warmup_out: dict[str, Any] = {
+            "enabled": warmup_cfg.get("enabled", False),
+            "duration_s": warmup_cfg.get("duration_s"),
+            "requests_issued": warmup_cfg.get("requests_issued"),
+            "requests_completed": warmup_cfg.get("requests_completed"),
+            "data_source": warmup_cfg.get("data_source"),
+            "concurrency": warmup_cfg.get("concurrency"),
+            "initialization_steps": warmup_cfg.get("initialization_steps"),
         }
 
         point_cfg: dict[str, Any] = {
@@ -375,8 +408,9 @@ def _write_pareto_entries(
             "region": classify_concurrency(concurrency, regions),
             "dataset": dataset_name,
             "runtime_settings": runtime_settings_out,
+            "warmup": warmup_out,
         }
-        (points_dir / f"point_{concurrency}.yaml").write_text(
+        (yaml_dir / f"point_{concurrency}.yaml").write_text(
             yaml.dump(point_cfg, default_flow_style=False), encoding="utf-8"
         )
 
@@ -388,7 +422,10 @@ def _write_pareto_entries(
             json.dumps(run["system_info"], indent=2), encoding="utf-8"
         )
 
-        # Copy all supplementary files into the result directory, preserving subdirs
+        # Copy all supplementary files into the result directory, preserving subdirs.
+        # For accuracy runs result_dir is already .../accuracy/, so strip the leading
+        # "accuracy/" prefix from archive paths to avoid double-nesting.
+        _acc_prefix = "accuracy/"
         for rel_path, content in extra_files.items():
             if rel_path == "run_metadata.json" and max_tps and max_tps > 0:
                 try:
@@ -401,7 +438,12 @@ def _write_pareto_entries(
                     pass
             if rel_path == "results.json":
                 content = _truncate_responses(content)
-            dest = result_dir / rel_path
+            dest_rel = (
+                rel_path[len(_acc_prefix):]
+                if run_type == "accuracy" and rel_path.startswith(_acc_prefix)
+                else rel_path
+            )
+            dest = result_dir / dest_rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(content)
 

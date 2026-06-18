@@ -278,6 +278,18 @@ class SubmissionChecker:
                 )
                 continue
 
+            config_yaml_path = point_result_dir / "config.yaml"
+            if not config_yaml_path.exists():
+                results.append(
+                    _err(
+                        "result-file-present",
+                        f"Missing config.yaml for point_{config.concurrency}:"
+                        f" {config_yaml_path.relative_to(self.submission_path)}",
+                        config_yaml_path,
+                        "#8.1",
+                    )
+                )
+
             summary, load_results = load_result_summary(summary_path)
             results.extend(load_results)
             if summary is None:
