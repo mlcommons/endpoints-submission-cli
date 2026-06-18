@@ -4,6 +4,7 @@
 
 import click
 
+from ._version_check import register_upgrade_notice
 from .commands.runs import runs
 from .commands.submissions import submissions
 
@@ -22,4 +23,5 @@ app.add_command(submissions)
 
 def main() -> None:
     """Entry point called by the ``endpoints-submission-cli`` script."""
+    register_upgrade_notice()
     app()

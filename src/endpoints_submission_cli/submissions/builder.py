@@ -86,9 +86,7 @@ def build_submission_folder(
             )
 
     # Determine org name from the first run's system_info
-    org_name = _slugify(
-        run_data[0]["system_info"].get("submitter_org_names", "org") or "org"
-    )
+    org_name = _slugify(run_data[0]["system_info"].get("submitter_org_names", "org") or "org")
     submission_dir = work_dir / org_name
     submission_dir.mkdir(parents=True, exist_ok=True)
 
@@ -181,17 +179,13 @@ def _load_run_data(run_id: str, division: str, availability: str, run_dir: Path)
     # Archives may contain a top-level directory wrapper; use config.yaml as anchor
     candidates = list(run_dir.rglob("config.yaml"))
     if not candidates:
-        raise SubmissionBuildError(
-            f"Run {run_id}: archive does not contain config.yaml"
-        )
+        raise SubmissionBuildError(f"Run {run_id}: archive does not contain config.yaml")
     config_path = min(candidates, key=lambda p: len(p.parts))
     base = config_path.parent
 
     summary_path = base / "result_summary.json"
     if not summary_path.exists():
-        raise SubmissionBuildError(
-            f"Run {run_id}: archive is missing result_summary.json"
-        )
+        raise SubmissionBuildError(f"Run {run_id}: archive is missing result_summary.json")
 
     config: dict[str, Any] = yaml.safe_load(config_path.read_text()) or {}
     result_summary: dict[str, Any] = json.loads(summary_path.read_text())
@@ -218,9 +212,7 @@ def _load_system_desc(base: Path, run_id: str, division: str, availability: str)
     """
     sd_path = base / "system_desc.json"
     if not sd_path.exists():
-        raise SubmissionBuildError(
-            "Run archive is missing system_desc.json"
-        )
+        raise SubmissionBuildError("Run archive is missing system_desc.json")
     raw: dict[str, Any] = json.loads(sd_path.read_text())
     # CLI-provided values are authoritative for these fields
     raw["division"] = division
@@ -229,8 +221,7 @@ def _load_system_desc(base: Path, run_id: str, division: str, availability: str)
         sd = SystemDescription.model_validate(raw)
     except ValidationError as exc:
         errors = "; ".join(
-            f"{'.'.join(str(loc) for loc in e['loc'])}: {e['msg']}"
-            for e in exc.errors()
+            f"{'.'.join(str(loc) for loc in e['loc'])}: {e['msg']}" for e in exc.errors()
         )
         raise SubmissionBuildError(
             f"Run {run_id}: system_desc.json failed schema validation: {errors}"
@@ -448,7 +439,7 @@ def _write_pareto_entries(
             if rel_path == "results.json":
                 content = _truncate_responses(content)
             dest_rel = (
-                rel_path[len(_acc_prefix):]
+                rel_path[len(_acc_prefix) :]
                 if run_type == "accuracy" and rel_path.startswith(_acc_prefix)
                 else rel_path
             )

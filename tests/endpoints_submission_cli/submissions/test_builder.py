@@ -108,7 +108,9 @@ class TestBuildSubmissionFolder:
         with tarfile.open(archive, "w:gz") as tar:
             tar.add(folder, arcname="bad_run")
         with pytest.raises(SubmissionBuildError, match="system_desc.json"):
-            build_submission_folder([("bad", archive)], "standardized", "available", tmp_path / "out")
+            build_submission_folder(
+                [("bad", archive)], "standardized", "available", tmp_path / "out"
+            )
 
     def test_system_desc_missing_required_fields_raises(self, tmp_path: Path) -> None:
         # Missing required fields (submitter_org_names, system_name, node_types) must raise
@@ -122,7 +124,9 @@ class TestBuildSubmissionFolder:
         with tarfile.open(archive, "w:gz") as tar:
             tar.add(folder, arcname="bad_run")
         with pytest.raises(SubmissionBuildError, match="schema validation"):
-            build_submission_folder([("bad", archive)], "standardized", "available", tmp_path / "out")
+            build_submission_folder(
+                [("bad", archive)], "standardized", "available", tmp_path / "out"
+            )
 
     def test_multiple_runs_single_system(
         self, run_archive: Path, run_folder: Path, tmp_path: Path
@@ -134,11 +138,16 @@ class TestBuildSubmissionFolder:
         second_folder.mkdir()
 
         import json as _json
+
         cfg = yaml.safe_load((run_folder / "config.yaml").read_text())
         rs = _json.loads((run_folder / "result_summary.json").read_text())
 
         # Copy system info files from the first run
-        for fname in ["system_desc.json", "mlperf-system-info-single-node-0.json", "serving_config.json"]:
+        for fname in [
+            "system_desc.json",
+            "mlperf-system-info-single-node-0.json",
+            "serving_config.json",
+        ]:
             src = run_folder / fname
             if src.exists():
                 shutil.copy(src, second_folder / fname)
@@ -197,9 +206,7 @@ class TestBuildSubmissionFolder:
                 [("run-001", a1), ("run-002", a2)], "standardized", "available", tmp_path / "sub"
             )
 
-    def test_duplicate_accuracy_concurrency_raises(
-        self, run_folder: Path, tmp_path: Path
-    ) -> None:
+    def test_duplicate_accuracy_concurrency_raises(self, run_folder: Path, tmp_path: Path) -> None:
         a1 = self._make_archive(run_folder, tmp_path, "run1", 4, "accuracy")
         a2 = self._make_archive(run_folder, tmp_path, "run2", 4, "accuracy")
         with pytest.raises(SubmissionBuildError, match="Duplicate"):
@@ -207,9 +214,7 @@ class TestBuildSubmissionFolder:
                 [("run-001", a1), ("run-002", a2)], "standardized", "available", tmp_path / "sub"
             )
 
-    def test_perf_and_accuracy_same_concurrency_ok(
-        self, run_folder: Path, tmp_path: Path
-    ) -> None:
+    def test_perf_and_accuracy_same_concurrency_ok(self, run_folder: Path, tmp_path: Path) -> None:
         a_perf = self._make_archive(run_folder, tmp_path, "perf", 4, "performance")
         a_acc = self._make_archive(run_folder, tmp_path, "acc", 4, "accuracy")
         sub_dir = build_submission_folder(
@@ -219,7 +224,12 @@ class TestBuildSubmissionFolder:
             tmp_path / "sub",
         )
         assert (sub_dir / "pareto").glob("*/*/points/point_4.yaml").__next__().exists()
-        assert (sub_dir / "pareto").glob("*/*/results/point_4/accuracy/point_4.yaml").__next__().exists()
+        assert (
+            (sub_dir / "pareto")
+            .glob("*/*/results/point_4/accuracy/point_4.yaml")
+            .__next__()
+            .exists()
+        )
 
     def test_accuracy_run_routed_to_accuracy(self, run_folder: Path, tmp_path: Path) -> None:
         a_acc = self._make_archive(run_folder, tmp_path, "acc", 4, "accuracy")
@@ -303,9 +313,7 @@ class TestTpsUtilizationInjection:
             tar.add(folder, arcname=name)
         return archive
 
-    def test_tps_utilization_written_for_single_run(
-        self, run_folder: Path, tmp_path: Path
-    ) -> None:
+    def test_tps_utilization_written_for_single_run(self, run_folder: Path, tmp_path: Path) -> None:
         archive = self._make_archive_with_metadata(run_folder, 1000.0, 4, tmp_path, "run1")
         sub_dir = build_submission_folder(
             [("run-001", archive)], "standardized", "available", tmp_path / "sub"
@@ -315,9 +323,7 @@ class TestTpsUtilizationInjection:
         data = json.loads(meta_files[0].read_text())
         assert data["tps_utilization"] == pytest.approx(1.0)
 
-    def test_tps_utilization_normalized_across_runs(
-        self, run_folder: Path, tmp_path: Path
-    ) -> None:
+    def test_tps_utilization_normalized_across_runs(self, run_folder: Path, tmp_path: Path) -> None:
         a1 = self._make_archive_with_metadata(run_folder, 1000.0, 4, tmp_path, "run1")
         a2 = self._make_archive_with_metadata(run_folder, 2000.0, 8, tmp_path, "run2")
         sub_dir = build_submission_folder(
@@ -343,7 +349,9 @@ class TestTpsUtilizationInjection:
 class TestPointYamlFromConfig:
     """Tests that point YAML fields are sourced from config.yaml."""
 
-    def _make_archive(self, run_folder: Path, cfg_patch: dict, tmp_path: Path, name: str = "run") -> Path:
+    def _make_archive(
+        self, run_folder: Path, cfg_patch: dict, tmp_path: Path, name: str = "run"
+    ) -> Path:
         import shutil
 
         folder = tmp_path / name
@@ -362,7 +370,9 @@ class TestPointYamlFromConfig:
         return archive
 
     @pytest.mark.parametrize("value", [True, False])
-    def test_stream_all_chunks_written_from_config(self, value: bool, run_folder: Path, tmp_path: Path) -> None:
+    def test_stream_all_chunks_written_from_config(
+        self, value: bool, run_folder: Path, tmp_path: Path
+    ) -> None:
         """stream_all_chunks is read from config.yaml and written as-is; checker validates compliance."""
         archive = self._make_archive(
             run_folder,
@@ -394,6 +404,7 @@ class TestPointYamlFromConfig:
         """min_duration_ms is null in point YAML when absent from config.yaml."""
         folder = tmp_path / "run_nodur"
         import shutil
+
         shutil.copytree(run_folder, folder)
         cfg = yaml.safe_load((folder / "config.yaml").read_text())
         cfg["settings"]["runtime"].pop("min_duration_ms", None)
@@ -408,24 +419,36 @@ class TestPointYamlFromConfig:
         data = yaml.safe_load(point_yaml.read_text())
         assert data["runtime_settings"]["min_duration_ms"] is None
 
-    def test_min_sample_count_from_n_samples_to_issue(self, run_folder: Path, tmp_path: Path) -> None:
+    def test_min_sample_count_from_n_samples_to_issue(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
         """min_sample_count in point YAML comes from n_samples_to_issue in config.yaml."""
         sub_dir = build_submission_folder(
-            [("run-001", self._make_archive(
-                run_folder,
-                {"settings": {"runtime": {"n_samples_to_issue": 5000}}},
-                tmp_path,
-            ))],
-            "standardized", "available", tmp_path / "sub",
+            [
+                (
+                    "run-001",
+                    self._make_archive(
+                        run_folder,
+                        {"settings": {"runtime": {"n_samples_to_issue": 5000}}},
+                        tmp_path,
+                    ),
+                )
+            ],
+            "standardized",
+            "available",
+            tmp_path / "sub",
         )
         point_yaml = next(sub_dir.rglob("point_*.yaml"))
         data = yaml.safe_load(point_yaml.read_text())
         assert data["runtime_settings"]["min_sample_count"] == 5000
 
-    def test_min_sample_count_absent_when_not_in_config(self, run_folder: Path, tmp_path: Path) -> None:
+    def test_min_sample_count_absent_when_not_in_config(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
         """min_sample_count is omitted from point YAML when n_samples_to_issue absent."""
         folder = tmp_path / "run_nosamples"
         import shutil
+
         shutil.copytree(run_folder, folder)
         cfg = yaml.safe_load((folder / "config.yaml").read_text())
         cfg["settings"]["runtime"].pop("n_samples_to_issue", None)
@@ -450,8 +473,15 @@ class TestPointYamlFromConfig:
         assert "warmup" in data
         warmup = data["warmup"]
         # All §6.3.3 fields must be present (may be null)
-        for field in ("enabled", "duration_s", "requests_issued", "requests_completed",
-                      "data_source", "concurrency", "initialization_steps"):
+        for field in (
+            "enabled",
+            "duration_s",
+            "requests_issued",
+            "requests_completed",
+            "data_source",
+            "concurrency",
+            "initialization_steps",
+        ):
             assert field in warmup, f"warmup.{field} missing from point YAML"
 
     def test_warmup_enabled_from_config(self, run_folder: Path, tmp_path: Path) -> None:

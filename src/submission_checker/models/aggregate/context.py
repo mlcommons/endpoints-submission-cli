@@ -116,6 +116,7 @@ class ModelContext(BaseModel):
         - system_desc model normalizes to a different name than the directory → error
         - they match → ok
         """
+
         # Strips HuggingFace org prefix, lowercases, and replaces non-word chars with
         # underscores so "meta-llama/Llama-3.1-8B" compares equal to "Llama-3.1-8B".
         def _normalize(name: str) -> str:

@@ -135,9 +135,7 @@ def submissions_create(
                     )
                 except APIError as exc:
                     progress.stop()
-                    _console.print(
-                        f"[bold red]Failed to download run {run_id}:[/bold red] {exc}"
-                    )
+                    _console.print(f"[bold red]Failed to download run {run_id}:[/bold red] {exc}")
                     sys.exit(1)
                 archives.append((run_id, dest))
                 progress.advance(task)
@@ -245,5 +243,5 @@ def submissions_create(
 
     _console.print(
         f"[bold green]Submission created:[/bold green] {submission_id}"
-        #f"[bold green]PR:[/bold green] {pr_url}"
+        # f"[bold green]PR:[/bold green] {pr_url}"
     )

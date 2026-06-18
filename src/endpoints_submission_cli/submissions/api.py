@@ -46,16 +46,17 @@ def create_submission(token: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 def get_submission(token: str, submission_id: str, include_runs: bool = True) -> dict[str, Any]:
     """GET /submissions/{submission_id} — fetch submission details."""
-    return cast(dict[str, Any], _get(
-        f"/submissions/{submission_id}",
-        token,
-        params={"include_runs": include_runs},
-    ))
+    return cast(
+        dict[str, Any],
+        _get(
+            f"/submissions/{submission_id}",
+            token,
+            params={"include_runs": include_runs},
+        ),
+    )
 
 
-def update_submission(
-    token: str, submission_id: str, payload: dict[str, Any]
-) -> dict[str, Any]:
+def update_submission(token: str, submission_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     """PATCH /submissions/{submission_id} — update submission fields."""
     return cast(dict[str, Any], _patch(f"/submissions/{submission_id}", token, json=payload))
 
@@ -65,23 +66,17 @@ def withdraw_submission(token: str, submission_id: str) -> dict[str, Any]:
     return cast(dict[str, Any], _delete(f"/submissions/{submission_id}", token))
 
 
-def add_run_to_submission(
-    token: str, submission_id: str, run_id: str
-) -> dict[str, Any]:
+def add_run_to_submission(token: str, submission_id: str, run_id: str) -> dict[str, Any]:
     """POST /submissions/{submission_id}/runs/{run_id} — add a run to a submission."""
     return cast(dict[str, Any], _post(f"/submissions/{submission_id}/runs/{run_id}", token))
 
 
-def remove_run_from_submission(
-    token: str, submission_id: str, run_id: str
-) -> dict[str, Any]:
+def remove_run_from_submission(token: str, submission_id: str, run_id: str) -> dict[str, Any]:
     """DELETE /submissions/{submission_id}/runs/{run_id} — remove a run from a submission."""
     return cast(dict[str, Any], _delete(f"/submissions/{submission_id}/runs/{run_id}", token))
 
 
-def upload_submission_archive(
-    token: str, submission_id: str, archive_path: Path
-) -> dict[str, Any]:
+def upload_submission_archive(token: str, submission_id: str, archive_path: Path) -> dict[str, Any]:
     """Upload a submission bundle via a server-issued signed URL.
 
     GET /submissions/{submission_id}/archive/upload-url → {"upload_url": "...", "expires_in": 3600}
@@ -97,9 +92,7 @@ def delete_submission_archive(token: str, submission_id: str) -> None:
     _delete(f"/submissions/{submission_id}/archive", token)
 
 
-def download_submission_archive(
-    token: str, submission_id: str, dest_dir: Path
-) -> Path:
+def download_submission_archive(token: str, submission_id: str, dest_dir: Path) -> Path:
     """Download submission bundle to dest_dir. Returns the saved file path.
 
     GET /submissions/{submission_id}/archive → {"download_url": "...", "expires_in": 300}

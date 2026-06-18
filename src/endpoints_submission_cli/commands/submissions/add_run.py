@@ -68,10 +68,8 @@ def submissions_add_run(submission_id: str, run_id: str, token: str | None) -> N
         _console.print(f"[bold red]API error adding run:[/bold red] {exc}")
         sys.exit(1)
 
-
     # pr_number = sub_out.get("pr_number")
     all_run_ids: list[str] = sub_out.get("run_ids", [])
-
 
     _console.print(
         f"[cyan]Rebuilding submission with {len(all_run_ids)} run(s) "
@@ -95,14 +93,10 @@ def submissions_add_run(submission_id: str, run_id: str, token: str | None) -> N
             for rid in all_run_ids:
                 progress.update(task, description=f"Downloading [cyan]{rid[:8]}…[/cyan]")
                 try:
-                    dest = runs_api.download_run_archive(
-                        resolved_token, rid, tmp_path / "archives"
-                    )
+                    dest = runs_api.download_run_archive(resolved_token, rid, tmp_path / "archives")
                 except APIError as exc:
                     progress.stop()
-                    _console.print(
-                        f"[bold red]Failed to download run {rid}:[/bold red] {exc}"
-                    )
+                    _console.print(f"[bold red]Failed to download run {rid}:[/bold red] {exc}")
                     _rollback_add_run(resolved_token, submission_id, run_id)
                     sys.exit(1)
                 archives.append((rid, dest))
