@@ -14,7 +14,7 @@ try:
         register_upgrade_notice as _register_upgrade_notice,
     )
 except ImportError:
-    _register_upgrade_notice = None
+    _register_upgrade_notice = None  # type: ignore[assignment]
 
 console = Console()
 

@@ -43,7 +43,7 @@ def _cached_latest() -> str | None:
     try:
         data = json.loads(_CACHE_PATH.read_text())
         if time.time() - data["ts"] < _CACHE_TTL:
-            return data["latest"]
+            return str(data["latest"])
     except Exception:
         pass
     return None

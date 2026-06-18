@@ -439,7 +439,7 @@ def _write_pareto_entries(
             if rel_path == "results.json":
                 content = _truncate_responses(content)
             dest_rel = (
-                rel_path[len(_acc_prefix):]
+                rel_path[len(_acc_prefix) :]
                 if run_type == "accuracy" and rel_path.startswith(_acc_prefix)
                 else rel_path
             )
