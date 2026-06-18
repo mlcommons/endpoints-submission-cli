@@ -1,5 +1,5 @@
 concurrency: 256
-dataset: mlperf-perf-dataset-v1
+dataset: openorca
 runtime_settings:
   load_pattern: concurrency
   min_duration_ms: 1200000

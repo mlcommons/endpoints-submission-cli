@@ -7,6 +7,7 @@ from __future__ import annotations
 import pytest
 
 from submission_checker.models import (
+    MIN_QUERY_COUNT,
     AccuracyResult,
     PercentileStats,
     PointConfig,
@@ -14,7 +15,6 @@ from submission_checker.models import (
     PointSummary,
     RuntimeSettings,
     Severity,
-    get_min_query_count,
 )
 
 from .conftest import (
@@ -279,57 +279,47 @@ class TestTpsConsistencyValidator:
 
 @pytest.mark.unit
 class TestMinQueryCountValidator:
-    def test_known_models_at_minimum_pass(self, tmp_path):
-        """Each known model with exactly its minimum completed count must pass."""
-        for model in ("llama3-70b", "llama3-8b", "deepseek-r1"):
-            min_q = get_min_query_count(model)
+    def test_known_datasets_at_minimum_pass(self, tmp_path):
+        """Each known dataset with exactly its minimum completed count must pass."""
+        for dataset, min_q in MIN_QUERY_COUNT.items():
+            if min_q == 0:
+                continue
             run_result = PointResult.model_validate(
                 {
-                    "config": _config(),
+                    "config": _config_with_dataset(dataset),
                     "summary": _summary(n_completed=min_q, n_issued=min_q),
                     "yaml_path": tmp_path / "run_64.yaml",
                 },
-                context={"summary_path": tmp_path / "summary.json", "model": model},
+                context={"summary_path": tmp_path / "summary.json"},
             )
             assert any(
                 r.rule == "min-query-count" and r.severity != Severity.ERROR
                 for r in run_result._check_results
-            ), f"Expected ok for model '{model}' with {min_q} completed"
+            ), f"Expected ok for dataset '{dataset}' with {min_q} completed"
 
-    def test_known_models_below_minimum_error(self, tmp_path):
-        """Each known model with one less than its minimum must fail."""
-        for model in ("llama3-70b", "llama3-8b", "deepseek-r1"):
-            min_q = get_min_query_count(model)
+    def test_known_datasets_below_minimum_error(self, tmp_path):
+        """Each known dataset with one less than its minimum must fail."""
+        for dataset, min_q in MIN_QUERY_COUNT.items():
+            if min_q == 0:
+                continue
             run_result = PointResult.model_validate(
                 {
-                    "config": _config(),
+                    "config": _config_with_dataset(dataset),
                     "summary": _summary(n_completed=min_q - 1, n_issued=min_q - 1),
                     "yaml_path": tmp_path / "run_64.yaml",
                 },
-                context={"summary_path": tmp_path / "summary.json", "model": model},
+                context={"summary_path": tmp_path / "summary.json"},
             )
             assert any(
                 r.rule == "min-query-count" and r.severity == Severity.ERROR
                 for r in run_result._check_results
-            ), f"Expected error for model '{model}' with {min_q - 1} completed"
+            ), f"Expected error for dataset '{dataset}' with {min_q - 1} completed"
 
-    def test_unknown_model_skipped(self, tmp_path):
-        """When model name doesn't match any known model, the check is skipped."""
+    def test_unknown_dataset_skipped(self, tmp_path):
+        """When the dataset name isn't in MIN_QUERY_COUNT, the check is skipped."""
         run_result = PointResult.model_validate(
             {
-                "config": _config(),
-                "summary": _summary(n_completed=0, n_issued=0),
-                "yaml_path": tmp_path / "run_64.yaml",
-            },
-            context={"summary_path": tmp_path / "summary.json", "model": "unknown-model-xyz"},
-        )
-        assert not any(r.rule == "min-query-count" for r in run_result._check_results)
-
-    def test_no_model_context_skipped(self, tmp_path):
-        """When no model is in context, the check is skipped."""
-        run_result = PointResult.model_validate(
-            {
-                "config": _config(),
+                "config": _config_with_dataset("unknown-dataset-xyz"),
                 "summary": _summary(n_completed=0, n_issued=0),
                 "yaml_path": tmp_path / "run_64.yaml",
             },
@@ -337,14 +327,26 @@ class TestMinQueryCountValidator:
         )
         assert not any(r.rule == "min-query-count" for r in run_result._check_results)
 
-    def test_llama3_70b_boundary(self, tmp_path):
-        """llama3-70b requires 24576 queries — 24575 fails, 24576 passes."""
+    def test_mlperf_perf_dataset_v1_skipped(self, tmp_path):
+        """mlperf-perf-dataset-v1 has min=0, so the check is skipped regardless of count."""
+        run_result = PointResult.model_validate(
+            {
+                "config": _config_with_dataset("mlperf-perf-dataset-v1"),
+                "summary": _summary(n_completed=0, n_issued=0),
+                "yaml_path": tmp_path / "run_64.yaml",
+            },
+            context={"summary_path": tmp_path / "summary.json"},
+        )
+        assert not any(r.rule == "min-query-count" for r in run_result._check_results)
+
+    def test_openorca_boundary(self, tmp_path):
+        """openorca requires 24576 queries — 24575 fails, 24576 passes."""
         base = {"yaml_path": tmp_path / "run_64.yaml"}
-        ctx = {"summary_path": tmp_path / "summary.json", "model": "llama3-70b"}
+        ctx = {"summary_path": tmp_path / "summary.json"}
 
         fail = PointResult.model_validate(
             {
-                "config": _config(),
+                "config": _config_with_dataset("openorca"),
                 "summary": _summary(n_completed=24575, n_issued=24575),
                 **base,
             },
@@ -357,7 +359,7 @@ class TestMinQueryCountValidator:
 
         ok_result = PointResult.model_validate(
             {
-                "config": _config(),
+                "config": _config_with_dataset("openorca"),
                 "summary": _summary(n_completed=24576, n_issued=24576),
                 **base,
             },
@@ -369,20 +371,20 @@ class TestMinQueryCountValidator:
         )
 
     def test_runtime_override_takes_precedence(self, tmp_path):
-        """min_sample_count in runtime_settings overrides the model-keyed lookup."""
+        """min_sample_count in runtime_settings overrides the dataset-keyed lookup."""
         config = PointConfig(
             concurrency=64,
             dataset="mlperf-perf-dataset-v1",
             runtime_settings=RuntimeSettings(min_duration_ms=1_200_000, min_sample_count=500),
         )
-        # 499 < 500 → error even though the model default (24576) would be the floor
+        # 499 < 500 → error even though dataset default would be skipped (min=0)
         run_result = PointResult.model_validate(
             {
                 "config": config,
                 "summary": _summary(n_completed=499, n_issued=499),
                 "yaml_path": tmp_path / "run_64.yaml",
             },
-            context={"summary_path": tmp_path / "summary.json", "model": "llama3-70b"},
+            context={"summary_path": tmp_path / "summary.json"},
         )
         assert any(
             r.rule == "min-query-count" and r.severity == Severity.ERROR

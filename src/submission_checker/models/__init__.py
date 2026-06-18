@@ -1,6 +1,6 @@
 """Data models for MLPerf Endpoints submission checking."""
 
-from .aggregate import PERFORMANCE_SAMPLE_COUNT, ModelContext, PointResult, get_min_query_count
+from .aggregate import MIN_QUERY_COUNT, ModelContext, PointResult
 from .file import (
     AccuracyResult,
     Division,
@@ -21,8 +21,7 @@ __all__ = [
     "CheckResult",
     "Division",
     "MIN_DURATION_MS",
-    "PERFORMANCE_SAMPLE_COUNT",
-    "get_min_query_count",
+    "MIN_QUERY_COUNT",
     "ModelContext",
     "ModelDir",
     "NodeType",
