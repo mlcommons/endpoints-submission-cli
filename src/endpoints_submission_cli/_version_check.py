@@ -25,6 +25,8 @@ from urllib.request import urlopen
 
 __all__ = ["register_upgrade_notice"]
 
+_registered = False
+
 _PACKAGE = "endpoints-submission-cli"
 _PYPI_URL = f"https://pypi.org/pypi/{_PACKAGE}/json"
 _CACHE_PATH = Path.home() / ".cache" / _PACKAGE / "version_check.json"
@@ -78,6 +80,11 @@ def register_upgrade_notice() -> None:
 
     Safe to call multiple times — subsequent calls are no-ops.
     """
+    global _registered
+    if _registered:
+        return
+    _registered = True
+
     current = _current_version()
     if not current:
         return
