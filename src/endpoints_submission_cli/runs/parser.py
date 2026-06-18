@@ -73,10 +73,7 @@ def parse_run_folder(path: Path) -> dict[str, Any]:
 def _validate_required_files(path: Path) -> None:
     missing = [f for f in _REQUIRED_FILES if not (path / f).exists()]
     if missing:
-        raise RunFolderError(
-            f"Run folder {path} is missing required file(s): {', '.join(missing)}"
-        )
-
+        raise RunFolderError(f"Run folder {path} is missing required file(s): {', '.join(missing)}")
 
 
 def _load_json(file_path: Path) -> dict[str, Any]:

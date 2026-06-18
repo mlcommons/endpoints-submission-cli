@@ -187,7 +187,5 @@ class PointConfig(BaseModel):
                     )
                 )
         else:
-            self._check_results.append(
-                ok("region-declared", f"region='{region}'", path, "#8.3")
-            )
+            self._check_results.append(ok("region-declared", f"region='{region}'", path, "#8.3"))
         return self

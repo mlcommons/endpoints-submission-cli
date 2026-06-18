@@ -75,7 +75,9 @@ def _system_desc(
     )
 
 
-def _config(concurrency: int = 64, stream: bool = True, lp_type: str = "concurrency") -> PointConfig:
+def _config(
+    concurrency: int = 64, stream: bool = True, lp_type: str = "concurrency"
+) -> PointConfig:
     return PointConfig(
         concurrency=concurrency,
         dataset="mlperf-perf-dataset-v1",
@@ -132,6 +134,7 @@ def _model_ctx(
         loaded_points=loaded_points or [],
         accuracy_result=accuracy_result,
     )
+
 
 TEST_SUBMISSIONS = Path(__file__).parent.parent.parent / "test_submissions"
 
