@@ -288,8 +288,8 @@ _SYSTEM_DESC = {
 }
 
 _SUMMARY = {
-    "n_samples_issued": 1000,
-    "n_samples_completed": 1000,
+    "n_samples_issued": 25000,
+    "n_samples_completed": 25000,
     "n_samples_failed": 0,
     "duration_ns": 1_200_000_000_000.0,
     "ttft": {"total": 0.0, "percentiles": {"50": 150_000_000.0, "95": 300_000_000.0}},
@@ -297,8 +297,8 @@ _SUMMARY = {
 }
 
 _ACCURACY = {
-    "llm-perf-dataset-v1": {
-        "dataset_name": "llm-perf-dataset-v1",
+    "mlperf-perf-dataset-v1": {
+        "dataset_name": "mlperf-perf-dataset-v1",
         "num_samples": 500,
         "score": {"rouge1": "45.12", "rouge2": "22.01", "rougeL": "30.45"},
         "n_repeats": 1,
@@ -313,7 +313,7 @@ _CONCURRENCIES = [16, 38, 88, 256, 512, 768, 1000]
 def _make_run_yaml(concurrency: int) -> dict:
     return {
         "concurrency": concurrency,
-        "dataset": "llm-perf-dataset-v1",
+        "dataset": "mlperf-perf-dataset-v1",
         "runtime_settings": {
             "load_pattern": "concurrency",
             "min_duration_ms": 1_200_000,

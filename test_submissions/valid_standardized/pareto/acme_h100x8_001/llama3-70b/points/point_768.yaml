@@ -1,6 +1,12 @@
 concurrency: 768
-dataset: llm-perf-dataset-v1
+dataset: mlperf-perf-dataset-v1
 runtime_settings:
   load_pattern: concurrency
   min_duration_ms: 1200000
   stream_all_chunks: true
+warmup:
+  duration_s: 60.0
+  requests_issued: 768
+  requests_completed: 768
+  data_source: mlperf-perf-dataset-v1 warmup samples
+  concurrency: 768

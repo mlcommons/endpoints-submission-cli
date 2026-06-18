@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
-__all__ = ["MIN_QUERY_COUNT", "PointResult"]
+__all__ = ["PERFORMANCE_SAMPLE_COUNT", "PointResult", "get_min_query_count"]
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr, ValidationInfo, model_validator
 
@@ -15,13 +16,32 @@ from ..results import CheckResult, err, ok, warn
 
 _TPS_TOLERANCE = 0.01  # 1% relative tolerance for stored-vs-derived comparisons
 
-# Placeholder dataset → minimum completed query count (§6.4).
-# Replace values with spec-ratified numbers before final release.
-MIN_QUERY_COUNT: dict[str, int] = {
-    "dataset-a": 1,
-    "dataset-b": 10,
-    "dataset-c": 100,
-}
+# Model keyword fragments → minimum completed query count (§6.4).
+# Values are dataset sizes from endpoints/config/rulesets/mlcommons/datasets.py.
+# More-specific entries must come before less-specific ones.
+PERFORMANCE_SAMPLE_COUNT: list[tuple[frozenset[str], int]] = [
+    (frozenset({"llama3", "405b"}), 8313),  # TextGenLongSeqLen
+    (frozenset({"llama3", "8b"}), 13368),  # CNNDailyMail
+    (frozenset({"llama2", "70b"}), 24576),  # OpenOrca
+    (frozenset({"llama3", "70b"}), 24576),  # OpenOrca
+    (frozenset({"deepseek", "r1"}), 4388),  # MLPerfDeepseekR1
+    (frozenset({"gpt", "120b"}), 6396),  # GPT-OSS-120b dataset
+    (frozenset({"mixtral", "8x7b"}), 15000),  # TextGenComplex
+    (frozenset({"qwen3", "480b"}), 24576),  # OpenOrca
+]
+
+
+def _normalize(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
+def get_min_query_count(model: str) -> int | None:
+    """Return the minimum completed query count for *model*, or None if unknown."""
+    haystack = _normalize(model)
+    for fragments, count in PERFORMANCE_SAMPLE_COUNT:
+        if all(f in haystack for f in fragments):
+            return count
+    return None
 
 
 class PointResult(BaseModel):
@@ -70,14 +90,16 @@ class PointResult(BaseModel):
 
     @model_validator(mode="after")
     def _check_min_query_count(self, info: ValidationInfo) -> PointResult:
-        """§12: n_samples_completed must meet the dataset's minimum query count (§6.4).
+        """§12: n_samples_completed must meet the model's minimum query count (§6.4).
 
-        Skipped when the dataset is not in MIN_QUERY_COUNT (unknown datasets are
-        not yet mapped; add them as the spec is ratified).
+        Uses runtime_settings.min_sample_count when set; otherwise looks up the
+        minimum by model name from context. Skipped when the model is unknown.
         """
         summary_path: Path | None = (info.context or {}).get("summary_path")
-        dataset = self.config.dataset
-        min_queries = MIN_QUERY_COUNT.get(dataset)
+        min_queries = self.config.runtime_settings.min_sample_count
+        if min_queries is None:
+            model: str = (info.context or {}).get("model", "")
+            min_queries = get_min_query_count(model)
         if min_queries is None:
             return self
         completed = self.summary.n_samples_completed
@@ -85,7 +107,7 @@ class PointResult(BaseModel):
             self._check_results.append(
                 err(
                     "min-query-count",
-                    f"Dataset '{dataset}': completed {completed} < minimum {min_queries} (§6.4)",
+                    f"completed {completed} < minimum {min_queries} (§6.4)",
                     summary_path,
                     "#12",
                 )
@@ -94,7 +116,7 @@ class PointResult(BaseModel):
             self._check_results.append(
                 ok(
                     "min-query-count",
-                    f"Dataset '{dataset}': completed {completed} ≥ minimum {min_queries}",
+                    f"completed {completed} ≥ minimum {min_queries}",
                     summary_path,
                     "#12",
                 )
