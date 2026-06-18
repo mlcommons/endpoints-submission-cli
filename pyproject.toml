@@ -114,3 +114,12 @@ known-first-party = ["submission_checker"]
     "SIM117", # deeply-nested with-patch blocks are intentional for clarity
     "D",      # docstrings not required in test files
 ]
+
+[tool.mutmut]
+also_copy = ["test_submissions/"]
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.155.3",
+    "mutmut>=3.6.0",
+]

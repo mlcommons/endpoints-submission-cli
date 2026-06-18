@@ -4,7 +4,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
+from hypothesis import assume, given
+from hypothesis import strategies as st
 
 from submission_checker.models import (
     MIN_QUERY_COUNT,
@@ -182,7 +186,11 @@ class TestMetricConsistencyValidator:
 class TestTpsConsistencyValidator:
     def test_system_tps_derivable_ok(self, tmp_path):
         run_result = PointResult.model_validate(
-            {"config": _config(concurrency=64), "summary": _summary(), "yaml_path": tmp_path / "run_64.yaml"},
+            {
+                "config": _config(concurrency=64),
+                "summary": _summary(),
+                "yaml_path": tmp_path / "run_64.yaml",
+            },
             context={"summary_path": tmp_path / "summary.json"},
         )
         assert any(
@@ -222,7 +230,11 @@ class TestTpsConsistencyValidator:
 
     def test_tps_per_user_derivable_ok(self, tmp_path):
         run_result = PointResult.model_validate(
-            {"config": _config(concurrency=64), "summary": _summary(), "yaml_path": tmp_path / "run_64.yaml"},
+            {
+                "config": _config(concurrency=64),
+                "summary": _summary(),
+                "yaml_path": tmp_path / "run_64.yaml",
+            },
             context={"summary_path": tmp_path / "summary.json"},
         )
         assert any(
@@ -328,14 +340,30 @@ class TestMinQueryCountValidator:
         ctx = {"summary_path": tmp_path / "summary.json"}
 
         fail = PointResult.model_validate(
-            {"config": _config_with_dataset("dataset-a"), "summary": _summary(n_completed=0), **base}, context=ctx
+            {
+                "config": _config_with_dataset("dataset-a"),
+                "summary": _summary(n_completed=0),
+                **base,
+            },
+            context=ctx,
         )
-        assert any(r.rule == "min-query-count" and r.severity == Severity.ERROR for r in fail._check_results)
+        assert any(
+            r.rule == "min-query-count" and r.severity == Severity.ERROR
+            for r in fail._check_results
+        )
 
         ok_result = PointResult.model_validate(
-            {"config": _config_with_dataset("dataset-a"), "summary": _summary(n_completed=1), **base}, context=ctx
+            {
+                "config": _config_with_dataset("dataset-a"),
+                "summary": _summary(n_completed=1),
+                **base,
+            },
+            context=ctx,
         )
-        assert any(r.rule == "min-query-count" and r.severity != Severity.ERROR for r in ok_result._check_results)
+        assert any(
+            r.rule == "min-query-count" and r.severity != Severity.ERROR
+            for r in ok_result._check_results
+        )
 
     def test_dataset_c_boundary(self, tmp_path):
         """dataset-c requires 100 queries — 99 fails, 100 passes."""
@@ -343,14 +371,30 @@ class TestMinQueryCountValidator:
         ctx = {"summary_path": tmp_path / "summary.json"}
 
         fail = PointResult.model_validate(
-            {"config": _config_with_dataset("dataset-c"), "summary": _summary(n_completed=99), **base}, context=ctx
+            {
+                "config": _config_with_dataset("dataset-c"),
+                "summary": _summary(n_completed=99),
+                **base,
+            },
+            context=ctx,
         )
-        assert any(r.rule == "min-query-count" and r.severity == Severity.ERROR for r in fail._check_results)
+        assert any(
+            r.rule == "min-query-count" and r.severity == Severity.ERROR
+            for r in fail._check_results
+        )
 
         ok_result = PointResult.model_validate(
-            {"config": _config_with_dataset("dataset-c"), "summary": _summary(n_completed=100), **base}, context=ctx
+            {
+                "config": _config_with_dataset("dataset-c"),
+                "summary": _summary(n_completed=100),
+                **base,
+            },
+            context=ctx,
         )
-        assert any(r.rule == "min-query-count" and r.severity != Severity.ERROR for r in ok_result._check_results)
+        assert any(
+            r.rule == "min-query-count" and r.severity != Severity.ERROR
+            for r in ok_result._check_results
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -368,7 +412,9 @@ class TestRunCountValidator:
 
     def test_cap_exceeded(self, tmp_path):
         ctx = _model_ctx(tmp_path, all_point_count=33)
-        assert any(r.rule == "point-cap" and r.severity == Severity.ERROR for r in ctx._check_results)
+        assert any(
+            r.rule == "point-cap" and r.severity == Severity.ERROR for r in ctx._check_results
+        )
 
     def test_valid_count(self, tmp_path):
         ctx = _model_ctx(tmp_path, all_point_count=10)
@@ -444,15 +490,18 @@ class TestAccuracyGateValidator:
         ar = AccuracyResult({"ds": {"score": {"rouge1": "39.0"}}})
         ctx = _model_ctx(tmp_path, accuracy_result=ar)
         assert any(
-            r.rule == "accuracy-gate" and r.severity == Severity.WARNING
-            for r in ctx._check_results
+            r.rule == "accuracy-gate" and r.severity == Severity.WARNING for r in ctx._check_results
         )
 
     def test_passed_accuracy_gate(self, tmp_path):
         # rouge1 = 39.0 > threshold 38.3914 for llama3.1-8b
-        ar = AccuracyResult({"cnn_dailymail::llama3_8b": {
-            "score": {"rouge1": "39.0", "rouge2": "16.0", "rougeL": "25.0"}
-        }})
+        ar = AccuracyResult(
+            {
+                "cnn_dailymail::llama3_8b": {
+                    "score": {"rouge1": "39.0", "rouge2": "16.0", "rougeL": "25.0"}
+                }
+            }
+        )
         ctx = _model_ctx(tmp_path, accuracy_result=ar, model_name="Llama-3_1-8B-Instruct")
         assert any(
             r.rule == "accuracy-gate" and r.severity == Severity.INFO for r in ctx._check_results
@@ -463,9 +512,13 @@ class TestAccuracyGateValidator:
 
     def test_failed_accuracy_gate(self, tmp_path):
         # rouge1 = 30.0 < threshold 38.3914 for llama3.1-8b
-        ar = AccuracyResult({"cnn_dailymail::llama3_8b": {
-            "score": {"rouge1": "30.0", "rouge2": "12.0", "rougeL": "20.0"}
-        }})
+        ar = AccuracyResult(
+            {
+                "cnn_dailymail::llama3_8b": {
+                    "score": {"rouge1": "30.0", "rouge2": "12.0", "rougeL": "20.0"}
+                }
+            }
+        )
         ctx = _model_ctx(tmp_path, accuracy_result=ar, model_name="Llama-3_1-8B-Instruct")
         assert any(
             r.rule == "accuracy-gate" and r.severity == Severity.ERROR for r in ctx._check_results
@@ -473,10 +526,14 @@ class TestAccuracyGateValidator:
 
     def test_sample_count_passes(self, tmp_path):
         # 13368 == min_queries for llama3.1-8b → ok
-        ar = AccuracyResult({"cnn_dailymail::llama3_8b": {
-            "num_samples": 13368,
-            "score": {"rouge1": "39.0"},
-        }})
+        ar = AccuracyResult(
+            {
+                "cnn_dailymail::llama3_8b": {
+                    "num_samples": 13368,
+                    "score": {"rouge1": "39.0"},
+                }
+            }
+        )
         ctx = _model_ctx(tmp_path, accuracy_result=ar, model_name="Llama-3_1-8B-Instruct")
         assert any(
             r.rule == "accuracy-sample-count" and r.severity != Severity.ERROR
@@ -489,10 +546,14 @@ class TestAccuracyGateValidator:
 
     def test_sample_count_fails(self, tmp_path):
         # 1000 < 13368 min_queries for llama3.1-8b → error
-        ar = AccuracyResult({"cnn_dailymail::llama3_8b": {
-            "num_samples": 1000,
-            "score": {"rouge1": "39.0"},
-        }})
+        ar = AccuracyResult(
+            {
+                "cnn_dailymail::llama3_8b": {
+                    "num_samples": 1000,
+                    "score": {"rouge1": "39.0"},
+                }
+            }
+        )
         ctx = _model_ctx(tmp_path, accuracy_result=ar, model_name="Llama-3_1-8B-Instruct")
         assert any(
             r.rule == "accuracy-sample-count" and r.severity == Severity.ERROR
@@ -501,8 +562,231 @@ class TestAccuracyGateValidator:
 
     def test_sample_count_missing_skips(self, tmp_path):
         # no num_samples field → no accuracy-sample-count check
-        ar = AccuracyResult({"cnn_dailymail::llama3_8b": {
-            "score": {"rouge1": "39.0"},
-        }})
+        ar = AccuracyResult(
+            {
+                "cnn_dailymail::llama3_8b": {
+                    "score": {"rouge1": "39.0"},
+                }
+            }
+        )
         ctx = _model_ctx(tmp_path, accuracy_result=ar, model_name="Llama-3_1-8B-Instruct")
         assert not any(r.rule == "accuracy-sample-count" for r in ctx._check_results)
+
+
+# ---------------------------------------------------------------------------
+# Property-based tests — metric-consistency invariants
+# ---------------------------------------------------------------------------
+
+
+_FAKE_PATH = Path("/fake/point.yaml")
+
+
+def _make_result(
+    *,
+    duration_ns=1_200_000_000_000.0,
+    n_completed=1000,
+    n_issued=1000,
+    n_failed=0,
+    total_tokens=500_000.0,
+    concurrency=64,
+    **extra_fields,
+):
+    """Build a PointResult with the given parameters, injecting any extra_fields
+    into PointSummary's model_extra (e.g. system_tps=, tps_per_user=).
+
+    Uses a static fake path so the helper can be called from Hypothesis tests
+    without needing a function-scoped tmp_path fixture.
+    """
+    summary = PointSummary(
+        n_samples_completed=n_completed,
+        n_samples_issued=n_issued,
+        n_samples_failed=n_failed,
+        duration_ns=duration_ns,
+        output_sequence_lengths=PercentileStats(total=float(total_tokens)),
+        **extra_fields,
+    )
+    config = PointConfig(
+        concurrency=concurrency,
+        dataset="mlperf-perf-dataset-v1",
+        runtime_settings=RuntimeSettings(min_duration_ms=1_200_000),
+    )
+    return PointResult.model_validate(
+        {"config": config, "summary": summary, "yaml_path": _FAKE_PATH},
+        context={"summary_path": _FAKE_PATH.parent / "s.json"},
+    )
+
+
+@pytest.mark.unit
+class TestMetricConsistencyProperties:
+    """Property-based tests covering the boundary mutations that unit tests miss.
+
+    Each test encodes an invariant that the implementation must satisfy for ALL
+    inputs in the given domain, not just the specific examples in the unit tests
+    above. A mutation that tweaks a boundary or flips a sign will violate at
+    least one of these invariants and be caught by Hypothesis's shrinker.
+    """
+
+    # ------------------------------------------------------------------ duration
+
+    @given(
+        duration_ns=st.floats(min_value=1.0, max_value=1e18, allow_nan=False, allow_infinity=False)
+    )
+    def test_positive_duration_always_emits_ok(self, duration_ns):
+        result = _make_result(duration_ns=duration_ns)
+        assert any(
+            r.rule == "metric-consistency-duration" and r.severity != Severity.ERROR
+            for r in result._check_results
+        )
+
+    @given(duration_ns=st.floats(max_value=0.0, allow_nan=False, allow_infinity=False))
+    def test_nonpositive_duration_always_errors(self, duration_ns):
+        result = _make_result(duration_ns=duration_ns)
+        assert any(
+            r.rule == "metric-consistency-duration" and r.severity == Severity.ERROR
+            for r in result._check_results
+        )
+
+    # ------------------------------------------------------------------ sample accounting
+
+    @given(
+        n_completed=st.integers(min_value=0, max_value=10_000),
+        n_failed=st.integers(min_value=1, max_value=1_000),
+    )
+    def test_correct_accounting_with_failures_always_passes(self, n_completed, n_failed):
+        # n_issued set to the arithmetically correct value; n_failed > 0 so that
+        # the + → - mutation produces a wrong accounted total and errors.
+        n_issued = n_completed + n_failed
+        result = _make_result(n_completed=n_completed, n_issued=n_issued, n_failed=n_failed)
+        assert any(
+            r.rule == "metric-consistency-accounting" and r.severity != Severity.ERROR
+            for r in result._check_results
+        )
+
+    @given(
+        n_completed=st.integers(min_value=0, max_value=10_000),
+        n_failed=st.integers(min_value=0, max_value=1_000),
+        n_issued=st.integers(min_value=1, max_value=20_000),
+    )
+    def test_wrong_accounting_always_errors(self, n_completed, n_failed, n_issued):
+        assume(n_completed + n_failed != n_issued)
+        result = _make_result(n_completed=n_completed, n_issued=n_issued, n_failed=n_failed)
+        assert any(
+            r.rule == "metric-consistency-accounting" and r.severity == Severity.ERROR
+            for r in result._check_results
+        )
+
+    def test_issued_zero_skips_accounting_check(self):
+        # n_samples_issued=0 means the tool didn't track dispatch count — skip the check.
+        # The > 0 → >= 0 mutation would run the check and emit a spurious ok result.
+        result = _make_result(n_completed=0, n_issued=0, n_failed=0)
+        assert not any(r.rule == "metric-consistency-accounting" for r in result._check_results)
+
+    def test_issued_one_runs_accounting_check(self):
+        # n_samples_issued=1 with correct accounting must emit an ok result.
+        # The > 0 → > 1 mutation would skip the check entirely.
+        result = _make_result(n_completed=1, n_issued=1, n_failed=0)
+        assert any(
+            r.rule == "metric-consistency-accounting" and r.severity != Severity.ERROR
+            for r in result._check_results
+        )
+
+    # ------------------------------------------------------------------ output tokens
+
+    @given(total_tokens=st.integers(min_value=0, max_value=10**8))
+    def test_nonnegative_tokens_always_emits_ok(self, total_tokens):
+        result = _make_result(total_tokens=float(total_tokens))
+        assert any(
+            r.rule == "metric-consistency-output-tokens" and r.severity != Severity.ERROR
+            for r in result._check_results
+        )
+
+    @given(total_tokens=st.integers(max_value=-1))
+    def test_negative_tokens_always_errors(self, total_tokens):
+        result = _make_result(total_tokens=float(total_tokens))
+        assert any(
+            r.rule == "metric-consistency-output-tokens" and r.severity == Severity.ERROR
+            for r in result._check_results
+        )
+
+    def test_zero_tokens_passes(self):
+        # total_output_tokens=0 must be ok; the < 0 → <= 0 mutation would reject it.
+        result = _make_result(total_tokens=0.0)
+        assert any(
+            r.rule == "metric-consistency-output-tokens" and r.severity != Severity.ERROR
+            for r in result._check_results
+        )
+
+    def test_duration_one_ns_passes(self):
+        # duration_ns=1 must be ok; the <= 0 → <= 1 mutation would reject it.
+        result = _make_result(duration_ns=1.0)
+        assert any(
+            r.rule == "metric-consistency-duration" and r.severity != Severity.ERROR
+            for r in result._check_results
+        )
+
+
+@pytest.mark.unit
+class TestTpsConsistencyProperties:
+    """Property-based and targeted tests for the TPS formula and concurrency guard."""
+
+    # ------------------------------------------------------------------ concurrency guard
+
+    @given(concurrency=st.integers(min_value=1, max_value=1000))
+    def test_positive_concurrency_no_guard_error(self, concurrency):
+        result = _make_result(concurrency=concurrency)
+        assert not any(
+            r.rule == "metric-consistency-tps-per-user"
+            and r.severity == Severity.ERROR
+            and "not positive" in r.message
+            for r in result._check_results
+        )
+
+    @given(concurrency=st.integers(max_value=0))
+    def test_nonpositive_concurrency_always_errors(self, concurrency):
+        result = _make_result(concurrency=concurrency)
+        assert any(
+            r.rule == "metric-consistency-tps-per-user" and r.severity == Severity.ERROR
+            for r in result._check_results
+        )
+
+    def test_concurrency_one_ok(self):
+        # concurrency=1 must pass; the <= 0 → <= 1 mutation would reject it.
+        result = _make_result(concurrency=1)
+        assert not any(
+            r.rule == "metric-consistency-tps-per-user"
+            and r.severity == Severity.ERROR
+            and "not positive" in r.message
+            for r in result._check_results
+        )
+
+    # ------------------------------------------------------------------ TPS formula: / vs *
+
+    def test_stored_tps_per_user_within_tolerance_of_large_derived_passes(self):
+        # derived ≈ 500_000/1200/64 ≈ 6.51. stored=6.45 is ~0.9% off (within 1% tolerance).
+        # With the / → * mutation: rel_err = 0.06 * 6.51 ≈ 0.39 > 0.01 → would error.
+        result = _make_result(tps_per_user=6.45)
+        assert any(
+            r.rule == "metric-consistency-tps-per-user" and r.severity != Severity.ERROR
+            for r in result._check_results
+        )
+
+    def test_stored_system_tps_within_tolerance_of_large_derived_passes(self):
+        # derived ≈ 500_000/1200 ≈ 416.67. stored=418.75 is ~0.5% off (within 1% tolerance).
+        # With the / → * mutation: rel_err = 2.08 * 416.67 ≈ 867 > 0.01 → would error.
+        result = _make_result(system_tps=418.75)
+        assert any(
+            r.rule == "metric-consistency-system-tps" and r.severity != Severity.ERROR
+            for r in result._check_results
+        )
+
+    # ------------------------------------------------------------------ TPS epsilon: 1e-9 vs 1.0
+
+    def test_small_derived_tps_per_user_large_relative_error_errors(self):
+        # total_tokens=1, duration=1200s, concurrency=2 → derived ≈ 4.2e-4 (< 1.0).
+        # stored=0.01 is ~24× derived; rel_err ≈ 23 >> 0.01 with correct 1e-9 epsilon.
+        # With the 1e-9 → 1.0 epsilon mutation: denominator becomes 1.0, rel_err ≈ 0.01 - 4.2e-4 ≈ 0.0096 < 0.01 → passes (wrong).
+        result = _make_result(total_tokens=1.0, concurrency=2, tps_per_user=0.01)
+        assert any(
+            r.rule == "metric-consistency-tps-per-user" and r.severity == Severity.ERROR
+            for r in result._check_results
+        )
