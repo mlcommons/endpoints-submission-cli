@@ -33,6 +33,7 @@ from .models.loader import (
     load_accuracy_result,
     load_point_config,
     load_result_summary,
+    load_run_config,
     load_system_description,
 )
 
@@ -289,6 +290,9 @@ class SubmissionChecker:
                         "#8.1",
                     )
                 )
+            else:
+                _, run_config_results = load_run_config(config_yaml_path)
+                results.extend(run_config_results)
 
             summary, load_results = load_result_summary(summary_path)
             results.extend(load_results)
@@ -315,9 +319,12 @@ class SubmissionChecker:
             json_p = pd / "results.json"
             if not json_p.exists():
                 results.append(
-                    _err("accuracy-file",
-                         f"Missing results.json in point_{config.concurrency}/accuracy/",
-                         json_p, "#15")
+                    _err(
+                        "accuracy-file",
+                        f"Missing results.json in point_{config.concurrency}/accuracy/",
+                        json_p,
+                        "#15",
+                    )
                 )
             elif accuracy_result is None:
                 accuracy_result, acc_results = load_accuracy_result(json_p)

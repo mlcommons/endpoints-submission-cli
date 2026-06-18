@@ -9,6 +9,7 @@ __all__ = [
     "load_accuracy_result",
     "load_point_config",
     "load_result_summary",
+    "load_run_config",
     "load_system_description",
 ]
 
@@ -17,7 +18,7 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
-from .file import AccuracyResult, PointConfig, PointSummary, SystemDescription
+from .file import AccuracyResult, PointConfig, PointSummary, RunConfig, SystemDescription
 from .results import CheckResult, Severity
 
 
@@ -70,8 +71,14 @@ def load_system_description(
     """
     data, load_err = _load_json(path)
     if load_err:
-        return None, [CheckResult(rule="system-description-valid", message=load_err,
-                                  severity=Severity.ERROR, path=path)]
+        return None, [
+            CheckResult(
+                rule="system-description-valid",
+                message=load_err,
+                severity=Severity.ERROR,
+                path=path,
+            )
+        ]
     try:
         return SystemDescription.model_validate(data), []
     except ValidationError as exc:
@@ -91,8 +98,11 @@ def load_point_config(
     """
     data, load_err = _load_yaml(path)
     if load_err:
-        return None, [CheckResult(rule="point-config-valid", message=load_err,
-                                  severity=Severity.ERROR, path=path)]
+        return None, [
+            CheckResult(
+                rule="point-config-valid", message=load_err, severity=Severity.ERROR, path=path
+            )
+        ]
     try:
         instance = PointConfig.model_validate(data, context=context or {})
         return instance, list(instance._check_results)
@@ -110,12 +120,40 @@ def load_result_summary(path: Path) -> tuple[PointSummary | None, list[CheckResu
     """
     data, load_err = _load_json(path)
     if load_err:
-        return None, [CheckResult(rule="result-file-valid", message=load_err,
-                                  severity=Severity.ERROR, path=path)]
+        return None, [
+            CheckResult(
+                rule="result-file-valid", message=load_err, severity=Severity.ERROR, path=path
+            )
+        ]
     try:
         return PointSummary.model_validate(data), []
     except ValidationError as exc:
         return None, _validation_errors(exc, "result-file-valid", path)
+
+
+def load_run_config(
+    path: Path,
+) -> tuple[RunConfig | None, list[CheckResult]]:
+    """Load and validate ``results/point_<N>/config.yaml``.
+
+    Returns:
+        A ``(model, check_results)`` pair.  On success the model is not None and
+        check_results contains the validator-produced CheckResult entries.
+        On failure the model is None and check_results contains one entry per
+        validation error.
+    """
+    data, load_err = _load_yaml(path)
+    if load_err:
+        return None, [
+            CheckResult(
+                rule="run-config-valid", message=load_err, severity=Severity.ERROR, path=path
+            )
+        ]
+    try:
+        instance = RunConfig.model_validate(data, context={"config_path": path})
+        return instance, list(instance._check_results)
+    except ValidationError as exc:
+        return None, _validation_errors(exc, "run-config-valid", path)
 
 
 def load_accuracy_result(
@@ -131,8 +169,9 @@ def load_accuracy_result(
     """
     data, load_err = _load_json(path)
     if load_err:
-        return None, [CheckResult(rule="accuracy-valid", message=load_err,
-                                  severity=Severity.ERROR, path=path)]
+        return None, [
+            CheckResult(rule="accuracy-valid", message=load_err, severity=Severity.ERROR, path=path)
+        ]
     try:
         instance = AccuracyResult.model_validate(data, context={"json_path": path})
         return instance, list(instance._check_results)

@@ -12,6 +12,7 @@ from submission_checker.models.loader import (
     load_accuracy_result,
     load_point_config,
     load_result_summary,
+    load_run_config,
     load_system_description,
 )
 
@@ -111,6 +112,52 @@ def test_load_point_config_valid_returns_check_results(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# load_run_config
+# ---------------------------------------------------------------------------
+
+
+def test_load_run_config_missing_file(tmp_path):
+    model, results = load_run_config(tmp_path / "missing.yaml")
+    assert model is None
+    assert len(results) == 1
+    assert results[0].severity == Severity.ERROR
+    assert "File not found" in results[0].message
+
+
+def test_load_run_config_invalid_yaml(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text("key: [unclosed")
+    model, results = load_run_config(p)
+    assert model is None
+    assert results[0].severity == Severity.ERROR
+    assert "YAML parse error" in results[0].message
+
+
+def test_load_run_config_minimal_no_warmup_check(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text(yaml.dump({"concurrency": 64}))
+    model, results = load_run_config(p)
+    assert model is not None
+    assert not any(r.rule == "warmup-salt" for r in results)
+
+
+def test_load_run_config_warmup_unsalted_errors(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text(yaml.dump({"settings": {"warmup": {"enabled": True, "salt": False}}}))
+    model, results = load_run_config(p)
+    assert model is not None
+    assert any(r.rule == "warmup-salt" and r.severity == Severity.ERROR for r in results)
+
+
+def test_load_run_config_warmup_salted_passes(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text(yaml.dump({"settings": {"warmup": {"enabled": True, "salt": True}}}))
+    model, results = load_run_config(p)
+    assert model is not None
+    assert not any(r.severity == Severity.ERROR for r in results)
+
+
+# ---------------------------------------------------------------------------
 # load_result_summary
 # ---------------------------------------------------------------------------
 
@@ -187,7 +234,9 @@ def test_load_json_os_error(tmp_path):
 def test_load_yaml_os_error(tmp_path):
     """_load_yaml must surface an OSError (e.g. permission denied) as an error message."""
     p = tmp_path / "point_64.yaml"
-    p.write_text(yaml.dump({"concurrency": 64, "runtime_settings": {"load_pattern": "concurrency"}}))
+    p.write_text(
+        yaml.dump({"concurrency": 64, "runtime_settings": {"load_pattern": "concurrency"}})
+    )
     with patch("pathlib.Path.read_text", side_effect=OSError("permission denied")):
         model, results = load_point_config(p)
     assert model is None

@@ -9,6 +9,13 @@ from rich.table import Table
 from .checker import SubmissionChecker
 from .models import Severity, compute_regions
 
+try:
+    from endpoints_submission_cli._version_check import (
+        register_upgrade_notice as _register_upgrade_notice,
+    )
+except ImportError:
+    _register_upgrade_notice = None
+
 console = Console()
 
 _SEVERITY_STYLE: dict[Severity, str] = {
@@ -22,6 +29,8 @@ _SEVERITY_STYLE: dict[Severity, str] = {
 @click.version_option(package_name="endpoints-submission-cli")
 def main() -> None:
     """MLPerf Endpoints submission checker — validate a submission directory."""
+    if _register_upgrade_notice is not None:
+        _register_upgrade_notice()
 
 
 @main.command()
