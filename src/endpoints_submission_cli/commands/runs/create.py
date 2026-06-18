@@ -38,8 +38,7 @@ __all__ = ["runs_create"]
     "--expires-at",
     default=None,
     help=(
-        "Expiry datetime in ISO 8601 format (e.g. 2026-01-01T00:00:00)."
-        " Defaults to server policy."
+        "Expiry datetime in ISO 8601 format (e.g. 2026-01-01T00:00:00). Defaults to server policy."
     ),
 )
 @click.option(

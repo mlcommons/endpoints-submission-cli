@@ -99,14 +99,10 @@ def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -
             for rid in all_run_ids:
                 progress.update(task, description=f"Downloading [cyan]{rid[:8]}…[/cyan]")
                 try:
-                    dest = runs_api.download_run_archive(
-                        resolved_token, rid, tmp_path / "archives"
-                    )
+                    dest = runs_api.download_run_archive(resolved_token, rid, tmp_path / "archives")
                 except APIError as exc:
                     progress.stop()
-                    _console.print(
-                        f"[bold red]Failed to download run {rid}:[/bold red] {exc}"
-                    )
+                    _console.print(f"[bold red]Failed to download run {rid}:[/bold red] {exc}")
                     _rollback_remove_run(resolved_token, submission_id, run_id)
                     sys.exit(1)
                 archives.append((rid, dest))

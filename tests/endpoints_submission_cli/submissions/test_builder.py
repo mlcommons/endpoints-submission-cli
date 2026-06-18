@@ -108,7 +108,9 @@ class TestBuildSubmissionFolder:
         with tarfile.open(archive, "w:gz") as tar:
             tar.add(folder, arcname="bad_run")
         with pytest.raises(SubmissionBuildError, match="system_desc.json"):
-            build_submission_folder([("bad", archive)], "standardized", "available", tmp_path / "out")
+            build_submission_folder(
+                [("bad", archive)], "standardized", "available", tmp_path / "out"
+            )
 
     def test_system_desc_missing_required_fields_raises(self, tmp_path: Path) -> None:
         # Missing required fields (submitter_org_names, system_name, node_types) must raise
@@ -122,7 +124,9 @@ class TestBuildSubmissionFolder:
         with tarfile.open(archive, "w:gz") as tar:
             tar.add(folder, arcname="bad_run")
         with pytest.raises(SubmissionBuildError, match="schema validation"):
-            build_submission_folder([("bad", archive)], "standardized", "available", tmp_path / "out")
+            build_submission_folder(
+                [("bad", archive)], "standardized", "available", tmp_path / "out"
+            )
 
     def test_multiple_runs_single_system(
         self, run_archive: Path, run_folder: Path, tmp_path: Path
@@ -134,11 +138,16 @@ class TestBuildSubmissionFolder:
         second_folder.mkdir()
 
         import json as _json
+
         cfg = yaml.safe_load((run_folder / "config.yaml").read_text())
         rs = _json.loads((run_folder / "result_summary.json").read_text())
 
         # Copy system info files from the first run
-        for fname in ["system_desc.json", "mlperf-system-info-single-node-0.json", "serving_config.json"]:
+        for fname in [
+            "system_desc.json",
+            "mlperf-system-info-single-node-0.json",
+            "serving_config.json",
+        ]:
             src = run_folder / fname
             if src.exists():
                 shutil.copy(src, second_folder / fname)
@@ -239,9 +248,7 @@ class TestTpsUtilizationInjection:
             tar.add(folder, arcname=name)
         return archive
 
-    def test_tps_utilization_written_for_single_run(
-        self, run_folder: Path, tmp_path: Path
-    ) -> None:
+    def test_tps_utilization_written_for_single_run(self, run_folder: Path, tmp_path: Path) -> None:
         archive = self._make_archive_with_metadata(run_folder, 1000.0, 4, tmp_path, "run1")
         sub_dir = build_submission_folder(
             [("run-001", archive)], "standardized", "available", tmp_path / "sub"
@@ -251,9 +258,7 @@ class TestTpsUtilizationInjection:
         data = json.loads(meta_files[0].read_text())
         assert data["tps_utilization"] == pytest.approx(1.0)
 
-    def test_tps_utilization_normalized_across_runs(
-        self, run_folder: Path, tmp_path: Path
-    ) -> None:
+    def test_tps_utilization_normalized_across_runs(self, run_folder: Path, tmp_path: Path) -> None:
         a1 = self._make_archive_with_metadata(run_folder, 1000.0, 4, tmp_path, "run1")
         a2 = self._make_archive_with_metadata(run_folder, 2000.0, 8, tmp_path, "run2")
         sub_dir = build_submission_folder(

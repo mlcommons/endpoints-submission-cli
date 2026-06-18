@@ -63,8 +63,12 @@ def submissions_update(
     """
     resolved_token = _get_token(token)
 
-    if not run_ids and target_availability_date is None and publication_cycle is None \
-            and embargo_date is None:
+    if (
+        not run_ids
+        and target_availability_date is None
+        and publication_cycle is None
+        and embargo_date is None
+    ):
         _console.print("[yellow]Nothing to update — provide at least one field.[/yellow]")
         return
 
@@ -78,9 +82,7 @@ def submissions_update(
         if embargo_date is not None:
             patch["embargo_date"] = embargo_date
         try:
-            sub_out = subs_api.update_submission(
-                resolved_token, submission_id, patch
-            )
+            sub_out = subs_api.update_submission(resolved_token, submission_id, patch)
         except APIError as exc:
             _console.print(f"[bold red]Error:[/bold red] {exc}")
             sys.exit(1)
@@ -121,8 +123,11 @@ def submissions_update(
         )
 
     if not added and not removed:
-        if (target_availability_date is not None or publication_cycle is not None
-                or embargo_date is not None):
+        if (
+            target_availability_date is not None
+            or publication_cycle is not None
+            or embargo_date is not None
+        ):
             metadata_patch: dict[str, Any] = {}
             if target_availability_date is not None:
                 metadata_patch["target_availability_date"] = target_availability_date
@@ -171,9 +176,7 @@ def submissions_update(
             for rid in desired_run_ids:
                 progress.update(task, description=f"Downloading [cyan]{rid[:8]}…[/cyan]")
                 try:
-                    dest = runs_api.download_run_archive(
-                        resolved_token, rid, tmp_path / "archives"
-                    )
+                    dest = runs_api.download_run_archive(resolved_token, rid, tmp_path / "archives")
                 except APIError as exc:
                     progress.stop()
                     _console.print(f"[bold red]Failed to download run {rid}:[/bold red] {exc}")

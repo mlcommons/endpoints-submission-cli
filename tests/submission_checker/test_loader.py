@@ -187,7 +187,9 @@ def test_load_json_os_error(tmp_path):
 def test_load_yaml_os_error(tmp_path):
     """_load_yaml must surface an OSError (e.g. permission denied) as an error message."""
     p = tmp_path / "point_64.yaml"
-    p.write_text(yaml.dump({"concurrency": 64, "runtime_settings": {"load_pattern": "concurrency"}}))
+    p.write_text(
+        yaml.dump({"concurrency": 64, "runtime_settings": {"load_pattern": "concurrency"}})
+    )
     with patch("pathlib.Path.read_text", side_effect=OSError("permission denied")):
         model, results = load_point_config(p)
     assert model is None

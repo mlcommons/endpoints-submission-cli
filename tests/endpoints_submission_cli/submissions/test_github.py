@@ -225,9 +225,7 @@ class TestUpdatePrBranch:
                     42, submission_dir, "org/repo", tmp_path / "work", "test msg", branch="sub-x"
                 )
 
-        mock_merge.assert_called_once_with(
-            submission_dir, "org/repo", tmp_path / "work", "sub-x"
-        )
+        mock_merge.assert_called_once_with(submission_dir, "org/repo", tmp_path / "work", "sub-x")
         mock_push.assert_called_once_with(fake_repo_dir, "test msg")
 
     def test_merge_failure_propagates(self, tmp_path: Path) -> None:

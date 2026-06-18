@@ -229,9 +229,9 @@ def test_point_result_summary_total_output_tokens():
 
 
 def test_accuracy_result_stores_scores():
-    ar = AccuracyResult({
-        "cnn_dailymail::llama3_8b": {"score": {"rouge1": "38.73", "rouge2": "16.10"}}
-    })
+    ar = AccuracyResult(
+        {"cnn_dailymail::llama3_8b": {"score": {"rouge1": "38.73", "rouge2": "16.10"}}}
+    )
     scores = ar.metric_scores()
     assert scores["cnn_dailymail::llama3_8b"]["rouge1"] == pytest.approx(38.73)
     assert scores["cnn_dailymail::llama3_8b"]["rouge2"] == pytest.approx(16.10)
@@ -239,7 +239,9 @@ def test_accuracy_result_stores_scores():
 
 def test_accuracy_result_empty_emits_error():
     ar = AccuracyResult({})
-    assert any(r.rule == "accuracy-valid" and r.severity == Severity.ERROR for r in ar._check_results)
+    assert any(
+        r.rule == "accuracy-valid" and r.severity == Severity.ERROR for r in ar._check_results
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -248,21 +250,25 @@ def test_accuracy_result_empty_emits_error():
 
 
 def test_dataset_metadata_numeric_string_coerced_to_float():
-    sd = SystemDescription(**{
-        **_BASE_FLAT,
-        "input_token_average": "512.0",
-        "output_token_average": "128.5",
-    })
+    sd = SystemDescription(
+        **{
+            **_BASE_FLAT,
+            "input_token_average": "512.0",
+            "output_token_average": "128.5",
+        }
+    )
     assert sd.input_token_average == 512.0
     assert sd.output_token_average == 128.5
 
 
 def test_dataset_metadata_invalid_string_raises():
     with pytest.raises((ValidationError, ValueError)):
-        SystemDescription(**{
-            **_BASE_FLAT,
-            "input_token_average": "not-a-number",
-        })
+        SystemDescription(
+            **{
+                **_BASE_FLAT,
+                "input_token_average": "not-a-number",
+            }
+        )
 
 
 # ---------------------------------------------------------------------------

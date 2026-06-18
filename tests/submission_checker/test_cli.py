@@ -42,7 +42,6 @@ def test_check_strict_fails_on_warnings(valid_standardized):
     assert result.exit_code in (0, 1)
 
 
-
 def test_regions_command_known_m():
     runner = CliRunner()
     result = runner.invoke(main, ["regions", "--max-concurrency", "1024"])

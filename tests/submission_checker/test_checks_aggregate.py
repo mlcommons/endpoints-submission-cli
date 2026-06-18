@@ -182,7 +182,11 @@ class TestMetricConsistencyValidator:
 class TestTpsConsistencyValidator:
     def test_system_tps_derivable_ok(self, tmp_path):
         run_result = PointResult.model_validate(
-            {"config": _config(concurrency=64), "summary": _summary(), "yaml_path": tmp_path / "run_64.yaml"},
+            {
+                "config": _config(concurrency=64),
+                "summary": _summary(),
+                "yaml_path": tmp_path / "run_64.yaml",
+            },
             context={"summary_path": tmp_path / "summary.json"},
         )
         assert any(
@@ -222,7 +226,11 @@ class TestTpsConsistencyValidator:
 
     def test_tps_per_user_derivable_ok(self, tmp_path):
         run_result = PointResult.model_validate(
-            {"config": _config(concurrency=64), "summary": _summary(), "yaml_path": tmp_path / "run_64.yaml"},
+            {
+                "config": _config(concurrency=64),
+                "summary": _summary(),
+                "yaml_path": tmp_path / "run_64.yaml",
+            },
             context={"summary_path": tmp_path / "summary.json"},
         )
         assert any(
@@ -328,14 +336,30 @@ class TestMinQueryCountValidator:
         ctx = {"summary_path": tmp_path / "summary.json"}
 
         fail = PointResult.model_validate(
-            {"config": _config_with_dataset("dataset-a"), "summary": _summary(n_completed=0), **base}, context=ctx
+            {
+                "config": _config_with_dataset("dataset-a"),
+                "summary": _summary(n_completed=0),
+                **base,
+            },
+            context=ctx,
         )
-        assert any(r.rule == "min-query-count" and r.severity == Severity.ERROR for r in fail._check_results)
+        assert any(
+            r.rule == "min-query-count" and r.severity == Severity.ERROR
+            for r in fail._check_results
+        )
 
         ok_result = PointResult.model_validate(
-            {"config": _config_with_dataset("dataset-a"), "summary": _summary(n_completed=1), **base}, context=ctx
+            {
+                "config": _config_with_dataset("dataset-a"),
+                "summary": _summary(n_completed=1),
+                **base,
+            },
+            context=ctx,
         )
-        assert any(r.rule == "min-query-count" and r.severity != Severity.ERROR for r in ok_result._check_results)
+        assert any(
+            r.rule == "min-query-count" and r.severity != Severity.ERROR
+            for r in ok_result._check_results
+        )
 
     def test_dataset_c_boundary(self, tmp_path):
         """dataset-c requires 100 queries — 99 fails, 100 passes."""
@@ -343,14 +367,30 @@ class TestMinQueryCountValidator:
         ctx = {"summary_path": tmp_path / "summary.json"}
 
         fail = PointResult.model_validate(
-            {"config": _config_with_dataset("dataset-c"), "summary": _summary(n_completed=99), **base}, context=ctx
+            {
+                "config": _config_with_dataset("dataset-c"),
+                "summary": _summary(n_completed=99),
+                **base,
+            },
+            context=ctx,
         )
-        assert any(r.rule == "min-query-count" and r.severity == Severity.ERROR for r in fail._check_results)
+        assert any(
+            r.rule == "min-query-count" and r.severity == Severity.ERROR
+            for r in fail._check_results
+        )
 
         ok_result = PointResult.model_validate(
-            {"config": _config_with_dataset("dataset-c"), "summary": _summary(n_completed=100), **base}, context=ctx
+            {
+                "config": _config_with_dataset("dataset-c"),
+                "summary": _summary(n_completed=100),
+                **base,
+            },
+            context=ctx,
         )
-        assert any(r.rule == "min-query-count" and r.severity != Severity.ERROR for r in ok_result._check_results)
+        assert any(
+            r.rule == "min-query-count" and r.severity != Severity.ERROR
+            for r in ok_result._check_results
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -368,7 +408,9 @@ class TestRunCountValidator:
 
     def test_cap_exceeded(self, tmp_path):
         ctx = _model_ctx(tmp_path, all_point_count=33)
-        assert any(r.rule == "point-cap" and r.severity == Severity.ERROR for r in ctx._check_results)
+        assert any(
+            r.rule == "point-cap" and r.severity == Severity.ERROR for r in ctx._check_results
+        )
 
     def test_valid_count(self, tmp_path):
         ctx = _model_ctx(tmp_path, all_point_count=10)
@@ -444,15 +486,18 @@ class TestAccuracyGateValidator:
         ar = AccuracyResult({"ds": {"score": {"rouge1": "39.0"}}})
         ctx = _model_ctx(tmp_path, accuracy_result=ar)
         assert any(
-            r.rule == "accuracy-gate" and r.severity == Severity.WARNING
-            for r in ctx._check_results
+            r.rule == "accuracy-gate" and r.severity == Severity.WARNING for r in ctx._check_results
         )
 
     def test_passed_accuracy_gate(self, tmp_path):
         # rouge1 = 39.0 > threshold 38.3914 for llama3.1-8b
-        ar = AccuracyResult({"cnn_dailymail::llama3_8b": {
-            "score": {"rouge1": "39.0", "rouge2": "16.0", "rougeL": "25.0"}
-        }})
+        ar = AccuracyResult(
+            {
+                "cnn_dailymail::llama3_8b": {
+                    "score": {"rouge1": "39.0", "rouge2": "16.0", "rougeL": "25.0"}
+                }
+            }
+        )
         ctx = _model_ctx(tmp_path, accuracy_result=ar, model_name="Llama-3_1-8B-Instruct")
         assert any(
             r.rule == "accuracy-gate" and r.severity == Severity.INFO for r in ctx._check_results
@@ -463,9 +508,13 @@ class TestAccuracyGateValidator:
 
     def test_failed_accuracy_gate(self, tmp_path):
         # rouge1 = 30.0 < threshold 38.3914 for llama3.1-8b
-        ar = AccuracyResult({"cnn_dailymail::llama3_8b": {
-            "score": {"rouge1": "30.0", "rouge2": "12.0", "rougeL": "20.0"}
-        }})
+        ar = AccuracyResult(
+            {
+                "cnn_dailymail::llama3_8b": {
+                    "score": {"rouge1": "30.0", "rouge2": "12.0", "rougeL": "20.0"}
+                }
+            }
+        )
         ctx = _model_ctx(tmp_path, accuracy_result=ar, model_name="Llama-3_1-8B-Instruct")
         assert any(
             r.rule == "accuracy-gate" and r.severity == Severity.ERROR for r in ctx._check_results
@@ -473,10 +522,14 @@ class TestAccuracyGateValidator:
 
     def test_sample_count_passes(self, tmp_path):
         # 13368 == min_queries for llama3.1-8b → ok
-        ar = AccuracyResult({"cnn_dailymail::llama3_8b": {
-            "num_samples": 13368,
-            "score": {"rouge1": "39.0"},
-        }})
+        ar = AccuracyResult(
+            {
+                "cnn_dailymail::llama3_8b": {
+                    "num_samples": 13368,
+                    "score": {"rouge1": "39.0"},
+                }
+            }
+        )
         ctx = _model_ctx(tmp_path, accuracy_result=ar, model_name="Llama-3_1-8B-Instruct")
         assert any(
             r.rule == "accuracy-sample-count" and r.severity != Severity.ERROR
@@ -489,10 +542,14 @@ class TestAccuracyGateValidator:
 
     def test_sample_count_fails(self, tmp_path):
         # 1000 < 13368 min_queries for llama3.1-8b → error
-        ar = AccuracyResult({"cnn_dailymail::llama3_8b": {
-            "num_samples": 1000,
-            "score": {"rouge1": "39.0"},
-        }})
+        ar = AccuracyResult(
+            {
+                "cnn_dailymail::llama3_8b": {
+                    "num_samples": 1000,
+                    "score": {"rouge1": "39.0"},
+                }
+            }
+        )
         ctx = _model_ctx(tmp_path, accuracy_result=ar, model_name="Llama-3_1-8B-Instruct")
         assert any(
             r.rule == "accuracy-sample-count" and r.severity == Severity.ERROR
@@ -501,8 +558,12 @@ class TestAccuracyGateValidator:
 
     def test_sample_count_missing_skips(self, tmp_path):
         # no num_samples field → no accuracy-sample-count check
-        ar = AccuracyResult({"cnn_dailymail::llama3_8b": {
-            "score": {"rouge1": "39.0"},
-        }})
+        ar = AccuracyResult(
+            {
+                "cnn_dailymail::llama3_8b": {
+                    "score": {"rouge1": "39.0"},
+                }
+            }
+        )
         ctx = _model_ctx(tmp_path, accuracy_result=ar, model_name="Llama-3_1-8B-Instruct")
         assert not any(r.rule == "accuracy-sample-count" for r in ctx._check_results)
