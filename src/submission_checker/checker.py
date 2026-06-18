@@ -33,6 +33,7 @@ from .models.loader import (
     load_accuracy_result,
     load_point_config,
     load_result_summary,
+    load_run_config,
     load_system_description,
 )
 
@@ -291,6 +292,11 @@ class SubmissionChecker:
             results.extend(point_result._check_results)
             loaded_points.append((config, summary))
 
+            config_yaml_path = point_result_dir / "config.yaml"
+            if config_yaml_path.exists():
+                _, run_config_results = load_run_config(config_yaml_path)
+                results.extend(run_config_results)
+
         # Load accuracy from per-point result dirs. Per-model warnings are only
         # emitted when a point has an accuracy/ dir but files within it are absent.
         # run() enforces that at least one model in the submission has both files.
@@ -303,9 +309,12 @@ class SubmissionChecker:
             json_p = pd / "results.json"
             if not json_p.exists():
                 results.append(
-                    _warn("accuracy-file",
-                          f"Missing results.json in point_{config.concurrency}/accuracy/",
-                          json_p, "#15")
+                    _warn(
+                        "accuracy-file",
+                        f"Missing results.json in point_{config.concurrency}/accuracy/",
+                        json_p,
+                        "#15",
+                    )
                 )
             elif accuracy_result is None:
                 accuracy_result, acc_results = load_accuracy_result(json_p)
