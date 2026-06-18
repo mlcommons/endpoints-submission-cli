@@ -51,9 +51,7 @@ def get_token(explicit_token: str | None) -> str:
     """Resolve the API token from the explicit flag or PRISM_USER_API_TOKEN env var."""
     token = explicit_token or os.environ.get("PRISM_USER_API_TOKEN")
     if not token:
-        raise AuthError(
-            "No API token provided. Pass --token or set PRISM_USER_API_TOKEN."
-        )
+        raise AuthError("No API token provided. Pass --token or set PRISM_USER_API_TOKEN.")
     return token
 
 
@@ -91,6 +89,7 @@ def _put_to_signed_url(url: str, archive_path: Path) -> None:
             r.raise_for_status()
     except OSError as exc:
         from .exceptions import ArchiveError
+
         raise ArchiveError(f"Failed to open archive for upload: {archive_path}") from exc
     except httpx.HTTPStatusError as exc:
         _raise_status(exc)

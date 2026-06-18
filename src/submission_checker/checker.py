@@ -315,9 +315,12 @@ class SubmissionChecker:
             json_p = pd / "results.json"
             if not json_p.exists():
                 results.append(
-                    _err("accuracy-file",
-                         f"Missing results.json in point_{config.concurrency}/accuracy/",
-                         json_p, "#15")
+                    _err(
+                        "accuracy-file",
+                        f"Missing results.json in point_{config.concurrency}/accuracy/",
+                        json_p,
+                        "#15",
+                    )
                 )
             elif accuracy_result is None:
                 accuracy_result, acc_results = load_accuracy_result(json_p)

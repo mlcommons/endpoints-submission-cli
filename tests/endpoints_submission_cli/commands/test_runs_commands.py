@@ -55,7 +55,9 @@ class TestRunsList:
 @pytest.mark.unit
 class TestRunsCreate:
     def test_create_success(self, run_folder: Path) -> None:
-        with patch("endpoints_submission_cli.runs.api.create_run", return_value=RUN_OUT) as mock_create:
+        with patch(
+            "endpoints_submission_cli.runs.api.create_run", return_value=RUN_OUT
+        ) as mock_create:
             with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
                 with patch("endpoints_submission_cli.runs.api.upload_run_archive"):
                     _run_app("runs", "create", "--path", str(run_folder), *_TOKEN_ARGS)
@@ -117,7 +119,15 @@ class TestRunsGet:
                 with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
                     result = _runner.invoke(
                         app,
-                        ["runs", "get", "--run-id", RUN_ID, "--download-to", str(tmp_path), *_TOKEN_ARGS],
+                        [
+                            "runs",
+                            "get",
+                            "--run-id",
+                            RUN_ID,
+                            "--download-to",
+                            str(tmp_path),
+                            *_TOKEN_ARGS,
+                        ],
                     )
         assert result.exit_code == 0
         mock_dl.assert_called_once_with(TOKEN, RUN_ID, tmp_path)
@@ -132,7 +142,15 @@ class TestRunsGet:
                 with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
                     result = _runner.invoke(
                         app,
-                        ["runs", "get", "--run-id", RUN_ID, "--download-to", str(tmp_path), *_TOKEN_ARGS],
+                        [
+                            "runs",
+                            "get",
+                            "--run-id",
+                            RUN_ID,
+                            "--download-to",
+                            str(tmp_path),
+                            *_TOKEN_ARGS,
+                        ],
                     )
         assert result.exit_code == 1
 
@@ -140,34 +158,44 @@ class TestRunsGet:
 @pytest.mark.unit
 class TestRunsDelete:
     def test_delete_success(self) -> None:
-        with patch("endpoints_submission_cli.runs.api.delete_run_archive"), patch(
-            "endpoints_submission_cli.runs.api.delete_run"
-        ), patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
+        with (
+            patch("endpoints_submission_cli.runs.api.delete_run_archive"),
+            patch("endpoints_submission_cli.runs.api.delete_run"),
+            patch("endpoints_submission_cli._http.get_token", return_value=TOKEN),
+        ):
             _run_app("runs", "delete", "--run-id", RUN_ID, *_TOKEN_ARGS)
 
     def test_delete_no_archive_is_silent(self) -> None:
-        with patch(
-            "endpoints_submission_cli.runs.api.delete_run_archive",
-            side_effect=APIError("API error 404: No archive uploaded yet"),
-        ), patch("endpoints_submission_cli.runs.api.delete_run"), patch(
-            "endpoints_submission_cli._http.get_token", return_value=TOKEN
+        with (
+            patch(
+                "endpoints_submission_cli.runs.api.delete_run_archive",
+                side_effect=APIError("API error 404: No archive uploaded yet"),
+            ),
+            patch("endpoints_submission_cli.runs.api.delete_run"),
+            patch("endpoints_submission_cli._http.get_token", return_value=TOKEN),
         ):
             _run_app("runs", "delete", "--run-id", RUN_ID, *_TOKEN_ARGS)
 
     def test_delete_archive_non404_failure_is_warning(self) -> None:
-        with patch(
-            "endpoints_submission_cli.runs.api.delete_run_archive",
-            side_effect=APIError("API error 500: GCS unavailable"),
-        ), patch("endpoints_submission_cli.runs.api.delete_run"), patch(
-            "endpoints_submission_cli._http.get_token", return_value=TOKEN
+        with (
+            patch(
+                "endpoints_submission_cli.runs.api.delete_run_archive",
+                side_effect=APIError("API error 500: GCS unavailable"),
+            ),
+            patch("endpoints_submission_cli.runs.api.delete_run"),
+            patch("endpoints_submission_cli._http.get_token", return_value=TOKEN),
         ):
             _run_app("runs", "delete", "--run-id", RUN_ID, *_TOKEN_ARGS)
 
     def test_delete_api_error_exits_1(self) -> None:
-        with patch("endpoints_submission_cli.runs.api.delete_run_archive"), patch(
-            "endpoints_submission_cli.runs.api.delete_run",
-            side_effect=APIError("run in submission"),
-        ), patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
+        with (
+            patch("endpoints_submission_cli.runs.api.delete_run_archive"),
+            patch(
+                "endpoints_submission_cli.runs.api.delete_run",
+                side_effect=APIError("run in submission"),
+            ),
+            patch("endpoints_submission_cli._http.get_token", return_value=TOKEN),
+        ):
             result = _runner.invoke(app, ["runs", "delete", "--run-id", RUN_ID, *_TOKEN_ARGS])
         assert result.exit_code == 1
 
