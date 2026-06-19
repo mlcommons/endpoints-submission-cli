@@ -51,13 +51,9 @@ def _run(
         return result
     except subprocess.CalledProcessError as exc:
         stderr = (exc.stderr or "").strip()
-        raise GitHubError(
-            f"Command {cmd[0]!r} failed (exit {exc.returncode}): {stderr}"
-        ) from exc
+        raise GitHubError(f"Command {cmd[0]!r} failed (exit {exc.returncode}): {stderr}") from exc
     except FileNotFoundError as exc:
-        raise GitHubError(
-            f"Command {cmd[0]!r} not found — is it installed and on PATH?"
-        ) from exc
+        raise GitHubError(f"Command {cmd[0]!r} not found — is it installed and on PATH?") from exc
 
 
 def check_prerequisites(target_repo: str) -> tuple[bool, str]:

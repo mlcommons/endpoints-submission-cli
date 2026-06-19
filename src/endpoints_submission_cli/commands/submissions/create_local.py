@@ -106,9 +106,7 @@ def submissions_create_local(
       7. PATCH submission status to REVIEW_PENDING.
     """
     if not submission_path.is_dir():
-        _console.print(
-            f"[bold red]Error:[/bold red] {submission_path} is not a directory."
-        )
+        _console.print(f"[bold red]Error:[/bold red] {submission_path} is not a directory.")
         sys.exit(1)
 
     result_dirs = _find_result_dirs(submission_path)
@@ -158,9 +156,7 @@ def submissions_create_local(
                     payload = _parse_result_dir(result_dir)
                 except RunFolderError as exc:
                     progress.stop()
-                    _console.print(
-                        f"[bold red]Parse error ({result_dir.name}):[/bold red] {exc}"
-                    )
+                    _console.print(f"[bold red]Parse error ({result_dir.name}):[/bold red] {exc}")
                     _rollback_runs(resolved_token, run_ids)
                     sys.exit(1)
 

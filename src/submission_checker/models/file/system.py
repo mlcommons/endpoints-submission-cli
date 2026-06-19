@@ -125,9 +125,7 @@ class SystemDescription(BaseModel):
             normalized = mapping.get(v.strip().lower())
             if normalized is not None:
                 return normalized
-            raise ValueError(
-                f"Unknown division {v!r}. Must be one of: standardized, serviced, rdi"
-            )
+            raise ValueError(f"Unknown division {v!r}. Must be one of: standardized, serviced, rdi")
         return v
 
     @field_validator("system_availability_status", mode="before")
@@ -138,9 +136,7 @@ class SystemDescription(BaseModel):
             normalized = mapping.get(v.strip().lower())
             if normalized is not None:
                 return normalized
-            raise ValueError(
-                f"Unknown availability {v!r}. Must be one of: available, preview, rdi"
-            )
+            raise ValueError(f"Unknown availability {v!r}. Must be one of: available, preview, rdi")
         return v
 
     @field_validator("input_token_average", "output_token_average", mode="before")

@@ -15,8 +15,8 @@ from ..results import CheckResult, err, ok, warn
 
 _TPS_TOLERANCE = 0.01  # 1% relative tolerance for stored-vs-derived comparisons
 
-# Placeholder dataset → minimum completed query count (§6.4).
-# Replace values with spec-ratified numbers before final release.
+# Dataset → minimum completed query count (§6.4).
+# Values equal the full dataset size; every sample must be run for a valid submission.
 MIN_QUERY_COUNT: dict[str, int] = {
    "open_orca": 24576,
     "cnn_dailymail": 13368,

@@ -21,33 +21,49 @@ __all__ = ["get_thresholds"]
 # More-specific entries must come before less-specific ones.
 _TARGETS: list[tuple[frozenset[str], dict[str, tuple[float, float | None]], int]] = [
     # llama3.1-405b  — inference uses ROUGEL as primary; also exact_match + tokens
-    (frozenset({"llama3", "405b"}), {
-        "rougel":            (21.6666 * 0.99,  None),
-        "exact_match":       (90.1335 * 0.99,  None),
-        "tokens_per_sample": (684.68  * 0.9,   684.68 * 1.1),
-    }, 8313),
+    (
+        frozenset({"llama3", "405b"}),
+        {
+            "rougel": (21.6666 * 0.99, None),
+            "exact_match": (90.1335 * 0.99, None),
+            "tokens_per_sample": (684.68 * 0.9, 684.68 * 1.1),
+        },
+        8313,
+    ),
     # llama2-70b  (using -99 / 1 % delta tier)
-    (frozenset({"llama2", "70b"}), {
-        "rouge1":            (44.4312 * 0.99,  None),
-        "rouge2":            (22.0352 * 0.99,  None),
-        "rougel":            (28.6162 * 0.99,  None),
-        "tokens_per_sample": (294.45  * 0.9,   294.45 * 1.1),
-    }, 24576),
+    (
+        frozenset({"llama2", "70b"}),
+        {
+            "rouge1": (44.4312 * 0.99, None),
+            "rouge2": (22.0352 * 0.99, None),
+            "rougel": (28.6162 * 0.99, None),
+            "tokens_per_sample": (294.45 * 0.9, 294.45 * 1.1),
+        },
+        24576,
+    ),
     # mixtral-8x7b
-    (frozenset({"mixtral", "8x7b"}), {
-        "rouge1":            (45.5989 * 0.99,  None),
-        "rouge2":            (23.3526 * 0.99,  None),
-        "rougel":            (30.4608 * 0.99,  None),
-        "tokens_per_sample": (144.84  * 0.9,   145.9  * 1.1),
-    }, 15000),
+    (
+        frozenset({"mixtral", "8x7b"}),
+        {
+            "rouge1": (45.5989 * 0.99, None),
+            "rouge2": (23.3526 * 0.99, None),
+            "rougel": (30.4608 * 0.99, None),
+            "tokens_per_sample": (144.84 * 0.9, 145.9 * 1.1),
+        },
+        15000,
+    ),
     # llama3.1-8b  (covers Instruct and other fine-tunes of the 8B base)
-    (frozenset({"llama3", "8b"}), {
-        "rouge1":    (38.7792 * 0.99, None),
-        "rouge2":    (15.9075 * 0.99, None),
-        "rougel":    (24.4957 * 0.99, None),
-        "rougelsum": (35.793  * 0.99, None),
-        "gen_len":   (8167644 * 0.9,  8167644 * 1.1),
-    }, 13368),
+    (
+        frozenset({"llama3", "8b"}),
+        {
+            "rouge1": (38.7792 * 0.99, None),
+            "rouge2": (15.9075 * 0.99, None),
+            "rougel": (24.4957 * 0.99, None),
+            "rougelsum": (35.793 * 0.99, None),
+            "gen_len": (8167644 * 0.9, 8167644 * 1.1),
+        },
+        13368,
+    ),
 ]
 
 

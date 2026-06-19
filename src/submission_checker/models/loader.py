@@ -70,8 +70,14 @@ def load_system_description(
     """
     data, load_err = _load_json(path)
     if load_err:
-        return None, [CheckResult(rule="system-description-valid", message=load_err,
-                                  severity=Severity.ERROR, path=path)]
+        return None, [
+            CheckResult(
+                rule="system-description-valid",
+                message=load_err,
+                severity=Severity.ERROR,
+                path=path,
+            )
+        ]
     try:
         return SystemDescription.model_validate(data), []
     except ValidationError as exc:
@@ -91,8 +97,11 @@ def load_point_config(
     """
     data, load_err = _load_yaml(path)
     if load_err:
-        return None, [CheckResult(rule="point-config-valid", message=load_err,
-                                  severity=Severity.ERROR, path=path)]
+        return None, [
+            CheckResult(
+                rule="point-config-valid", message=load_err, severity=Severity.ERROR, path=path
+            )
+        ]
     try:
         instance = PointConfig.model_validate(data, context=context or {})
         return instance, list(instance._check_results)
@@ -110,8 +119,11 @@ def load_result_summary(path: Path) -> tuple[PointSummary | None, list[CheckResu
     """
     data, load_err = _load_json(path)
     if load_err:
-        return None, [CheckResult(rule="result-file-valid", message=load_err,
-                                  severity=Severity.ERROR, path=path)]
+        return None, [
+            CheckResult(
+                rule="result-file-valid", message=load_err, severity=Severity.ERROR, path=path
+            )
+        ]
     try:
         return PointSummary.model_validate(data), []
     except ValidationError as exc:
@@ -131,8 +143,9 @@ def load_accuracy_result(
     """
     data, load_err = _load_json(path)
     if load_err:
-        return None, [CheckResult(rule="accuracy-valid", message=load_err,
-                                  severity=Severity.ERROR, path=path)]
+        return None, [
+            CheckResult(rule="accuracy-valid", message=load_err, severity=Severity.ERROR, path=path)
+        ]
     try:
         instance = AccuracyResult.model_validate(data, context={"json_path": path})
         return instance, list(instance._check_results)
