@@ -54,9 +54,9 @@ class Regions:
 # Minimum steady-state duration per region (§6.2, illustrative — WIP).
 MIN_DURATION_MS: dict[str, int] = {
     "low_latency": 600_000,
-    "low_throughput": 1_200_000,
-    "med_throughput": 1_200_000,
-    "high_throughput": 1_200_000,
+    "low_throughput": 600_000,
+    "med_throughput": 600_000,
+    "high_throughput": 600_000,
 }
 
 
