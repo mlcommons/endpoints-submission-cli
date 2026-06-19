@@ -37,7 +37,7 @@ class WarmupSpec(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    duration_s: float = Field(ge=0)
+    duration_s: float = Field(ge=0, le=86400)
     requests_issued: int = Field(ge=0)
     requests_completed: int = Field(ge=0)
     data_source: str = Field(min_length=1)
