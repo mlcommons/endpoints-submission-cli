@@ -51,7 +51,7 @@ def _config_with_dataset(dataset: str, concurrency: int = 64) -> PointConfig:
     return PointConfig(
         concurrency=concurrency,
         dataset=dataset,
-        runtime_settings=RuntimeSettings(min_duration_ms=1_200_000),
+        runtime_settings=RuntimeSettings(min_duration_ms=1_200_000, runtime=RuntimeSettings.Runtime(scheduler_random_seed=42, dataloader_random_seed=42)),
     )
 
 
@@ -273,7 +273,7 @@ class TestTpsConsistencyValidator:
         config = PointConfig(
             concurrency=0,
             dataset="mlperf-perf-dataset-v1",
-            runtime_settings=RuntimeSettings(min_duration_ms=1_200_000),
+            runtime_settings=RuntimeSettings(min_duration_ms=1_200_000, runtime=RuntimeSettings.Runtime(scheduler_random_seed=42, dataloader_random_seed=42)),
         )
         run_result = PointResult.model_validate(
             {"config": config, "summary": _summary(), "yaml_path": tmp_path / "run_64.yaml"},
@@ -419,12 +419,12 @@ class TestConfigConsistencyValidator:
         c1 = PointConfig(
             concurrency=64,
             dataset="open_orca",
-            runtime_settings=RuntimeSettings(),
+            runtime_settings=RuntimeSettings(runtime=RuntimeSettings.Runtime(scheduler_random_seed=42, dataloader_random_seed=42)),
         )
         c2 = PointConfig(
             concurrency=128,
             dataset="cnn_dailymail",
-            runtime_settings=RuntimeSettings(),
+            runtime_settings=RuntimeSettings(runtime=RuntimeSettings.Runtime(scheduler_random_seed=42, dataloader_random_seed=42)),
         )
         s = _summary()
         ctx = _model_ctx(tmp_path, loaded_points=[(c1, s), (c2, s)])

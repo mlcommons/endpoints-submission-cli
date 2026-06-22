@@ -86,9 +86,9 @@ def test_load_point_config_schema_error(tmp_path):
     p.write_text(yaml.dump({"dataset": "test"}))  # missing required concurrency
     model, results = load_point_config(p)
     assert model is None
-    assert len(results) == 1
-    assert results[0].severity == Severity.ERROR
-    assert "Validation error" in results[0].message
+    assert len(results) >= 1
+    assert all(r.severity == Severity.ERROR for r in results)
+    assert all("Validation error" in r.message for r in results)
 
 
 def test_load_point_config_valid_returns_check_results(tmp_path):
@@ -98,7 +98,10 @@ def test_load_point_config_valid_returns_check_results(tmp_path):
             {
                 "concurrency": 64,
                 "dataset": "mlperf-perf-dataset-v1",
-                "runtime_settings": {"load_pattern": "concurrency"},
+                "runtime_settings": {
+                    "load_pattern": "concurrency",
+                    "runtime": {"scheduler_random_seed": 42, "dataloader_random_seed": 42},
+                },
             }
         )
     )

@@ -148,7 +148,7 @@ def test_measurement_point_config_valid():
     cfg = PointConfig(
         concurrency=64,
         dataset="test-ds",
-        runtime_settings=RuntimeSettings(min_duration_ms=1_200_000),
+        runtime_settings=RuntimeSettings(min_duration_ms=1_200_000, runtime=RuntimeSettings.Runtime(scheduler_random_seed=42, dataloader_random_seed=42)),
     )
     assert cfg.concurrency == 64
     assert cfg.dataset == "test-ds"
@@ -156,17 +156,17 @@ def test_measurement_point_config_valid():
 
 
 def test_measurement_point_config_concurrency_stored():
-    cfg = PointConfig(concurrency=128)
+    cfg = PointConfig(concurrency=128, runtime_settings=RuntimeSettings(runtime=RuntimeSettings.Runtime(scheduler_random_seed=42, dataloader_random_seed=42)))
     assert cfg.concurrency == 128
 
 
 def test_measurement_point_config_empty_dataset():
-    cfg = PointConfig(concurrency=32)
+    cfg = PointConfig(concurrency=32, runtime_settings=RuntimeSettings(runtime=RuntimeSettings.Runtime(scheduler_random_seed=42, dataloader_random_seed=42)))
     assert cfg.dataset == ""
 
 
 def test_measurement_point_config_load_pattern_stored():
-    cfg = PointConfig(concurrency=64)
+    cfg = PointConfig(concurrency=64, runtime_settings=RuntimeSettings(runtime=RuntimeSettings.Runtime(scheduler_random_seed=42, dataloader_random_seed=42)))
     assert cfg.runtime_settings.load_pattern == "concurrency"
 
 

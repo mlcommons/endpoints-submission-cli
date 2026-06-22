@@ -318,6 +318,10 @@ def _make_run_yaml(concurrency: int) -> dict:
             "load_pattern": "concurrency",
             "min_duration_ms": 1_200_000,
             "stream_all_chunks": True,
+            "runtime": {
+                "scheduler_random_seed": 42,
+                "dataloader_random_seed": 42,
+            },
         },
     }
 

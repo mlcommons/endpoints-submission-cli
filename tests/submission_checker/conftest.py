@@ -85,6 +85,7 @@ def _config(
             load_pattern=lp_type,
             min_duration_ms=1_200_000,
             stream_all_chunks=stream,
+            runtime=RuntimeSettings.Runtime(scheduler_random_seed=42, dataloader_random_seed=42),
         ),
     )
 

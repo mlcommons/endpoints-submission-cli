@@ -15,12 +15,14 @@ from submission_checker.models.file.point_config import WarmupSpec
 
 from .conftest import _REGIONS
 
+_RUNTIME = {"scheduler_random_seed": 42, "dataloader_random_seed": 42}
+
 
 @pytest.mark.unit
 class TestLoadPatternValidator:
     def test_wrong_type(self, tmp_path):
         config = PointConfig.model_validate(
-            {"concurrency": 64, "runtime_settings": {"load_pattern": "qps"}},
+            {"concurrency": 64, "runtime_settings": {"load_pattern": "qps", "runtime": _RUNTIME}},
             context={"yaml_path": tmp_path / "point_64.yaml"},
         )
         errors = [
@@ -32,7 +34,7 @@ class TestLoadPatternValidator:
 
     def test_missing_target_concurrency(self, tmp_path):
         config = PointConfig.model_validate(
-            {"concurrency": 0, "runtime_settings": {"load_pattern": "concurrency"}},
+            {"concurrency": 0, "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME}},
             context={"yaml_path": tmp_path / "point_0.yaml"},
         )
         errors = [
@@ -44,7 +46,7 @@ class TestLoadPatternValidator:
 
     def test_valid(self, tmp_path):
         config = PointConfig.model_validate(
-            {"concurrency": 64, "runtime_settings": {"load_pattern": "concurrency"}},
+            {"concurrency": 64, "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME}},
             context={"yaml_path": tmp_path / "point_64.yaml"},
         )
         assert all(
@@ -58,7 +60,11 @@ class TestStreamingValidator:
         config = PointConfig.model_validate(
             {
                 "concurrency": 64,
-                "runtime_settings": {"load_pattern": "concurrency", "stream_all_chunks": False},
+                "runtime_settings": {
+                    "load_pattern": "concurrency",
+                    "stream_all_chunks": False,
+                    "runtime": _RUNTIME,
+                },
             },
             context={"yaml_path": tmp_path / "point_64.yaml"},
         )
@@ -71,7 +77,7 @@ class TestStreamingValidator:
 
     def test_stream_true_passes(self, tmp_path):
         config = PointConfig.model_validate(
-            {"concurrency": 64, "runtime_settings": {"load_pattern": "concurrency"}},
+            {"concurrency": 64, "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME}},
             context={"yaml_path": tmp_path / "point_64.yaml"},
         )
         assert all(
@@ -85,7 +91,7 @@ class TestStreamingValidator:
 class TestConcurrencyInRangeValidator:
     def test_out_of_range(self, tmp_path):
         config = PointConfig.model_validate(
-            {"concurrency": 9999, "runtime_settings": {"load_pattern": "concurrency"}},
+            {"concurrency": 9999, "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME}},
             context={"yaml_path": tmp_path / "point_9999.yaml", "regions": _REGIONS},
         )
         errors = [
@@ -97,7 +103,7 @@ class TestConcurrencyInRangeValidator:
 
     def test_in_range(self, tmp_path):
         config = PointConfig.model_validate(
-            {"concurrency": 64, "runtime_settings": {"load_pattern": "concurrency"}},
+            {"concurrency": 64, "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME}},
             context={"yaml_path": tmp_path / "point_64.yaml", "regions": _REGIONS},
         )
         assert all(
@@ -108,7 +114,7 @@ class TestConcurrencyInRangeValidator:
 
     def test_no_regions_skips_check(self, tmp_path):
         config = PointConfig.model_validate(
-            {"concurrency": 9999, "runtime_settings": {"load_pattern": "concurrency"}},
+            {"concurrency": 9999, "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME}},
             context={"yaml_path": tmp_path / "point_9999.yaml"},
         )
         # No regions in context — concurrency-in-range should not be present
@@ -121,7 +127,7 @@ class TestRegionDeclaredValidator:
     def test_absent_region_no_check(self, tmp_path):
         """No region-declared result when region field is omitted."""
         config = PointConfig.model_validate(
-            {"concurrency": 64, "runtime_settings": {"load_pattern": "concurrency"}},
+            {"concurrency": 64, "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME}},
             context={"yaml_path": tmp_path / "point_64.yaml", "regions": _REGIONS},
         )
         assert not any(r.rule == "region-declared" for r in config._check_results)
@@ -132,7 +138,7 @@ class TestRegionDeclaredValidator:
             {
                 "concurrency": 64,
                 "region": "not_a_region",
-                "runtime_settings": {"load_pattern": "concurrency"},
+                "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME},
             },
             context={"yaml_path": tmp_path / "point_64.yaml"},
         )
@@ -148,7 +154,7 @@ class TestRegionDeclaredValidator:
             {
                 "concurrency": 64,
                 "region": "med_throughput",
-                "runtime_settings": {"load_pattern": "concurrency"},
+                "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME},
             },
             context={"yaml_path": tmp_path / "point_64.yaml", "regions": _REGIONS},
         )
@@ -164,7 +170,7 @@ class TestRegionDeclaredValidator:
             {
                 "concurrency": 64,
                 "region": "low_latency",
-                "runtime_settings": {"load_pattern": "concurrency"},
+                "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME},
             },
             context={"yaml_path": tmp_path / "point_64.yaml", "regions": _REGIONS},
         )
@@ -179,7 +185,7 @@ class TestRegionDeclaredValidator:
             {
                 "concurrency": 64,
                 "region": "submitters_choice",
-                "runtime_settings": {"load_pattern": "concurrency"},
+                "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME},
             },
             context={"yaml_path": tmp_path / "point_64.yaml", "regions": _REGIONS},
         )
@@ -198,7 +204,7 @@ class TestRegionDeclaredValidator:
             {
                 "concurrency": 64,
                 "region": "high_throughput",
-                "runtime_settings": {"load_pattern": "concurrency"},
+                "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME},
             },
             context={"yaml_path": tmp_path / "point_64.yaml"},
         )
@@ -242,7 +248,7 @@ _WARMUP = {
 class TestWarmupValidator:
     def test_missing_warmup_is_error(self, tmp_path):
         config = PointConfig.model_validate(
-            {"concurrency": 64},
+            {"concurrency": 64, "runtime_settings": {"runtime": _RUNTIME}},
             context={"yaml_path": tmp_path / "point_64.yaml"},
         )
         assert any(
@@ -252,7 +258,7 @@ class TestWarmupValidator:
 
     def test_warmup_present_is_ok(self, tmp_path):
         config = PointConfig.model_validate(
-            {"concurrency": 64, "warmup": _WARMUP},
+            {"concurrency": 64, "warmup": _WARMUP, "runtime_settings": {"runtime": _RUNTIME}},
             context={"yaml_path": tmp_path / "point_64.yaml"},
         )
         assert any(
