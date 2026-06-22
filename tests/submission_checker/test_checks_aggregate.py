@@ -336,11 +336,21 @@ class TestMinQueryCountValidator:
         ctx = {"summary_path": tmp_path / "summary.json"}
 
         fail = PointResult.model_validate(
-            {"config": _config_with_dataset("aime25"), "summary": _summary(n_completed=29), **base}, context=ctx
+            {"config": _config_with_dataset("aime25"), "summary": _summary(n_completed=29), **base},
+            context=ctx,
+        )
+        assert any(
+            r.rule == "min-query-count" and r.severity == Severity.ERROR
+            for r in fail._check_results
         )
 
         ok_result = PointResult.model_validate(
-            {"config": _config_with_dataset("aime25"), "summary": _summary(n_completed=30), **base}, context=ctx
+            {"config": _config_with_dataset("aime25"), "summary": _summary(n_completed=30), **base},
+            context=ctx,
+        )
+        assert not any(
+            r.rule == "min-query-count" and r.severity == Severity.ERROR
+            for r in ok_result._check_results
         )
 
     def test_gpqa_boundary(self, tmp_path):
@@ -349,11 +359,21 @@ class TestMinQueryCountValidator:
         ctx = {"summary_path": tmp_path / "summary.json"}
 
         fail = PointResult.model_validate(
-            {"config": _config_with_dataset("gpqa"), "summary": _summary(n_completed=197), **base}, context=ctx
+            {"config": _config_with_dataset("gpqa"), "summary": _summary(n_completed=197), **base},
+            context=ctx,
+        )
+        assert any(
+            r.rule == "min-query-count" and r.severity == Severity.ERROR
+            for r in fail._check_results
         )
 
         ok_result = PointResult.model_validate(
-            {"config": _config_with_dataset("gpqa"), "summary": _summary(n_completed=198), **base}, context=ctx
+            {"config": _config_with_dataset("gpqa"), "summary": _summary(n_completed=198), **base},
+            context=ctx,
+        )
+        assert not any(
+            r.rule == "min-query-count" and r.severity == Severity.ERROR
+            for r in ok_result._check_results
         )
 
 
