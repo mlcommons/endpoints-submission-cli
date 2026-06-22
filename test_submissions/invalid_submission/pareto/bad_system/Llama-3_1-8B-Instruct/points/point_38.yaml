@@ -3,13 +3,16 @@ dataset: llm-perf-dataset-v1
 runtime_settings:
   load_pattern: concurrency
   min_duration_ms: 1200000
+  runtime:
+    dataloader_random_seed: 42
+    scheduler_random_seed: 42
   stream_all_chunks: true
 warmup:
-  duration_s: 60.0
-  requests_issued: 380
-  requests_completed: 380
-  data_source: llm-perf-dataset-v1 validation split
   concurrency: 38
+  data_source: llm-perf-dataset-v1 validation split
+  duration_s: 60.0
   initialization_steps:
   - model loaded
   - kv-cache warmed
+  requests_completed: 380
+  requests_issued: 380

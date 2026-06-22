@@ -3,4 +3,7 @@ dataset: mlperf-acc-dataset-v1
 runtime_settings:
   load_pattern: concurrency
   min_duration_ms: 600000
+  runtime:
+    dataloader_random_seed: 42
+    scheduler_random_seed: 42
   stream_all_chunks: false

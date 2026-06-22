@@ -72,6 +72,24 @@ class RuntimeSettings(BaseModel):
     min_sample_count: int | None = None
     stream_all_chunks: bool = True
 
+    class Runtime(BaseModel):
+        """Random seed configuration for the scheduler and dataloader."""
+
+        model_config = ConfigDict(extra="allow")
+
+        scheduler_random_seed: int
+        dataloader_random_seed: int
+
+    class WarmupLoadgen(BaseModel):
+        """Loadgen warmup options."""
+
+        model_config = ConfigDict(extra="allow")
+
+        salt: bool | None = None
+
+    runtime: Runtime
+    warmup: WarmupLoadgen | None = None
+
 
 class PointConfig(BaseModel):
     """Parsed contents of ``points/point_<N>.yaml`` (§8.3).
@@ -89,8 +107,32 @@ class PointConfig(BaseModel):
     concurrency: int
     region: str | None = None
     dataset: str = ""
-    runtime_settings: RuntimeSettings = Field(default_factory=RuntimeSettings)
+    runtime_settings: RuntimeSettings
     warmup: WarmupSpec | None = None
+
+    @model_validator(mode="after")
+    def _check_seeds(self, info: ValidationInfo) -> PointConfig:
+        """Random seeds in runtime_settings.runtime must equal 42."""
+        path: Path | None = (info.context or {}).get("yaml_path")
+        rt = self.runtime_settings.runtime
+        for field_name, val in (
+            ("runtime_settings.runtime.scheduler_random_seed", rt.scheduler_random_seed),
+            ("runtime_settings.runtime.dataloader_random_seed", rt.dataloader_random_seed),
+        ):
+            if val != 42:
+                self._check_results.append(
+                    err(
+                        "seed-config",
+                        f"Point {self.concurrency}: {field_name} = {val!r}, expected 42",
+                        path,
+                        "#8.1",
+                    )
+                )
+            else:
+                self._check_results.append(
+                    ok("seed-config", f"Point {self.concurrency}: {field_name} = 42", path, "#8.1")
+                )
+        return self
 
     @model_validator(mode="after")
     def _check_warmup(self, info: ValidationInfo) -> PointConfig:
@@ -110,6 +152,22 @@ class PointConfig(BaseModel):
                 ok(
                     "warmup-present",
                     f"Point {self.concurrency}: warmup declaration present",
+                    path,
+                    "#6.3.3",
+                )
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_warmup_salt(self, info: ValidationInfo) -> PointConfig:
+        """Warn when warmup_loadgen.warmup.salt is True."""
+        path: Path | None = (info.context or {}).get("yaml_path")
+        warmup_block = self.runtime_settings.warmup
+        if warmup_block is not None and warmup_block.salt is True:
+            self._check_results.append(
+                warn(
+                    "warmup-salt",
+                    f"Point {self.concurrency}: warmup salt is enabled",
                     path,
                     "#6.3.3",
                 )
