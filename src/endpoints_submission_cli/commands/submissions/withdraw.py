@@ -52,9 +52,9 @@ def submissions_withdraw(submission_id: str, token: str | None) -> None:
             )
     """
 
-    try:
-        subs_api.delete_submission_archive(resolved_token, submission_id)
-    except APIError as exc:
-        _console.print(f"[yellow]Archive deletion failed (orphaned):[/yellow] {exc}")
+    # try:
+    #     subs_api.delete_submission_archive(resolved_token, submission_id)
+    # except APIError as exc:
+    #     _console.print(f"[yellow]Archive deletion failed (orphaned):[/yellow] {exc}")
 
     _console.print(f"[bold green]Submission withdrawn:[/bold green] {submission_id}")
