@@ -95,15 +95,38 @@ def _load_yaml(file_path: Path) -> dict[str, Any]:
         raise RunFolderError(f"Invalid YAML in {file_path.name}: {exc}") from exc
 
 
+def _coerce_epoch(value: Any) -> datetime | None:
+    """Interpret *value* as a Unix epoch timestamp, returning an aware UTC datetime.
+
+    The unit (seconds, milliseconds, microseconds, or nanoseconds) is inferred by
+    picking the scale whose resulting calendar year is plausible (2020–2100). Returns
+    None for non-numeric, non-positive, or out-of-range values.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        return None
+    for scale in (1, 1e3, 1e6, 1e9):  # seconds, ms, µs, ns
+        try:
+            dt = datetime.fromtimestamp(value / scale, tz=timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            continue
+        if 2020 <= dt.year <= 2100:
+            return dt
+    return None
+
+
 def _extract_timestamps(result_summary: dict[str, Any]) -> tuple[datetime, datetime]:
     """Derive started_at and finished_at from result_summary.
 
-    Falls back to current time minus duration if no wall-clock timestamp is found.
+    Prefers the benchmark's wall-clock ``test_started_at`` when present and sane;
+    otherwise falls back to current time minus duration.
     """
-    now_utc = datetime.now(tz=timezone.utc)
     duration_s: float = result_summary.get("duration_ns", 0) / 1e9
 
-    finished_at = now_utc
+    started_at = _coerce_epoch(result_summary.get("test_started_at"))
+    if started_at is not None:
+        return started_at, started_at + timedelta(seconds=duration_s)
+
+    finished_at = datetime.now(tz=timezone.utc)
     started_at = finished_at - timedelta(seconds=duration_s)
     return started_at, finished_at
 

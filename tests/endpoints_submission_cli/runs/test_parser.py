@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import tarfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,8 @@ import yaml
 
 from endpoints_submission_cli.exceptions import RunFolderError
 from endpoints_submission_cli.runs.parser import (
+    _coerce_epoch,
+    _extract_timestamps,
     _started_at_to_run_date,
     build_archive,
     parse_run_folder,
@@ -244,3 +247,64 @@ class TestBuildArchiveRunDate:
             assert any(n.endswith(expected) for n in names)
         # run_metadata.json appears exactly once (no duplicate from the substitution).
         assert sum(1 for n in names if n.endswith("run_metadata.json")) == 1
+
+
+_REF = datetime(2026, 3, 15, 10, 30, 0, tzinfo=timezone.utc)
+_REF_EPOCH_S = _REF.timestamp()  # seconds
+
+
+@pytest.mark.unit
+class TestCoerceEpoch:
+    def test_seconds(self) -> None:
+        assert _coerce_epoch(_REF_EPOCH_S) == _REF
+
+    def test_milliseconds(self) -> None:
+        assert _coerce_epoch(_REF_EPOCH_S * 1e3) == _REF
+
+    def test_microseconds(self) -> None:
+        assert _coerce_epoch(_REF_EPOCH_S * 1e6) == _REF
+
+    def test_nanoseconds(self) -> None:
+        assert _coerce_epoch(int(_REF_EPOCH_S * 1e9)) == _REF
+
+    def test_zero_returns_none(self) -> None:
+        # The real-world unpopulated value.
+        assert _coerce_epoch(0) is None
+
+    def test_negative_returns_none(self) -> None:
+        assert _coerce_epoch(-5) is None
+
+    def test_non_numeric_returns_none(self) -> None:
+        assert _coerce_epoch("2026-03-15") is None
+        assert _coerce_epoch(None) is None
+
+    def test_bool_returns_none(self) -> None:
+        # bool is an int subclass; must not be treated as an epoch.
+        assert _coerce_epoch(True) is None
+
+    def test_implausible_year_returns_none(self) -> None:
+        # 100 seconds after the epoch → 1970, outside the sane window at every scale.
+        assert _coerce_epoch(100) is None
+
+
+@pytest.mark.unit
+class TestExtractTimestamps:
+    def test_uses_test_started_at_when_present(self) -> None:
+        rs = {"test_started_at": int(_REF_EPOCH_S * 1e9), "duration_ns": 60 * 1e9}
+        started, finished = _extract_timestamps(rs)
+        assert started == _REF
+        assert (finished - started).total_seconds() == pytest.approx(60.0)
+
+    def test_falls_back_to_now_when_zero(self) -> None:
+        # test_started_at = 0 (real-world case) → now-based fallback.
+        before = datetime.now(tz=timezone.utc)
+        started, finished = _extract_timestamps({"test_started_at": 0, "duration_ns": 60 * 1e9})
+        after = datetime.now(tz=timezone.utc)
+        assert before <= finished <= after
+        assert (finished - started).total_seconds() == pytest.approx(60.0)
+
+    def test_falls_back_when_field_absent(self) -> None:
+        before = datetime.now(tz=timezone.utc)
+        started, finished = _extract_timestamps({"duration_ns": 0})
+        after = datetime.now(tz=timezone.utc)
+        assert before <= started == finished <= after
