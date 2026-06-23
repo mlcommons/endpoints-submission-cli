@@ -385,6 +385,12 @@ def _write_pareto_entries(
             "load_pattern": lp_from_config,
             "stream_all_chunks": stream_all_chunks,
             "min_duration_ms": runtime_cfg.get("min_duration_ms"),
+            # Drop the source config blocks in wholesale rather than cherry-picking keys.
+            # The checker's Runtime/WarmupLoadgen models are extra="allow", so this carries
+            # every field through while still satisfying the required seed disclosure
+            # (runtime_settings.runtime) and exposing warmup salt for the salt check.
+            "runtime": dict(runtime_cfg),
+            "warmup": dict(warmup_cfg),
         }
         if runtime_cfg.get("n_samples_to_issue") is not None:
             runtime_settings_out["min_sample_count"] = runtime_cfg.get("n_samples_to_issue")

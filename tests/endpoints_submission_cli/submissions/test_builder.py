@@ -498,6 +498,97 @@ class TestPointYamlFromConfig:
         data = yaml.safe_load(point_yaml.read_text())
         assert data["warmup"]["enabled"] is True
 
+    def test_runtime_seeds_from_config(self, run_folder: Path, tmp_path: Path) -> None:
+        """runtime_settings.runtime carries the seeds from config.yaml settings.runtime."""
+        archive = self._make_archive(
+            run_folder,
+            {"settings": {"runtime": {"scheduler_random_seed": 42, "dataloader_random_seed": 42}}},
+            tmp_path,
+        )
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        data = yaml.safe_load(next(sub_dir.rglob("point_*.yaml")).read_text())
+        runtime = data["runtime_settings"]["runtime"]
+        assert runtime["scheduler_random_seed"] == 42
+        assert runtime["dataloader_random_seed"] == 42
+
+    def test_runtime_block_mirrors_config_runtime(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
+        """The whole settings.runtime block is dropped into runtime_settings.runtime."""
+        archive = self._make_archive(
+            run_folder,
+            {
+                "settings": {
+                    "runtime": {
+                        "scheduler_random_seed": 42,
+                        "dataloader_random_seed": 42,
+                        "max_duration_ms": 3_600_000,
+                        "n_samples_to_issue": 2000,
+                    }
+                }
+            },
+            tmp_path,
+        )
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        data = yaml.safe_load(next(sub_dir.rglob("point_*.yaml")).read_text())
+        runtime = data["runtime_settings"]["runtime"]
+        # Every source key is carried through verbatim, not just the seeds.
+        assert runtime == {
+            "scheduler_random_seed": 42,
+            "dataloader_random_seed": 42,
+            "max_duration_ms": 3_600_000,
+            "n_samples_to_issue": 2000,
+        }
+
+    def test_warmup_salt_from_config(self, run_folder: Path, tmp_path: Path) -> None:
+        """runtime_settings.warmup.salt is sourced from config.yaml settings.warmup.salt."""
+        archive = self._make_archive(
+            run_folder,
+            {"settings": {"warmup": {"salt": True}}},
+            tmp_path,
+        )
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        data = yaml.safe_load(next(sub_dir.rglob("point_*.yaml")).read_text())
+        assert data["runtime_settings"]["warmup"]["salt"] is True
+
+    def test_built_runtime_settings_validate_against_checker(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
+        """Regression: built runtime_settings must satisfy the checker's RuntimeSettings.
+
+        Previously the builder omitted runtime_settings.runtime, which the checker
+        requires (no default), so a freshly built submission failed to even parse.
+        """
+        from submission_checker.models.file.point_config import RuntimeSettings
+
+        archive = self._make_archive(
+            run_folder,
+            {
+                "settings": {
+                    "runtime": {
+                        "min_duration_ms": 600_000,
+                        "scheduler_random_seed": 42,
+                        "dataloader_random_seed": 42,
+                    }
+                }
+            },
+            tmp_path,
+        )
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        data = yaml.safe_load(next(sub_dir.rglob("point_*.yaml")).read_text())
+        # Must not raise — runtime_settings.runtime is present and well-formed.
+        rs = RuntimeSettings.model_validate(data["runtime_settings"])
+        assert rs.runtime.scheduler_random_seed == 42
+        assert rs.runtime.dataloader_random_seed == 42
+
 
 @pytest.mark.unit
 class TestTruncateResponses:
