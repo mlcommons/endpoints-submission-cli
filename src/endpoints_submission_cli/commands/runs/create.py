@@ -14,7 +14,7 @@ import click
 
 from ...exceptions import APIError, ArchiveError, RunFolderError
 from ...runs import api as runs_api
-from ...runs.parser import build_archive, parse_run_folder
+from ...runs.parser import _started_at_to_run_date, build_archive, parse_run_folder
 from ..common import _console, _get_token
 
 __all__ = ["runs_create"]
@@ -91,8 +91,10 @@ def runs_create(
     # At this point the run record exists in the DB but has no archive yet.
     # If the upload fails we must roll back by deleting the run record so we
     # don't leave an orphaned entry with no associated data.
+    run_date = _started_at_to_run_date(payload["started_at"])
+
     with tempfile.TemporaryDirectory() as tmp:
-        archive_path = build_archive(path, Path(tmp) / f"{path.name}.tar.gz")
+        archive_path = build_archive(path, Path(tmp) / f"{path.name}.tar.gz", run_date=run_date)
         try:
             upload_result = runs_api.upload_run_archive(resolved_token, run_id, archive_path)
         except (APIError, ArchiveError, OSError) as exc:

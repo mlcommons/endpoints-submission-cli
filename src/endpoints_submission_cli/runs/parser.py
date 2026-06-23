@@ -108,20 +108,64 @@ def _extract_timestamps(result_summary: dict[str, Any]) -> tuple[datetime, datet
     return started_at, finished_at
 
 
-def build_archive(folder: Path, dest: Path | None = None) -> Path:
+def _started_at_to_run_date(started_at: str) -> str | None:
+    """Convert an ISO 8601 ``started_at`` datetime to a ``YYYY-MM-DD`` date string.
+
+    Returns None if the value cannot be parsed. Handles a trailing ``Z`` (UTC),
+    which ``datetime.fromisoformat`` does not accept before Python 3.11.
+    """
+    value = started_at.strip()
+    if value.endswith(("Z", "z")):
+        value = value[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(value).date().isoformat()
+    except ValueError:
+        return None
+
+
+def build_archive(folder: Path, dest: Path | None = None, run_date: str | None = None) -> Path:
     """Create a .tar.gz archive of *folder*.
 
     Args:
         folder: Directory to archive.
         dest: Destination file path. Defaults to ``<folder.name>.tar.gz`` beside *folder*.
+        run_date: When provided and the folder contains a ``run_metadata.json``, the
+            archived copy of that file has its ``run_date`` field set to this value.
+            The source folder on disk is left untouched.
 
     Returns:
         Path of the created archive.
     """
+    import io
     import tarfile
 
     if dest is None:
         dest = folder.parent / f"{folder.name}.tar.gz"
+
+    patched_metadata: bytes | None = None
+    meta_path = folder / "run_metadata.json"
+    if run_date is not None and meta_path.is_file():
+        try:
+            metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            metadata = None
+        if isinstance(metadata, dict):
+            metadata["run_date"] = run_date
+            patched_metadata = json.dumps(metadata, indent=2).encode("utf-8")
+
+    meta_arcname = f"{folder.name}/run_metadata.json"
     with tarfile.open(dest, "w:gz") as tar:
-        tar.add(folder, arcname=folder.name)
+        if patched_metadata is None:
+            tar.add(folder, arcname=folder.name)
+        else:
+            # Add everything except the original run_metadata.json, then append the
+            # patched copy from memory so the source folder is never mutated.
+            tar.add(
+                folder,
+                arcname=folder.name,
+                filter=lambda ti: None if ti.name == meta_arcname else ti,
+            )
+            info = tarfile.TarInfo(name=meta_arcname)
+            info.size = len(patched_metadata)
+            tar.addfile(info, io.BytesIO(patched_metadata))
     return dest
