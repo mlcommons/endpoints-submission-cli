@@ -95,20 +95,39 @@ _NODE_TYPE = {
     "accelerators_per_node": 8,
     "accelerator_memory_capacity": "80 GB HBM2e",
     "host_networking": "InfiniBand EDR",
+    "host_network_card_count": "4x NIC",
     "host_storage_type": "NVMe SSD",
     "host_storage_capacity": "10 TB",
     "operating_system": "Ubuntu 20.04",
+    "host_memory_configuration": "8x 64GB DDR5",
+    "accelerator_memory_type": "HBM2e",
+    "driver": "550.54",
+    "filesystem": "ext4",
 }
 
 _BASE_FLAT = {
     "submitter_org_names": "Test Org",
+    "submitter_contact": "contact@example.com",
     "system_name": "test-node",
     "system_category": "datacenter",
     "system_availability_status": "Available",
     "max_supported_concurrency": 1024,
+    "system_size": "1 node",
+    "system_node_ensemble_count": 1,
+    "system_node_ensemble_total": 1,
     "serving_framework": "vLLM 0.4.0",
     "node_types": [_NODE_TYPE],
     "division": "Standardized",
+    "model_id": "test-model",
+    "model_precision": "FP16",
+    "link_to_model": "https://example.com/model",
+    "dataset_id": "cnn_dailymail",
+    "dataset_name": "CNN/DailyMail",
+    "input_token_average": 870.0,
+    "output_token_average": 128.0,
+    "dataset_type": "performance",
+    "dataset_link": "https://example.com/dataset",
+    "measured_accuracy_score": "38.7",
 }
 
 
@@ -127,6 +146,45 @@ def test_system_description_accepts_vcpu_without_core_count():
     sd = SystemDescription(**{**_BASE_FLAT, "node_types": [node_vcpu]})
     assert sd.node_types[0].host_processor_vcpu_count == 40
     assert sd.node_types[0].host_processor_core_count is None
+
+
+def test_node_requires_core_or_vcpu_count():
+    # A node disclosing neither physical cores nor vCPUs is rejected.
+    node = {**_NODE_TYPE, "host_processor_core_count": None, "host_processor_vcpu_count": None}
+    with pytest.raises(ValidationError):
+        SystemDescription(**{**_BASE_FLAT, "node_types": [node]})
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "submitter_contact",
+        "system_size",
+        "system_node_ensemble_count",
+        "model_id",
+        "model_precision",
+        "link_to_model",
+        "dataset_id",
+        "input_token_average",
+        "dataset_link",
+        "measured_accuracy_score",
+    ],
+)
+def test_required_system_fields_rejected_when_missing(field):
+    payload = {k: v for k, v in _BASE_FLAT.items() if k != field}
+    with pytest.raises(ValidationError):
+        SystemDescription(**payload)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["host_memory_configuration", "accelerator_memory_type", "host_network_card_count",
+     "driver", "filesystem"],
+)
+def test_required_node_fields_rejected_when_missing(field):
+    node = {k: v for k, v in _NODE_TYPE.items() if k != field}
+    with pytest.raises(ValidationError):
+        SystemDescription(**{**_BASE_FLAT, "node_types": [node]})
 
 
 def test_system_description_allows_extra_fields():
@@ -272,10 +330,11 @@ def test_dataset_metadata_invalid_string_raises():
 
 
 # ---------------------------------------------------------------------------
-# measured_accuracy_score coercion
+# measured_accuracy_score
 # ---------------------------------------------------------------------------
 
 
-def test_accuracy_empty_string_measured_score_coerced_to_none():
-    sd = SystemDescription(**{**_BASE_FLAT, "measured_accuracy_score": ""})
-    assert sd.measured_accuracy_score is None
+def test_accuracy_empty_string_measured_score_rejected():
+    # measured_accuracy_score is required; an empty string coerces to None and is rejected.
+    with pytest.raises(ValidationError):
+        SystemDescription(**{**_BASE_FLAT, "measured_accuracy_score": ""})

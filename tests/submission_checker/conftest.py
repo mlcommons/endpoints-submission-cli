@@ -44,9 +44,14 @@ _NODE_TYPE = {
     "accelerators_per_node": 8,
     "accelerator_memory_capacity": "80 GB",
     "host_networking": "InfiniBand",
+    "host_network_card_count": "4x NIC",
     "host_storage_type": "NVMe",
     "host_storage_capacity": "10 TB",
     "operating_system": "Ubuntu 22.04",
+    "host_memory_configuration": "8x 64GB DDR5",
+    "accelerator_memory_type": "HBM3",
+    "driver": "550.54",
+    "filesystem": "ext4",
 }
 
 _M = 1024
@@ -64,13 +69,27 @@ def _system_desc(
 ) -> SystemDescription:
     return SystemDescription(
         submitter_org_names="Test Org",
+        submitter_contact="contact@example.com",
         system_name="test-sys",
         system_category="datacenter",
         system_availability_status="Available",
         max_supported_concurrency=max_supported_concurrency,
+        system_size="1 node",
+        system_node_ensemble_count=1,
+        system_node_ensemble_total=1,
         serving_framework="vLLM",
         node_types=[_NODE_TYPE],
         division=division,
+        model_id="test-model",
+        model_precision="FP16",
+        link_to_model="https://example.com/model",
+        dataset_id="cnn_dailymail",
+        dataset_name="CNN/DailyMail",
+        input_token_average=870.0,
+        output_token_average=128.0,
+        dataset_type="performance",
+        dataset_link="https://example.com/dataset",
+        measured_accuracy_score="38.7",
         **kwargs,
     )
 

@@ -20,6 +20,7 @@ from endpoints_submission_cli.submissions.builder import (
     create_bundle_archive,
     extract_archive,
 )
+from submission_checker.models import Severity
 
 
 @pytest.mark.unit
@@ -588,6 +589,95 @@ class TestPointYamlFromConfig:
         rs = RuntimeSettings.model_validate(data["runtime_settings"])
         assert rs.runtime.scheduler_random_seed == 42
         assert rs.runtime.dataloader_random_seed == 42
+
+
+@pytest.mark.unit
+class TestBuilderCheckerContract:
+    """End-to-end: the builder's output must be consumable by the real checker.
+
+    This is the coverage that was missing — builder unit tests only inspected
+    individual YAML keys, and checker unit tests only validated hand-built dicts,
+    so a structural mismatch (builder omitting a field the checker requires) slipped
+    through. These tests run the builder's actual output through the real checker.
+    """
+
+    def _complete_run_archive(self, run_folder: Path, tmp_path: Path, name: str = "run") -> Path:
+        """A run folder whose config has every field the checker needs to parse a point."""
+        import shutil
+
+        folder = tmp_path / name
+        shutil.copytree(run_folder, folder)
+        cfg = yaml.safe_load((folder / "config.yaml").read_text())
+        cfg["settings"]["runtime"].update(
+            {
+                "min_duration_ms": 600_000,
+                "scheduler_random_seed": 42,
+                "dataloader_random_seed": 42,
+            }
+        )
+        cfg["settings"]["client"] = {"stream_all_chunks": True}
+        cfg["settings"]["warmup"] = {
+            "enabled": True,
+            "salt": False,
+            "duration_s": 60.0,
+            "requests_issued": 100,
+            "requests_completed": 100,
+            "data_source": "warmup-ds",
+            "concurrency": 4,
+        }
+        (folder / "config.yaml").write_text(yaml.dump(cfg))
+        archive = tmp_path / f"{name}.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname=name)
+        return archive
+
+    def test_built_points_parse_through_checker_pointconfig(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
+        """Every built point_*.yaml must validate against the checker's PointConfig."""
+        from submission_checker.models.file.point_config import PointConfig
+
+        archive = self._complete_run_archive(run_folder, tmp_path)
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        points = list(sub_dir.rglob("point_*.yaml"))
+        assert points, "builder produced no point YAML"
+        for py in points:
+            data = yaml.safe_load(py.read_text())
+            # Must not raise — this is exactly what failed before the runtime fix.
+            cfg = PointConfig.model_validate(data, context={"yaml_path": py})
+            assert cfg.runtime_settings.runtime.scheduler_random_seed == 42
+            assert cfg.runtime_settings.runtime.dataloader_random_seed == 42
+            # No per-point structural/seed errors for a compliant input.
+            errors = [r for r in cfg._check_results if r.severity == Severity.ERROR]
+            assert not errors, f"{py.name} unexpected errors: {[(r.rule, r.message) for r in errors]}"
+
+    def test_full_checker_runs_without_parse_failures(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
+        """Running the real SubmissionChecker on built output yields no parse/validation errors.
+
+        Other rule failures (e.g. point-count) are acceptable here — we only assert that
+        nothing failed to *parse*, which is the builder↔checker contract.
+        """
+        from submission_checker.checker import SubmissionChecker
+
+        archive = self._complete_run_archive(run_folder, tmp_path)
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        report = SubmissionChecker(sub_dir).run()
+        parse_failures = [
+            r
+            for r in report.results
+            if r.severity == Severity.ERROR
+            and ("validation error" in r.message.lower() or "field required" in r.message.lower())
+        ]
+        assert not parse_failures, (
+            "checker hit parse/validation failures on builder output: "
+            f"{[(r.rule, r.message) for r in parse_failures]}"
+        )
 
 
 @pytest.mark.unit

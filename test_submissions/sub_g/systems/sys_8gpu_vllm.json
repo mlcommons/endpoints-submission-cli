@@ -1,5 +1,6 @@
 {
   "submitter_org_names": "Submitter-G",
+  "submitter_contact": "contact@example.com",
   "system_name": "sys_8gpu_vllm",
   "system_category": "datacenter",
   "system_availability_status": "Available",
@@ -20,8 +21,26 @@
       "host_networking": "InfiniBand NDR",
       "host_storage_capacity": "15 TB",
       "host_storage_type": "NVMe SSD",
-      "operating_system": "Ubuntu 22.04"
+      "operating_system": "Ubuntu 22.04",
+      "host_memory_configuration": "8x 64GB DDR5",
+      "accelerator_memory_type": "HBM3e",
+      "host_network_card_count": "1x NIC",
+      "driver": "1.0",
+      "filesystem": "ext4"
     }
   ],
-  "division": "Standardized"
+  "division": "Standardized",
+  "model_precision": "FP16",
+  "link_to_model": "https://example.com/model",
+  "dataset_id": "cnn_dailymail",
+  "dataset_name": "CNN/DailyMail",
+  "input_token_average": 870.0,
+  "output_token_average": 128.0,
+  "dataset_type": "performance",
+  "dataset_link": "https://example.com/dataset",
+  "measured_accuracy_score": "38.7",
+  "system_size": "1 node",
+  "model_id": "llama3-70b",
+  "system_node_ensemble_count": 1,
+  "system_node_ensemble_total": 1
 }
