@@ -87,9 +87,10 @@ class TestBuildSubmissionFolder:
         assert "n_samples_completed" in data
         assert "duration_ns" in data
 
-    def test_accuracy_file_created(self, run_archive: Path, tmp_path: Path) -> None:
+    def test_accuracy_file_created(self, run_folder: Path, tmp_path: Path) -> None:
+        acc_archive = self._make_archive(run_folder, tmp_path, "acc", 4, "accuracy")
         sub_dir = build_submission_folder(
-            [("run-001", run_archive)], "standardized", "available", tmp_path
+            [("run-001", acc_archive)], "standardized", "available", tmp_path / "sub"
         )
         acc_jsons = list(sub_dir.rglob("accuracy/results.json"))
         assert len(acc_jsons) == 1
@@ -223,13 +224,9 @@ class TestBuildSubmissionFolder:
             "available",
             tmp_path / "sub",
         )
-        assert (sub_dir / "pareto").glob("*/*/points/point_4.yaml").__next__().exists()
-        assert (
-            (sub_dir / "pareto")
-            .glob("*/*/results/point_4/accuracy/point_4.yaml")
-            .__next__()
-            .exists()
-        )
+        assert list((sub_dir / "pareto").glob("*/*/points/point_4.yaml"))
+        assert list((sub_dir / "pareto").glob("*/*/results/point_4/accuracy/results.json"))
+        assert not list((sub_dir / "pareto").glob("*/*/results/point_4/accuracy/point_4.yaml"))
 
     def test_accuracy_run_routed_to_accuracy(self, run_folder: Path, tmp_path: Path) -> None:
         a_acc = self._make_archive(run_folder, tmp_path, "acc", 4, "accuracy")
@@ -240,9 +237,9 @@ class TestBuildSubmissionFolder:
         assert len(model_dirs) == 1
         model_dir = model_dirs[0]
         acc_dir = model_dir / "results" / "point_4" / "accuracy"
-        assert (acc_dir / "point_4.yaml").exists()
+        assert not (acc_dir / "point_4.yaml").exists()
         assert (acc_dir / "results_summary.json").exists()
-        assert not (model_dir / "points" / "point_4.yaml").exists()
+        assert (model_dir / "points" / "point_4.yaml").exists()
         assert not (model_dir / "results" / "point_4" / "results_summary.json").exists()
 
 
@@ -641,3 +638,92 @@ class TestSlugify:
     def test_long_name_truncated(self) -> None:
         long = "A" * 100
         assert len(_slugify(long)) <= 64
+
+
+@pytest.mark.unit
+class TestAccuracyResultsTruncation:
+    """Tests for accuracy/results.json truncation across three workflow scenarios."""
+
+    def _make_accuracy_archive(
+        self,
+        run_folder: Path,
+        tmp_path: Path,
+        name: str,
+        results_content: dict | None = None,
+        acc_results_content: dict | None = None,
+    ) -> Path:
+        import shutil
+
+        folder = tmp_path / name
+        shutil.copytree(run_folder, folder)
+        cfg = yaml.safe_load((folder / "config.yaml").read_text())
+        cfg["datasets"][0]["type"] = "accuracy"
+        (folder / "config.yaml").write_text(yaml.dump(cfg))
+        if results_content is not None:
+            (folder / "results.json").write_text(json.dumps(results_content))
+        if acc_results_content is not None:
+            (folder / "accuracy").mkdir(exist_ok=True)
+            (folder / "accuracy" / "results.json").write_text(json.dumps(acc_results_content))
+        archive = tmp_path / f"{name}.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname=name)
+        return archive
+
+    def _big_results(self, count: int = 5000) -> dict:
+        return {
+            "config": {},
+            "accuracy_scores": {"score": 0.45},
+            "responses": [{"text": "a" * 100, "idx": i} for i in range(count)],
+        }
+
+    def test_no_accuracy_subdir_truncates_responses(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
+        """Workflow 1/3: archive has only root results.json; responses written truncated to accuracy/results.json."""
+        archive = self._make_accuracy_archive(
+            run_folder, tmp_path, "wf1", results_content=self._big_results()
+        )
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        acc_files = list(sub_dir.rglob("accuracy/results.json"))
+        assert len(acc_files) == 1
+        written = json.loads(acc_files[0].read_text())
+        assert len(json.dumps(written["responses"]).encode()) <= 10 * 1024
+
+    def test_accuracy_subdir_large_responses_truncated(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
+        """Workflow 2: archive has accuracy/results.json with large responses; truncated on write."""
+        archive = self._make_accuracy_archive(
+            run_folder, tmp_path, "wf2", acc_results_content=self._big_results()
+        )
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        acc_files = list(sub_dir.rglob("accuracy/results.json"))
+        assert len(acc_files) == 1
+        written = json.loads(acc_files[0].read_text())
+        assert len(json.dumps(written["responses"]).encode()) <= 10 * 1024
+
+    def test_accuracy_subdir_already_small_written_intact(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
+        """Workflow 3: archive has accuracy/results.json already within 10 KB; written without corruption."""
+        small_responses = [{"text": "hi", "idx": 0}]
+        acc_results = {
+            "config": {},
+            "accuracy_scores": {"score": 0.45},
+            "responses": small_responses,
+        }
+        archive = self._make_accuracy_archive(
+            run_folder, tmp_path, "wf3", acc_results_content=acc_results
+        )
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        acc_files = list(sub_dir.rglob("accuracy/results.json"))
+        assert len(acc_files) == 1
+        written = json.loads(acc_files[0].read_text())
+        assert written["responses"] == small_responses
+        assert written["accuracy_scores"] == acc_results["accuracy_scores"]
