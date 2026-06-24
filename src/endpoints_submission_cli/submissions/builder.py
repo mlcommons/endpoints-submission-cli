@@ -113,7 +113,7 @@ def build_submission_folder(
         system_max_concurrency[system_id] = int(values.pop())
 
     model_runs: dict[str, list[dict[str, Any]]] = {}
-    for (system_id, model), runs in groups.items():
+    for (_system_id, model), runs in groups.items():
         model_runs.setdefault(model, []).extend(runs)
     max_tps_by_model: dict[str, float | None] = {
         model: _compute_max_tps(runs) for model, runs in model_runs.items()
@@ -125,7 +125,8 @@ def build_submission_folder(
             _write_system_description(submission_dir, system_id, runs[0]["system_info"])
             written_systems.add(system_id)
         _write_pareto_entries(
-            submission_dir, system_id, model, runs, system_max_concurrency[system_id], max_tps_by_model[model]
+            submission_dir, system_id, model, runs,
+            system_max_concurrency[system_id], max_tps_by_model[model],
         )
 
     # Copy src/ for Standardized division submissions (mirrors documentation/ handling)
