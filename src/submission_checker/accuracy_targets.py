@@ -20,6 +20,28 @@ __all__ = ["get_thresholds"]
 # (model-keyword fragments, {metric → (lower, upper | None)}, min_queries)
 # More-specific entries must come before less-specific ones.
 _TARGETS: list[tuple[frozenset[str], dict[str, tuple[float, float | None]], int]] = [
+    # deepseek-r1  — golden fp32 exact_match 81.3582 (gate ≥ 0.99×).
+    # Only exact_match is gated: results.json's accuracy_scores expose a single scalar
+    # `score` (== exact_match). The canonical spec also bounds TOKENS_PER_SAMPLE
+    # (0.9–1.1 × 3886.2274), but that metric lives only in the deepseek_eval file, not
+    # in results.json, so it is intentionally NOT gated here.
+    (
+        frozenset({"deepseek", "r1"}),
+        {
+            "exact_match": (81.3582 * 0.99, None),
+        },
+        4388,
+    ),
+    # gpt-oss-120b  — golden fp32 exact_match 83.13; upstream tokens_per_sample upper
+    # bound is still a placeholder (constants.py:215), so it is intentionally omitted.
+    # min_queries uses the accuracy-sample-count (4395), not the perf count (6396).
+    (
+        frozenset({"gptoss", "120b"}),
+        {
+            "exact_match": (83.13 * 0.99, None),
+        },
+        4395,
+    ),
     # llama3.1-405b  — inference uses ROUGEL as primary; also exact_match + tokens
     (
         frozenset({"llama3", "405b"}),

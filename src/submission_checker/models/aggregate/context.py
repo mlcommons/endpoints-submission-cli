@@ -248,6 +248,26 @@ class ModelContext(BaseModel):
         for ds_scores in all_scores.values():
             flat_scores.update(ds_scores)
 
+        # Endpoints scorers (e.g. DeepSeekR1Scorer) write a single *unnamed* scalar
+        # `score` per dataset into results.json — the scorer's primary metric, with its
+        # identity dropped. When the model declares exactly one accuracy metric, gate
+        # that scalar against it; but WARN, because we cannot verify the scalar's
+        # identity, and any secondary metrics (e.g. tokens_per_sample) are absent from
+        # results.json and are therefore NOT checked.
+        if list(flat_scores) == ["score"] and len(thresholds) == 1:
+            only_metric = next(iter(thresholds))
+            self._check_results.append(
+                warn(
+                    "accuracy-gate",
+                    f"results.json exposes only an unnamed scalar accuracy score; "
+                    f"gating it as '{only_metric}'. Secondary metrics (if any) are not "
+                    f"present in results.json and are not checked.",
+                    json_path,
+                    "#15",
+                )
+            )
+            flat_scores = {only_metric: flat_scores["score"]}
+
         for threshold_key, (lower, upper) in thresholds.items():
             # Match score key case-insensitively
             score: float | None = None
