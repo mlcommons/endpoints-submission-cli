@@ -6,6 +6,7 @@ model validators on PointConfig, PointResult, and ModelContext.
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 __all__ = ["SubmissionChecker"]
@@ -31,6 +32,7 @@ from .models import ok as _ok
 from .models import warn as _warn
 from .models.loader import (
     load_accuracy_result,
+    load_accuracy_scores,
     load_point_config,
     load_result_summary,
     load_system_description,
@@ -38,6 +40,19 @@ from .models.loader import (
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+def _results_has_accuracy_scores(path: Path) -> bool:
+    """True if a results.json carries a non-empty ``accuracy_scores`` mapping."""
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return False
+    return (
+        isinstance(data, dict)
+        and isinstance(data.get("accuracy_scores"), dict)
+        and bool(data["accuracy_scores"])
+    )
 
 
 class SubmissionChecker:
@@ -111,13 +126,16 @@ class SubmissionChecker:
         for system_json in system_jsons:
             report.results.extend(self._check_system(system_json, pareto_dir))
 
-        # §15: at least one model in the submission must have an accuracy/results.json.
-        has_full_accuracy = any(True for _ in pareto_dir.rglob("accuracy/results.json"))
+        # §15: at least one model must carry accuracy results — either as accuracy_scores
+        # embedded in a results.json, or as a standalone accuracy/results.json.
+        has_full_accuracy = any(
+            True for _ in pareto_dir.rglob("accuracy/results.json")
+        ) or any(_results_has_accuracy_scores(p) for p in pareto_dir.rglob("results.json"))
         if has_full_accuracy:
             report.results.append(
                 _ok(
                     "accuracy-present",
-                    "At least one model has accuracy/results.json",
+                    "At least one model has accuracy results",
                     pareto_dir,
                     "#15",
                 )
@@ -126,7 +144,8 @@ class SubmissionChecker:
             report.results.append(
                 _err(
                     "accuracy-present",
-                    "No model in this submission has accuracy/results.json",
+                    "No model in this submission has accuracy results "
+                    "(accuracy_scores in results.json or accuracy/results.json)",
                     pareto_dir,
                     "#15",
                 )
@@ -303,13 +322,30 @@ class SubmissionChecker:
             results.extend(point_result._check_results)
             loaded_points.append((config, summary))
 
-        # Load accuracy from per-point result dirs. Per-model warnings are only
-        # emitted when a point has an accuracy/ dir but files within it are absent.
-        # run() enforces that at least one model in the submission has both files.
+        # Load accuracy per point, preferring the accuracy_scores embedded in
+        # results.json, then falling back to a standalone accuracy/results.json.
+        # The first valid source wins; run() enforces that at least one model has one.
         accuracy_dir: Path | None = None
         accuracy_result = None
         for config, _ in loaded_points:
-            pd = results_dir / f"point_{config.concurrency}" / "accuracy"
+            if accuracy_result is not None:
+                break
+            point_dir = results_dir / f"point_{config.concurrency}"
+
+            # Primary: accuracy_scores embedded in results.json.
+            results_json = point_dir / "results.json"
+            if results_json.exists():
+                loaded, acc_results, present = load_accuracy_scores(results_json)
+                if present:
+                    results.extend(acc_results)
+                    if loaded is not None and not any(
+                        r.severity == Severity.ERROR for r in acc_results
+                    ):
+                        accuracy_result, accuracy_dir = loaded, point_dir
+                    continue
+
+            # Fallback: standalone accuracy/results.json (moved from the run archive).
+            pd = point_dir / "accuracy"
             if not pd.is_dir():
                 continue
             json_p = pd / "results.json"
@@ -322,13 +358,13 @@ class SubmissionChecker:
                         "#15",
                     )
                 )
-            elif accuracy_result is None:
-                accuracy_result, acc_results = load_accuracy_result(json_p)
+            else:
+                loaded, acc_results = load_accuracy_result(json_p)
                 results.extend(acc_results)
-                if any(r.severity == Severity.ERROR for r in acc_results):
-                    accuracy_result = None
-                else:
-                    accuracy_dir = pd
+                if loaded is not None and not any(
+                    r.severity == Severity.ERROR for r in acc_results
+                ):
+                    accuracy_result, accuracy_dir = loaded, pd
 
         # ModelContext validates point-count, regional-coverage, config-consistency, accuracy-gate
         model_ctx = ModelContext(

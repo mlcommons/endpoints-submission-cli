@@ -20,7 +20,6 @@ from endpoints_submission_cli.submissions.builder import (
     extract_archive,
 )
 from endpoints_submission_cli.truncation import truncate_responses as _truncate_responses
-from submission_checker.models.file import AccuracyResult
 
 
 @pytest.mark.unit
@@ -673,106 +672,6 @@ class TestSlugify:
     def test_long_name_truncated(self) -> None:
         long = "A" * 100
         assert len(_slugify(long)) <= 64
-
-
-@pytest.mark.unit
-class TestAccuracyResultsNormalization:
-    """`accuracy/results.json` must end up in the checker's AccuracyResult schema.
-
-    A run's accuracy file is frequently a normal results.json blob (top-level
-    config/results/accuracy_scores/responses). The builder unwraps it to the bare
-    per-dataset mapping so it does not fail accuracy-valid; a file already in the
-    expected schema is left untouched.
-    """
-
-    def _make_accuracy_archive(
-        self,
-        run_folder: Path,
-        tmp_path: Path,
-        name: str,
-        results_content: dict | None = None,
-        acc_results_content: dict | None = None,
-    ) -> Path:
-        import shutil
-
-        folder = tmp_path / name
-        shutil.copytree(run_folder, folder)
-        cfg = yaml.safe_load((folder / "config.yaml").read_text())
-        cfg["datasets"][0]["type"] = "accuracy"
-        (folder / "config.yaml").write_text(yaml.dump(cfg))
-        if results_content is not None:
-            (folder / "results.json").write_text(json.dumps(results_content))
-        if acc_results_content is not None:
-            (folder / "accuracy").mkdir(exist_ok=True)
-            (folder / "accuracy" / "results.json").write_text(json.dumps(acc_results_content))
-        archive = tmp_path / f"{name}.tar.gz"
-        with tarfile.open(archive, "w:gz") as tar:
-            tar.add(folder, arcname=name)
-        return archive
-
-    _EXPECTED_SCORES = {"test_ds": {"dataset_name": "test_ds", "num_samples": 100, "score": 0.45}}
-
-    def _results_blob(self, count: int = 5000) -> dict:
-        """A normal results.json blob carrying accuracy_scores plus a large responses list."""
-        return {
-            "config": {},
-            "results": {"total": 100},
-            "accuracy_scores": self._EXPECTED_SCORES,
-            "responses": [{"text": "a" * 100, "idx": i} for i in range(count)],
-        }
-
-    def _assert_unwrapped_and_valid(self, written: dict) -> None:
-        # The bare per-dataset mapping only — no wrapper keys, no responses — and it
-        # must pass the checker's AccuracyResult schema.
-        assert "responses" not in written
-        assert "accuracy_scores" not in written and "config" not in written
-        assert written == self._EXPECTED_SCORES
-        AccuracyResult.model_validate(written)  # raises ValidationError if malformed
-
-    def test_root_results_blob_unwrapped(self, run_folder: Path, tmp_path: Path) -> None:
-        """Archive ships only a normal results.json blob → unwrapped to its accuracy_scores."""
-        archive = self._make_accuracy_archive(
-            run_folder, tmp_path, "wf1", results_content=self._results_blob()
-        )
-        sub_dir = build_submission_folder(
-            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
-        )
-        acc_files = list(sub_dir.rglob("accuracy/results.json"))
-        assert len(acc_files) == 1
-        self._assert_unwrapped_and_valid(json.loads(acc_files[0].read_text()))
-
-    def test_accuracy_subdir_blob_unwrapped(self, run_folder: Path, tmp_path: Path) -> None:
-        """Archive ships a results.json-shaped accuracy/results.json → unwrapped."""
-        archive = self._make_accuracy_archive(
-            run_folder, tmp_path, "wf2", acc_results_content=self._results_blob()
-        )
-        sub_dir = build_submission_folder(
-            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
-        )
-        acc_files = list(sub_dir.rglob("accuracy/results.json"))
-        assert len(acc_files) == 1
-        self._assert_unwrapped_and_valid(json.loads(acc_files[0].read_text()))
-
-    def test_already_expected_format_left_intact(self, run_folder: Path, tmp_path: Path) -> None:
-        """An accuracy file already in the AccuracyResult schema is written through unchanged."""
-        correct = {
-            "cnn_dailymail::m": {
-                "dataset_name": "cnn_dailymail::m",
-                "num_samples": 13368,
-                "score": {"rouge1": 39.0},
-            }
-        }
-        archive = self._make_accuracy_archive(
-            run_folder, tmp_path, "wf3", acc_results_content=correct
-        )
-        sub_dir = build_submission_folder(
-            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
-        )
-        acc_files = list(sub_dir.rglob("accuracy/results.json"))
-        assert len(acc_files) == 1
-        written = json.loads(acc_files[0].read_text())
-        assert written == correct  # unchanged: no top-level accuracy_scores to unwrap
-        AccuracyResult.model_validate(written)
 
 
 @pytest.mark.unit

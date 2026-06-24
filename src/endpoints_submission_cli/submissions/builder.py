@@ -199,63 +199,13 @@ def _load_run_data(run_id: str, division: str, availability: str, run_dir: Path)
 
     system_info = _load_system_desc(base, run_id, division, availability)
 
-    extra_files = _load_extra_files(base)
-    # A combined run can be a performance run that *also* declares an accuracy
-    # dataset (e.g. datasets[0] is performance, datasets[1] is accuracy) without
-    # shipping a canonical accuracy/results.json. In that case results.json carries
-    # an `accuracy_scores` block already in the checker's AccuracyResult schema;
-    # surface it as accuracy/results.json so the accuracy run gets assembled
-    # regardless. (Restores the behavior previously provided by the removed
-    # _write_accuracy_fallback, but at the harvest stage so the write-loop places
-    # the file correctly.) Accuracy-typed runs already route results.json into
-    # accuracy/, so this only applies to performance runs to avoid colliding there.
-    if (
-        "accuracy/results.json" not in extra_files
-        and _extract_run_type(config) == "performance"
-        and _config_has_accuracy_dataset(config)
-    ):
-        derived = _unwrap_accuracy_scores(extra_files.get("results.json"))
-        if derived is not None:
-            extra_files["accuracy/results.json"] = derived
-
     return {
         "run_id": run_id,
         "system_info": system_info,
         "config": config,
         "result_summary": result_summary,
-        "_extra_files": extra_files,
+        "_extra_files": _load_extra_files(base),
     }
-
-
-def _config_has_accuracy_dataset(config: dict[str, Any]) -> bool:
-    """Return True if *config* declares any dataset of type 'accuracy'."""
-    datasets = config.get("datasets", []) or []
-    return any(isinstance(d, dict) and d.get("type") == "accuracy" for d in datasets)
-
-
-def _unwrap_accuracy_scores(content: bytes | None) -> bytes | None:
-    """Unwrap a normal ``results.json`` blob into the checker's accuracy schema.
-
-    A run's ``results.json`` (and sometimes the accuracy file itself) is shaped as
-    ``{"config": ..., "results": ..., "accuracy_scores": {dataset: {...}}, "responses": [...]}``.
-    The checker's ``AccuracyResult`` expects only the per-dataset mapping
-    (``{dataset_name: {score, num_samples, ...}}``); a results.json-shaped file fails
-    ``accuracy-valid`` (its ``config``/``results``/``responses`` keys are not per-dataset
-    dicts). When *content* carries a top-level ``accuracy_scores`` mapping, return just
-    that mapping serialized. Return None when *content* is absent, unparseable, or
-    already in the expected per-dataset format (no ``accuracy_scores`` key) — in which
-    case the caller leaves it untouched.
-    """
-    if not content:
-        return None
-    try:
-        parsed = json.loads(content)
-    except (json.JSONDecodeError, TypeError, ValueError):
-        return None
-    scores = parsed.get("accuracy_scores") if isinstance(parsed, dict) else None
-    if not isinstance(scores, dict) or not scores:
-        return None
-    return json.dumps(scores, indent=2).encode("utf-8")
 
 
 def _load_system_desc(base: Path, run_id: str, division: str, availability: str) -> dict[str, Any]:
@@ -507,14 +457,6 @@ def _write_pareto_entries(
                 else rel_path
             )
             dest = result_dir / dest_rel
-            # Whatever lands as <point>/accuracy/results.json must be in the checker's
-            # AccuracyResult schema. If it is instead a normal results.json blob (e.g. an
-            # accuracy-typed run whose results.json carries accuracy_scores), unwrap it to
-            # the per-dataset mapping so it doesn't fail accuracy-valid.
-            if dest.name == "results.json" and dest.parent.name == "accuracy":
-                unwrapped = _unwrap_accuracy_scores(content)
-                if unwrapped is not None:
-                    content = unwrapped
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(content)
 
