@@ -551,3 +551,51 @@ class TestAccuracyGateValidator:
         )
         ctx = _model_ctx(tmp_path, accuracy_result=ar, model_name="Llama-3_1-8B-Instruct")
         assert not any(r.rule == "accuracy-sample-count" for r in ctx._check_results)
+
+    def test_scalar_score_gated_as_single_metric_passes(self, tmp_path):
+        # Endpoints results.json exposes a single *unnamed* scalar `score`
+        # (== exact_match for deepseek). With a single-metric threshold it is gated
+        # as that metric — with a warning — and 81.3355 ≥ 0.99*81.3582 (80.5446) passes.
+        ar = AccuracyResult({"deepseek_r1_accuracy": {"num_samples": 4388, "score": 81.3355}})
+        ctx = _model_ctx(tmp_path, accuracy_result=ar, model_name="deepseek_r1-torch-fp4")
+        assert any(
+            r.rule == "accuracy-gate"
+            and r.severity == Severity.WARNING
+            and "unnamed scalar" in r.message
+            for r in ctx._check_results
+        )
+        assert any(
+            r.rule == "accuracy-gate"
+            and r.severity == Severity.INFO
+            and "exact_match" in r.message
+            for r in ctx._check_results
+        )
+        assert not any(
+            r.rule == "accuracy-gate" and r.severity == Severity.ERROR
+            for r in ctx._check_results
+        )
+
+    def test_scalar_score_gated_as_single_metric_fails(self, tmp_path):
+        # 70.0 < 0.99*81.3582 (80.5446) → the mapped exact_match gate errors.
+        ar = AccuracyResult({"deepseek_r1_accuracy": {"num_samples": 4388, "score": 70.0}})
+        ctx = _model_ctx(tmp_path, accuracy_result=ar, model_name="deepseek_r1-torch-fp4")
+        assert any(
+            r.rule == "accuracy-gate"
+            and r.severity == Severity.ERROR
+            and "exact_match" in r.message
+            for r in ctx._check_results
+        )
+
+    def test_scalar_score_not_mapped_for_multimetric_model(self, tmp_path):
+        # llama3.1-8b declares 5 metrics, so a bare scalar `score` is ambiguous and
+        # must NOT be mapped — no scalar warning, and no metric comparison fires.
+        ar = AccuracyResult({"cnn_dailymail::llama3_8b": {"num_samples": 13368, "score": 39.0}})
+        ctx = _model_ctx(tmp_path, accuracy_result=ar, model_name="Llama-3_1-8B-Instruct")
+        assert not any(
+            r.rule == "accuracy-gate" and "unnamed scalar" in r.message
+            for r in ctx._check_results
+        )
+        assert not any(
+            r.rule == "accuracy-gate" and r.severity in (Severity.INFO, Severity.ERROR)
+            for r in ctx._check_results
+        )
