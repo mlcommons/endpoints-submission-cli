@@ -59,7 +59,11 @@ def _rel_to_cwd(path: Path) -> str:
 
 
 def _emit_github_annotations(report: Report) -> None:
-    """Print ``::error``/``::warning`` workflow commands so findings show up inline."""
+    """Emit ``::error``/``::warning`` workflow commands so findings show up inline.
+
+    Written to stderr: GitHub Actions parses workflow commands from the merged
+    step log, so stdout stays clean for ``--json`` machine consumption.
+    """
     for result in report.results:
         if result.severity == Severity.INFO:
             continue
@@ -68,7 +72,7 @@ def _emit_github_annotations(report: Report) -> None:
             props.insert(0, f"file={_gha_escape(_rel_to_cwd(result.path), prop=True)}")
         ref = f" ({result.spec_ref})" if result.spec_ref else ""
         message = _gha_escape(f"[{result.rule}] {result.message}{ref}", prop=False)
-        click.echo(f"::{_GITHUB_LEVEL[result.severity]} {','.join(props)}::{message}")
+        click.echo(f"::{_GITHUB_LEVEL[result.severity]} {','.join(props)}::{message}", err=True)
 
 
 def _write_step_summary(report: Report, path: Path, summary_file: Path) -> None:
