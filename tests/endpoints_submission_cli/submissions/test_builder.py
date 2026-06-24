@@ -15,11 +15,11 @@ from endpoints_submission_cli.exceptions import SubmissionBuildError
 from endpoints_submission_cli.submissions.builder import (
     _compute_max_tps,
     _slugify,
-    _truncate_responses,
     build_submission_folder,
     create_bundle_archive,
     extract_archive,
 )
+from endpoints_submission_cli.truncation import truncate_responses as _truncate_responses
 
 
 @pytest.mark.unit

@@ -168,6 +168,58 @@ class TestBuildArchive:
         assert any("config.yaml" in n for n in names)
         assert any("result_summary.json" in n for n in names)
 
+    def test_truncates_results_responses(self, run_folder: Path, tmp_path: Path) -> None:
+        results_path = run_folder / "results.json"
+        big = {
+            "config": {"mode": "perf"},
+            "results": {"total": 5000},
+            "responses": [{"idx": i, "text": "lorem ipsum " * 10} for i in range(5000)],
+        }
+        results_path.write_text(json.dumps(big))
+        original_bytes = results_path.read_bytes()
+
+        dest = tmp_path / "out.tar.gz"
+        build_archive(run_folder, dest)
+
+        archived = _read_member(dest, "/results.json")
+        # responses capped well below the original count...
+        assert 0 < len(archived["responses"]) < 5000
+        # ...while the other keys survive intact.
+        assert archived["config"] == {"mode": "perf"}
+        assert archived["results"] == {"total": 5000}
+        # source folder is never mutated.
+        assert results_path.read_bytes() == original_bytes
+
+    def test_truncates_nested_accuracy_results(self, run_folder: Path, tmp_path: Path) -> None:
+        # Accuracy run folders carry an accuracy/results.json; it must be truncated too.
+        acc_dir = run_folder / "accuracy"
+        acc_dir.mkdir()
+        big = {
+            "results": {"total": 5000},
+            "responses": [{"idx": i, "text": "lorem ipsum " * 10} for i in range(5000)],
+        }
+        (acc_dir / "results.json").write_text(json.dumps(big))
+
+        dest = tmp_path / "out.tar.gz"
+        build_archive(run_folder, dest)
+
+        archived = _read_member(dest, "/accuracy/results.json")
+        assert 0 < len(archived["responses"]) < 5000
+        assert archived["results"] == {"total": 5000}
+
+    def test_results_without_responses_archived_unchanged(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
+        # The fixture's results.json has no "responses" key -> archived byte-for-byte.
+        original = (run_folder / "results.json").read_bytes()
+        dest = tmp_path / "out.tar.gz"
+        build_archive(run_folder, dest)
+        with tarfile.open(dest) as tar:
+            member = next(m for m in tar.getmembers() if m.name.endswith("/results.json"))
+            fh = tar.extractfile(member)
+            assert fh is not None
+            assert fh.read() == original
+
 
 def _read_member(archive: Path, suffix: str) -> dict:
     with tarfile.open(archive) as tar:
