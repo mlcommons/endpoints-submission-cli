@@ -226,7 +226,7 @@ class TestBuildSubmissionFolder:
         )
         assert list((sub_dir / "pareto").glob("*/*/points/point_4.yaml"))
         assert list((sub_dir / "pareto").glob("*/*/results/point_4/accuracy/results.json"))
-        assert not list((sub_dir / "pareto").glob("*/*/results/point_4/accuracy/point_4.yaml"))
+        assert list((sub_dir / "pareto").glob("*/*/results/point_4/accuracy/point_4.yaml"))
 
     def test_accuracy_run_routed_to_accuracy(self, run_folder: Path, tmp_path: Path) -> None:
         a_acc = self._make_archive(run_folder, tmp_path, "acc", 4, "accuracy")
@@ -237,9 +237,9 @@ class TestBuildSubmissionFolder:
         assert len(model_dirs) == 1
         model_dir = model_dirs[0]
         acc_dir = model_dir / "results" / "point_4" / "accuracy"
-        assert not (acc_dir / "point_4.yaml").exists()
+        assert (acc_dir / "point_4.yaml").exists()
         assert (acc_dir / "results_summary.json").exists()
-        assert (model_dir / "points" / "point_4.yaml").exists()
+        assert not (model_dir / "points" / "point_4.yaml").exists()
         assert not (model_dir / "results" / "point_4" / "results_summary.json").exists()
 
 

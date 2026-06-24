@@ -366,7 +366,7 @@ def _write_pareto_entries(
         points_dir = model_dir / "points"
         if run_type == "accuracy":
             result_dir = model_dir / "results" / f"point_{concurrency}" / "accuracy"
-            yaml_dir = points_dir
+            yaml_dir = result_dir
         else:
             result_dir = model_dir / "results" / f"point_{concurrency}"
             yaml_dir = points_dir
