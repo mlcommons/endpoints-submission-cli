@@ -101,6 +101,55 @@ class TestSubmissionsGet:
                 )
         assert result.exit_code == 1
 
+    def test_get_download_to_saves_archive(self, tmp_path: Path) -> None:
+        archive = tmp_path / f"{SUBMISSION_ID}.tar.gz"
+        with patch(
+            "endpoints_submission_cli.submissions.api.get_submission", return_value=SUBMISSION_OUT
+        ):
+            with patch(
+                "endpoints_submission_cli.submissions.api.download_submission_archive",
+                return_value=archive,
+            ) as mock_dl:
+                with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
+                    result = _runner.invoke(
+                        app,
+                        [
+                            "submissions",
+                            "get",
+                            "--submission-id",
+                            SUBMISSION_ID,
+                            "--download-to",
+                            str(tmp_path),
+                            *_TOKEN_ARGS,
+                        ],
+                    )
+        assert result.exit_code == 0
+        mock_dl.assert_called_once_with(TOKEN, SUBMISSION_ID, tmp_path)
+        assert "Archive saved to" in result.output
+
+    def test_get_download_api_error_exits_1(self, tmp_path: Path) -> None:
+        with patch(
+            "endpoints_submission_cli.submissions.api.get_submission", return_value=SUBMISSION_OUT
+        ):
+            with patch(
+                "endpoints_submission_cli.submissions.api.download_submission_archive",
+                side_effect=APIError("download failed"),
+            ):
+                with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
+                    result = _runner.invoke(
+                        app,
+                        [
+                            "submissions",
+                            "get",
+                            "--submission-id",
+                            SUBMISSION_ID,
+                            "--download-to",
+                            str(tmp_path),
+                            *_TOKEN_ARGS,
+                        ],
+                    )
+        assert result.exit_code == 1
+
 
 @pytest.mark.unit
 class TestSubmissionsUpdate:
