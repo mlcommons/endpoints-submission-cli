@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -535,6 +536,9 @@ class TestSubmissionsCreateLocal:
         assert SUBMISSION_ID in result.output
         assert mock_create_run.call_count == 2
         mock_create_sub.assert_called_once()
+        meta = json.loads((sub / "cli_metadata.json").read_text())
+        assert meta["command"] == "create-local"
+        assert "cli_version" in meta and "created_at" in meta
 
     def test_create_local_dry_run(self, tmp_path: Path) -> None:
         sub = _make_submission_dir(tmp_path)
@@ -724,6 +728,12 @@ class TestSubmissionsCreate:
                                                         *_TOKEN_ARGS,
                                                     )
         mock_create.assert_called_once()
+        # The bundle carries a cli_metadata.json marker identifying the build command.
+        meta_path = fake_sub_dir / "cli_metadata.json"
+        assert meta_path.is_file()
+        meta = json.loads(meta_path.read_text())
+        assert meta["command"] == "create"
+        assert "cli_version" in meta and "created_at" in meta
 
     def test_create_download_failure_exits_1(self) -> None:
         with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
