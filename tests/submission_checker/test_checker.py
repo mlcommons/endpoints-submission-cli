@@ -579,6 +579,27 @@ class TestCheckerEdgeCases:
         ok_results = [r for r in report.results if r.rule == "model-name-consistency" and r.passed]
         assert ok_results
 
+    def test_model_name_allowed_passes(self, tmp_path):
+        """ok when system_desc.model_name is one of the allowed benchmark models."""
+        desc = {**_SYSTEM_DESC, "model_name": "gpt-oss-120b"}
+        root = _build_submission(tmp_path, system_desc=desc, model="gpt-oss-120b")
+        report = _check(root)
+        assert not _errors(report, "model-name-valid")
+        assert [r for r in report.results if r.rule == "model-name-valid" and r.passed]
+
+    def test_model_name_not_allowed_errors(self, tmp_path):
+        """err when system_desc.model_name is not an allowed benchmark model."""
+        desc = {**_SYSTEM_DESC, "model_name": "mistral-7b"}
+        root = _build_submission(tmp_path, system_desc=desc, model="mistral-7b")
+        report = _check(root)
+        assert _errors(report, "model-name-valid")
+
+    def test_model_name_missing_errors(self, tmp_path):
+        """err when system_desc has no model_name (must be one of the allowed set)."""
+        root = _build_submission(tmp_path, model="llama3-70b")  # _SYSTEM_DESC has no model_name
+        report = _check(root)
+        assert _errors(report, "model-name-valid")
+
     def test_run_filename_non_numeric_suffix_ignored(self, tmp_path):
         """Filename parsing errors (non-numeric suffix) are silently ignored."""
         root = _build_submission(tmp_path)

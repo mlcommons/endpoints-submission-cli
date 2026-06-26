@@ -25,5 +25,6 @@
       "operating_system": "Ubuntu 22.04"
     }
   ],
-  "division": "Standardized"
+  "division": "Standardized",
+  "model_name": "llama3.1-8b"
 }
