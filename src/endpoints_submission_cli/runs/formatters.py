@@ -30,13 +30,35 @@ def print_runs_table(runs: list[dict[str, Any]]) -> None:
     for run in runs:
         table.add_row(
             str(run.get("id", "")),
-            str(run.get("model") or "—"),
-            str(run.get("concurrency") or "—"),
+            str(_run_model(run) or "—"),
+            str(_run_concurrency(run) or "—"),
             _fmt_dt(run.get("started_at")),
             _fmt_dt(run.get("finished_at")),
         )
 
     _console.print(table)
+
+
+def _run_model(run: dict[str, Any]) -> Any:
+    """Resolve a run's model, whether the record is a flat RunSummary or a full run.
+
+    `runs list` returns a flat top-level ``model``; embedded runs from
+    `submissions get` only carry the nested ``config``, so fall back to the
+    same fields the API uses to derive the summary.
+    """
+    if run.get("model"):
+        return run["model"]
+    config = run.get("config") or {}
+    return (config.get("model_params") or {}).get("name") or config.get("model")
+
+
+def _run_concurrency(run: dict[str, Any]) -> Any:
+    """Resolve a run's concurrency for both flat and full run records (see _run_model)."""
+    if run.get("concurrency"):
+        return run["concurrency"]
+    config = run.get("config") or {}
+    load_pattern = (config.get("settings") or {}).get("load_pattern") or {}
+    return load_pattern.get("target_concurrency") or config.get("concurrency")
 
 
 def print_run_detail(run: dict[str, Any]) -> None:

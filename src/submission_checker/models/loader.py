@@ -7,6 +7,7 @@ from pathlib import Path
 
 __all__ = [
     "load_accuracy_result",
+    "load_accuracy_scores",
     "load_point_config",
     "load_result_summary",
     "load_run_metadata",
@@ -173,3 +174,31 @@ def load_accuracy_result(
         return instance, list(instance._check_results)
     except ValidationError as exc:
         return None, _validation_errors(exc, "accuracy-valid", path)
+
+
+def load_accuracy_scores(
+    path: Path,
+) -> tuple[AccuracyResult | None, list[CheckResult], bool]:
+    """Load accuracy from a ``results.json``'s ``accuracy_scores`` field.
+
+    The benchmark writes per-dataset accuracy directly into ``results.json`` under
+    ``accuracy_scores`` (already in the ``AccuracyResult`` schema). This reads that
+    field instead of a separate ``accuracy/results.json`` file.
+
+    Returns ``(model, check_results, present)``. ``present`` is True when the file
+    contains a non-empty ``accuracy_scores`` mapping (regardless of validity); a
+    missing/invalid ``results.json`` is reported by the result-summary loaders, so
+    accuracy is simply treated as absent here. On a validation failure the model is
+    None and ``check_results`` holds one entry per error.
+    """
+    data, load_err = _load_json(path)
+    if load_err or not isinstance(data, dict):
+        return None, [], False
+    scores = data.get("accuracy_scores")
+    if not isinstance(scores, dict) or not scores:
+        return None, [], False
+    try:
+        instance = AccuracyResult.model_validate(scores, context={"json_path": path})
+        return instance, list(instance._check_results), True
+    except ValidationError as exc:
+        return None, _validation_errors(exc, "accuracy-valid", path), True

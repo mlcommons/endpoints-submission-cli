@@ -5,6 +5,7 @@
 import click
 
 from ._version_check import register_upgrade_notice
+from .commands.check_submission import check_submission
 from .commands.runs import runs
 from .commands.submissions import submissions
 
@@ -19,6 +20,7 @@ def app() -> None:
 
 app.add_command(runs)
 app.add_command(submissions)
+app.add_command(check_submission)
 
 
 def main() -> None:

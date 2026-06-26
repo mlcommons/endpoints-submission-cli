@@ -24,6 +24,19 @@ _MIN_POINTS = 7
 _MAX_POINTS = 32
 
 
+def _weighted_mean(pairs: list[tuple[float, float | None]]) -> float:
+    """Sample-weighted mean of ``(value, weight)`` pairs.
+
+    Falls back to a plain mean when any weight is missing or the weights sum to zero.
+    """
+    weights = [w for _, w in pairs]
+    if all(w is not None for w in weights):
+        total = sum(w for w in weights if w is not None)
+        if total > 0:
+            return sum(v * w for v, w in pairs if w is not None) / total
+    return sum(v for v, _ in pairs) / len(pairs)
+
+
 class ModelContext(BaseModel):
     """Aggregated data for one benchmark-model directory — carries all model-level validation."""
 
@@ -213,21 +226,39 @@ class ModelContext(BaseModel):
             return self
 
         thresholds, min_queries = target
+        root = self.accuracy_result.root
 
-        # Check per-dataset sample counts
-        for ds_name, entry in self.accuracy_result.root.items():
-            num_samples = entry.get("num_samples")
-            if num_samples is None:
+        # MLPerf inference gates accuracy as a single aggregate over the whole dataset:
+        # one total sample count and one sample-weighted score per metric. Endpoints
+        # results may instead report per-subset entries, so aggregate them the same way.
+
+        # Total = issued sample count = Σ(num_samples × n_repeats) across subset entries.
+        # MLPerf's accuracy-sample-count is the *issued* total (datasets are run with
+        # repeats, e.g. gpt-oss aime×8/gpqa×5/lcb×3), so compare in issued units, not
+        # unique. n_repeats defaults to 1 (e.g. deepseek), where issued == unique.
+        sample_counts: list[int] = []
+        for entry in root.values():
+            raw = entry.get("num_samples")
+            if raw is None:
                 continue
             try:
-                n = int(num_samples)
+                n = int(raw)
             except (TypeError, ValueError):
                 continue
-            if n < min_queries:
+            try:
+                repeats = int(entry.get("n_repeats", 1) or 1)
+            except (TypeError, ValueError):
+                repeats = 1
+            sample_counts.append(n * max(repeats, 1))
+        if sample_counts:
+            total = sum(sample_counts)
+            n_ds = len(sample_counts)
+            suffix = f" (issued, across {n_ds} datasets)" if n_ds > 1 else " (issued)"
+            if total < min_queries:
                 self._check_results.append(
                     err(
                         "accuracy-sample-count",
-                        f"{ds_name}: {n} samples < required {min_queries}",
+                        f"{total} samples{suffix} < required {min_queries}",
                         json_path,
                         "#15",
                     )
@@ -236,29 +267,62 @@ class ModelContext(BaseModel):
                 self._check_results.append(
                     ok(
                         "accuracy-sample-count",
-                        f"{ds_name}: {n} samples ≥ required {min_queries}",
+                        f"{total} samples{suffix} ≥ required {min_queries}",
                         json_path,
                         "#15",
                     )
                 )
 
-        all_scores = self.accuracy_result.metric_scores()  # {ds: {metric: float}}
-        # Flatten all per-dataset metric scores into one dict for threshold matching
-        flat_scores: dict[str, float] = {}
-        for ds_scores in all_scores.values():
-            flat_scores.update(ds_scores)
+        # Sample-weighted mean per metric across subsets (the aggregate accuracy).
+        per_ds = self.accuracy_result.metric_scores()  # {ds: {metric: float}}
+        weighted: dict[str, list[tuple[float, float | None]]] = {}
+        for ds_name, scores in per_ds.items():
+            raw = root.get(ds_name, {}).get("num_samples")
+            weight: float | None
+            try:
+                weight = float(raw) if raw is not None else None
+            except (TypeError, ValueError):
+                weight = None
+            for metric, value in scores.items():
+                weighted.setdefault(metric, []).append((value, weight))
+        agg_scores: dict[str, float] = {m: _weighted_mean(pairs) for m, pairs in weighted.items()}
+
+        # Endpoints scorers (e.g. DeepSeekR1Scorer) write a single *unnamed* scalar
+        # `score` per dataset into results.json — the scorer's primary metric, with its
+        # identity dropped. When the model declares exactly one accuracy metric, gate
+        # that scalar against it; but WARN, because we cannot verify the scalar's
+        # identity, and any secondary metrics (e.g. tokens_per_sample) are absent from
+        # results.json and are therefore NOT checked.
+        if list(agg_scores) == ["score"] and len(thresholds) == 1:
+            only_metric = next(iter(thresholds))
+            self._check_results.append(
+                warn(
+                    "accuracy-gate",
+                    f"results.json exposes only an unnamed scalar accuracy score; "
+                    f"gating it as '{only_metric}'. Secondary metrics (if any) are not "
+                    f"present in results.json and are not checked.",
+                    json_path,
+                    "#15",
+                )
+            )
+            agg_scores = {only_metric: agg_scores["score"]}
 
         for threshold_key, (lower, upper) in thresholds.items():
             # Match score key case-insensitively
             score: float | None = None
             matched_key: str = threshold_key
-            for k, v in flat_scores.items():
+            for k, v in agg_scores.items():
                 if k.lower() == threshold_key:
                     score = v
                     matched_key = k
                     break
             if score is None:
                 continue  # metric not present in this run's results
+
+            # Endpoints scorers report fractions (0–1); targets are on a 0–100 scale.
+            # Rescale to a percentage so the comparison is apples-to-apples.
+            if 0.0 <= score <= 1.0 and lower > 1.0:
+                score *= 100.0
 
             if score < lower:
                 self._check_results.append(

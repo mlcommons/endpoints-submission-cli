@@ -39,3 +39,11 @@ class SubmissionBuildError(Exception):
 
 class SubmissionCheckError(Exception):
     """Raised when the Submission Checker reports validation errors."""
+
+
+class TruncationError(Exception):
+    """Raised when a results payload's ``responses`` cannot be truncated under the cap.
+
+    Guards against silently shipping an un-truncated (potentially multi-GB) payload
+    when ``responses`` is an unexpected shape the truncator does not handle.
+    """

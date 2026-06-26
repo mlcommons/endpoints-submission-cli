@@ -28,6 +28,7 @@ from typing import Any, cast
 import yaml
 
 from ..exceptions import RunFolderError
+from ..truncation import truncate_responses
 
 __all__ = ["parse_run_folder", "build_archive"]
 
@@ -156,6 +157,11 @@ def build_archive(folder: Path, dest: Path | None = None, run_date: str | None =
             archived copy of that file has its ``run_date`` field set to this value.
             The source folder on disk is left untouched.
 
+    The archived copy of every ``results.json`` (top-level and any nested one,
+    e.g. ``accuracy/results.json``) has its verbose ``responses`` list truncated
+    (see :func:`truncate_responses`) to keep uploads small; the source folder on
+    disk is never mutated.
+
     Returns:
         Path of the created archive.
     """
@@ -165,7 +171,11 @@ def build_archive(folder: Path, dest: Path | None = None, run_date: str | None =
     if dest is None:
         dest = folder.parent / f"{folder.name}.tar.gz"
 
-    patched_metadata: bytes | None = None
+    # In-memory replacements for specific archive members, keyed by arcname. The
+    # matching files on disk are excluded from the tar and these copies appended,
+    # so the source folder is never mutated.
+    replacements: dict[str, bytes] = {}
+
     meta_path = folder / "run_metadata.json"
     if run_date is not None and meta_path.is_file():
         try:
@@ -174,21 +184,30 @@ def build_archive(folder: Path, dest: Path | None = None, run_date: str | None =
             metadata = None
         if isinstance(metadata, dict):
             metadata["run_date"] = run_date
-            patched_metadata = json.dumps(metadata, indent=2).encode("utf-8")
+            replacements[f"{folder.name}/run_metadata.json"] = json.dumps(
+                metadata, indent=2
+            ).encode("utf-8")
 
-    meta_arcname = f"{folder.name}/run_metadata.json"
+    for results_path in sorted(folder.rglob("results.json")):
+        if not results_path.is_file():
+            continue
+        original = results_path.read_bytes()
+        truncated = truncate_responses(original)
+        if truncated != original:
+            rel = results_path.relative_to(folder).as_posix()
+            replacements[f"{folder.name}/{rel}"] = truncated
+
     with tarfile.open(dest, "w:gz") as tar:
-        if patched_metadata is None:
+        if not replacements:
             tar.add(folder, arcname=folder.name)
         else:
-            # Add everything except the original run_metadata.json, then append the
-            # patched copy from memory so the source folder is never mutated.
             tar.add(
                 folder,
                 arcname=folder.name,
-                filter=lambda ti: None if ti.name == meta_arcname else ti,
+                filter=lambda ti: None if ti.name in replacements else ti,
             )
-            info = tarfile.TarInfo(name=meta_arcname)
-            info.size = len(patched_metadata)
-            tar.addfile(info, io.BytesIO(patched_metadata))
+            for arcname, data in replacements.items():
+                info = tarfile.TarInfo(name=arcname)
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
     return dest

@@ -39,30 +39,47 @@ class AccuracyResult(RootModel[dict[str, dict[str, Any]]]):
             )
         return self
 
+    #: Per-entry bookkeeping keys that are not accuracy metrics.
+    _META_KEYS = frozenset(
+        {
+            "dataset_name",
+            "num_samples",
+            "status",
+            "extractor",
+            "ground_truth_column",
+            "n_repeats",
+            "complete",
+        }
+    )
+
     def metric_scores(self) -> dict[str, dict[str, float]]:
-        """Return ``{dataset_name: {metric: float}}`` for all datasets."""
+        """Return ``{dataset_name: {metric: float}}`` for all datasets.
+
+        Supports three on-disk shapes per dataset entry:
+          * ``"score": {metric: value, ...}``  — named metrics under ``score``
+          * ``"score": value``                 — a single unnamed scalar (kept as ``score``)
+          * no ``score`` key                    — metrics sit directly on the entry
+            (e.g. ``{"exact_match": 81.3, "tokens_per_sample": 3886, "num_samples": ...}``),
+            so every non-bookkeeping numeric key is treated as a named metric.
+        """
         result: dict[str, dict[str, float]] = {}
         for ds_name, entry in self.root.items():
             raw_score = entry.get("score")
+            scores: dict[str, float] = {}
             if isinstance(raw_score, dict):
-                scores: dict[str, float] = {}
-                for k, v in raw_score.items():
-                    try:
-                        scores[k] = float(v)
-                    except (TypeError, ValueError):
-                        _log.warning(
-                            "accuracy_result.json: cannot convert %r=%r to float; skipping",
-                            k,
-                            v,
-                        )
-                if scores:
-                    result[ds_name] = scores
+                items = raw_score.items()
             elif raw_score is not None:
+                items = {"score": raw_score}.items()
+            else:
+                # No `score` key — metrics are direct entry keys.
+                items = {k: v for k, v in entry.items() if k not in self._META_KEYS}.items()
+            for k, v in items:
                 try:
-                    result[ds_name] = {"score": float(raw_score)}
+                    scores[k] = float(v)
                 except (TypeError, ValueError):
                     _log.warning(
-                        "accuracy_result.json: cannot convert score %r to float; skipping",
-                        raw_score,
+                        "accuracy_result.json: cannot convert %r=%r to float; skipping", k, v
                     )
+            if scores:
+                result[ds_name] = scores
         return result

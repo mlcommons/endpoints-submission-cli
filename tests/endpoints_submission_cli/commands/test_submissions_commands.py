@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -99,6 +100,55 @@ class TestSubmissionsGet:
                     app,
                     ["submissions", "get", "--submission-id", SUBMISSION_ID, *_TOKEN_ARGS],
                 )
+        assert result.exit_code == 1
+
+    def test_get_download_to_saves_archive(self, tmp_path: Path) -> None:
+        archive = tmp_path / f"{SUBMISSION_ID}.tar.gz"
+        with patch(
+            "endpoints_submission_cli.submissions.api.get_submission", return_value=SUBMISSION_OUT
+        ):
+            with patch(
+                "endpoints_submission_cli.submissions.api.download_submission_archive",
+                return_value=archive,
+            ) as mock_dl:
+                with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
+                    result = _runner.invoke(
+                        app,
+                        [
+                            "submissions",
+                            "get",
+                            "--submission-id",
+                            SUBMISSION_ID,
+                            "--download-to",
+                            str(tmp_path),
+                            *_TOKEN_ARGS,
+                        ],
+                    )
+        assert result.exit_code == 0
+        mock_dl.assert_called_once_with(TOKEN, SUBMISSION_ID, tmp_path)
+        assert "Archive saved to" in result.output
+
+    def test_get_download_api_error_exits_1(self, tmp_path: Path) -> None:
+        with patch(
+            "endpoints_submission_cli.submissions.api.get_submission", return_value=SUBMISSION_OUT
+        ):
+            with patch(
+                "endpoints_submission_cli.submissions.api.download_submission_archive",
+                side_effect=APIError("download failed"),
+            ):
+                with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
+                    result = _runner.invoke(
+                        app,
+                        [
+                            "submissions",
+                            "get",
+                            "--submission-id",
+                            SUBMISSION_ID,
+                            "--download-to",
+                            str(tmp_path),
+                            *_TOKEN_ARGS,
+                        ],
+                    )
         assert result.exit_code == 1
 
 
@@ -535,6 +585,9 @@ class TestSubmissionsCreateLocal:
         assert SUBMISSION_ID in result.output
         assert mock_create_run.call_count == 2
         mock_create_sub.assert_called_once()
+        meta = json.loads((sub / "cli_metadata.json").read_text())
+        assert meta["command"] == "create-local"
+        assert "cli_version" in meta and "created_at" in meta
 
     def test_create_local_dry_run(self, tmp_path: Path) -> None:
         sub = _make_submission_dir(tmp_path)
@@ -724,6 +777,12 @@ class TestSubmissionsCreate:
                                                         *_TOKEN_ARGS,
                                                     )
         mock_create.assert_called_once()
+        # The bundle carries a cli_metadata.json marker identifying the build command.
+        meta_path = fake_sub_dir / "cli_metadata.json"
+        assert meta_path.is_file()
+        meta = json.loads(meta_path.read_text())
+        assert meta["command"] == "create"
+        assert "cli_version" in meta and "created_at" in meta
 
     def test_create_download_failure_exits_1(self) -> None:
         with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):

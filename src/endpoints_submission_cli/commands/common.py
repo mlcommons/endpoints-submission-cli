@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import datetime
+import importlib.metadata
 import json
 import sys
 from pathlib import Path
@@ -16,7 +17,33 @@ from rich.table import Table
 from .. import _http
 from ..exceptions import AuthError, SubmissionCheckError
 
-__all__ = ["_console", "_get_token", "_SEVERITY_STYLE", "_run_submission_checker", "output_json"]
+__all__ = [
+    "_console",
+    "_get_token",
+    "_SEVERITY_STYLE",
+    "_run_submission_checker",
+    "_write_cli_metadata",
+    "output_json",
+]
+
+
+def _write_cli_metadata(submission_dir: Path, command: str) -> None:
+    """Write a cli_metadata.json marker at the bundle root.
+
+    Records which CLI command and version assembled the submission so reviewers and
+    the lifecycle can tell which bundled builder/checker schema produced it — the
+    marker is what lets us reason about checker-format drift across CLI versions.
+    """
+    try:
+        version = importlib.metadata.version("endpoints-submission-cli")
+    except importlib.metadata.PackageNotFoundError:
+        version = "unknown"
+    meta = {
+        "command": command,
+        "cli_version": version,
+        "created_at": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
+    }
+    (submission_dir / "cli_metadata.json").write_text(json.dumps(meta, indent=2))
 
 _console = Console(stderr=True)
 _stdout_console = Console()

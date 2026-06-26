@@ -11,16 +11,16 @@ from pathlib import Path
 import pytest
 import yaml
 
-from endpoints_submission_cli.exceptions import SubmissionBuildError
+from endpoints_submission_cli.exceptions import SubmissionBuildError, TruncationError
 from endpoints_submission_cli.submissions.builder import (
     _compute_max_tps,
     _slugify,
-    _truncate_responses,
     build_submission_folder,
     create_bundle_archive,
     extract_archive,
 )
 from submission_checker.models import Severity
+from endpoints_submission_cli.truncation import truncate_responses as _truncate_responses
 
 
 @pytest.mark.unit
@@ -88,9 +88,10 @@ class TestBuildSubmissionFolder:
         assert "n_samples_completed" in data
         assert "duration_ns" in data
 
-    def test_accuracy_file_created(self, run_archive: Path, tmp_path: Path) -> None:
+    def test_accuracy_file_created(self, run_folder: Path, tmp_path: Path) -> None:
+        acc_archive = self._make_archive(run_folder, tmp_path, "acc", 4, "accuracy")
         sub_dir = build_submission_folder(
-            [("run-001", run_archive)], "standardized", "available", tmp_path
+            [("run-001", acc_archive)], "standardized", "available", tmp_path / "sub"
         )
         acc_jsons = list(sub_dir.rglob("accuracy/results.json"))
         assert len(acc_jsons) == 1
@@ -224,13 +225,9 @@ class TestBuildSubmissionFolder:
             "available",
             tmp_path / "sub",
         )
-        assert (sub_dir / "pareto").glob("*/*/points/point_4.yaml").__next__().exists()
-        assert (
-            (sub_dir / "pareto")
-            .glob("*/*/results/point_4/accuracy/point_4.yaml")
-            .__next__()
-            .exists()
-        )
+        assert list((sub_dir / "pareto").glob("*/*/points/point_4.yaml"))
+        assert list((sub_dir / "pareto").glob("*/*/results/point_4/accuracy/results.json"))
+        assert list((sub_dir / "pareto").glob("*/*/results/point_4/accuracy/point_4.yaml"))
 
     def test_accuracy_run_routed_to_accuracy(self, run_folder: Path, tmp_path: Path) -> None:
         a_acc = self._make_archive(run_folder, tmp_path, "acc", 4, "accuracy")
@@ -701,6 +698,40 @@ class TestTruncateResponses:
         result = json.loads(result_bytes)
         assert len(json.dumps(result["responses"]).encode()) <= 10 * 1024
 
+    def _make_dict_content(self, n_responses: int) -> bytes:
+        # Some run modes emit responses as a {sample_uuid: output_text} mapping.
+        data = {
+            "config": {"mode": "perf"},
+            "accuracy_scores": {"ds": {"num_samples": n_responses, "score": 1.0}},
+            "responses": {f"uuid-{i:08d}": "hello world " * 5 for i in range(n_responses)},
+        }
+        return json.dumps(data).encode()
+
+    def test_small_dict_responses_unchanged(self) -> None:
+        content = self._make_dict_content(2)
+        result = json.loads(_truncate_responses(content))
+        assert result["responses"] == json.loads(content)["responses"]
+        assert result["accuracy_scores"] == {"ds": {"num_samples": 2, "score": 1.0}}
+
+    def test_large_dict_responses_truncated_under_10kb(self) -> None:
+        content = self._make_dict_content(10_000)
+        result = json.loads(_truncate_responses(content))
+        assert isinstance(result["responses"], dict)
+        assert len(json.dumps(result["responses"]).encode()) <= 10 * 1024
+        assert 0 < len(result["responses"]) < 10_000  # kept some, dropped the rest
+        # non-responses fields untouched
+        assert result["accuracy_scores"] == {"ds": {"num_samples": 10_000, "score": 1.0}}
+
+    def test_unknown_responses_type_raises_hard_error(self) -> None:
+        # A responses shape we cannot bound must fail loudly, never pass through silently.
+        content = json.dumps({"config": {}, "responses": "x" * 50_000}).encode()
+        with pytest.raises(TruncationError):
+            _truncate_responses(content)
+
+    def test_missing_responses_is_not_an_error(self) -> None:
+        content = json.dumps({"config": {}, "accuracy_scores": {}}).encode()
+        assert _truncate_responses(content) == content  # nothing to truncate, no raise
+
     def test_other_keys_preserved(self) -> None:
         content = self._make_content(10_000)
         result = json.loads(_truncate_responses(content))
@@ -731,3 +762,49 @@ class TestSlugify:
     def test_long_name_truncated(self) -> None:
         long = "A" * 100
         assert len(_slugify(long)) <= 64
+
+
+@pytest.mark.unit
+class TestBuilderTruncatesResults:
+    """build_submission_folder truncates the verbose responses in the perf results.json."""
+
+    def _archive(self, run_folder: Path, tmp_path: Path, responses: object) -> Path:
+        import shutil
+
+        folder = tmp_path / "perf_run"
+        shutil.copytree(run_folder, folder)
+        results = json.loads((folder / "results.json").read_text())
+        results["responses"] = responses
+        (folder / "results.json").write_text(json.dumps(results))
+        archive = tmp_path / "perf_run.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname=folder.name)
+        return archive
+
+    def _perf_results(self, sub_dir: Path) -> dict:
+        perf = [p for p in sub_dir.rglob("results.json") if p.parent.name != "accuracy"]
+        assert len(perf) == 1
+        return json.loads(perf[0].read_text())
+
+    def test_dict_responses_truncated_in_bundle(self, run_folder: Path, tmp_path: Path) -> None:
+        # Regression: responses emitted as a {uuid: text} dict were not truncated.
+        big = {f"uuid-{i:08d}": "hello world " * 5 for i in range(10_000)}
+        sub_dir = build_submission_folder(
+            [("run-001", self._archive(run_folder, tmp_path, big))],
+            "standardized", "available", tmp_path / "sub",
+        )
+        written = self._perf_results(sub_dir)
+        assert isinstance(written["responses"], dict)
+        assert len(json.dumps(written["responses"]).encode()) <= 10 * 1024
+        assert 0 < len(written["responses"]) < 10_000
+
+    def test_list_responses_truncated_in_bundle(self, run_folder: Path, tmp_path: Path) -> None:
+        big = [{"text": "hello world", "idx": i} for i in range(10_000)]
+        sub_dir = build_submission_folder(
+            [("run-001", self._archive(run_folder, tmp_path, big))],
+            "standardized", "available", tmp_path / "sub",
+        )
+        written = self._perf_results(sub_dir)
+        assert isinstance(written["responses"], list)
+        assert len(json.dumps(written["responses"]).encode()) <= 10 * 1024
+        assert 0 < len(written["responses"]) < 10_000

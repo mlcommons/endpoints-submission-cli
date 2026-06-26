@@ -1,7 +1,7 @@
 {
   "llm-perf-dataset-v1": {
     "dataset_name": "llm-perf-dataset-v1",
-    "num_samples": 500,
+    "num_samples": 13368,
     "extractor": "RougeExtractor",
     "score": {
       "rouge1": "45.12",
