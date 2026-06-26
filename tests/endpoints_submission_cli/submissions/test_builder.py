@@ -19,8 +19,8 @@ from endpoints_submission_cli.submissions.builder import (
     create_bundle_archive,
     extract_archive,
 )
-from submission_checker.models import Severity
 from endpoints_submission_cli.truncation import truncate_responses as _truncate_responses
+from submission_checker.models import Severity
 
 
 @pytest.mark.unit

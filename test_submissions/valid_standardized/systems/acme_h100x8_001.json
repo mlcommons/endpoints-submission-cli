@@ -42,7 +42,8 @@
   "dataset_link": "https://example.com/dataset",
   "measured_accuracy_score": "38.7",
   "system_size": "1 node",
-  "model_id": "llama3-70b",
+  "model_id": "llama3.1-8b",
   "system_node_ensemble_count": 1,
-  "system_node_ensemble_total": 1
+  "system_node_ensemble_total": 1,
+  "model_name": "llama3.1-8b"
 }
