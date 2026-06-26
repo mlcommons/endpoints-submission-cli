@@ -599,3 +599,63 @@ class TestAccuracyGateValidator:
             r.rule == "accuracy-gate" and r.severity in (Severity.INFO, Severity.ERROR)
             for r in ctx._check_results
         )
+
+    # gpt-oss reports per-subset *fractional* scores; the gate aggregates them
+    # (sample-weighted), rescales 0–1 → percentage, and gates one value (like inference).
+    _GPTOSS = {
+        "livecodebench::gptoss": {"num_samples": 1055, "score": 0.8458135860979463},
+        "aime25::gptoss": {"num_samples": 30, "score": 0.7625},
+        "gpqa::gptoss": {"num_samples": 198, "score": 0.7515151515151515},
+    }
+
+    def test_multidataset_aggregates_and_rescales_fractional_score(self, tmp_path):
+        ctx = _model_ctx(
+            tmp_path, accuracy_result=AccuracyResult(self._GPTOSS), model_name="gpt-oss-120b"
+        )
+        # sample-weighted mean ≈ 0.8293 → 82.93% ≥ 82.2987 → PASS (no gate error)
+        assert any(
+            r.rule == "accuracy-gate" and r.severity == Severity.INFO and "exact_match" in r.message
+            for r in ctx._check_results
+        )
+        assert not any(
+            r.rule == "accuracy-gate" and r.severity == Severity.ERROR for r in ctx._check_results
+        )
+
+    def test_multidataset_sample_count_is_summed(self, tmp_path):
+        ctx = _model_ctx(
+            tmp_path, accuracy_result=AccuracyResult(self._GPTOSS), model_name="gpt-oss-120b"
+        )
+        sc = [r for r in ctx._check_results if r.rule == "accuracy-sample-count"]
+        assert len(sc) == 1  # one aggregate check, not one per subset
+        # no n_repeats → issued == unique = 1283 < required 4395 → error
+        assert sc[0].severity == Severity.ERROR and "1283" in sc[0].message
+
+    def test_sample_count_uses_issued_with_repeats(self, tmp_path):
+        # gpt-oss runs each dataset with repeats; MLPerf's required count (4395) is the
+        # *issued* total = Σ(num_samples × n_repeats), not unique samples (1283).
+        ar = AccuracyResult(
+            {
+                "aime25::gptoss": {"num_samples": 30, "n_repeats": 8, "score": 0.80},
+                "gpqa::gptoss": {"num_samples": 198, "n_repeats": 5, "score": 0.80},
+                "livecodebench::gptoss": {"num_samples": 1055, "n_repeats": 3, "score": 0.85},
+            }
+        )
+        ctx = _model_ctx(tmp_path, accuracy_result=ar, model_name="gpt-oss-120b")
+        sc = [r for r in ctx._check_results if r.rule == "accuracy-sample-count"]
+        assert len(sc) == 1
+        # 30*8 + 198*5 + 1055*3 = 4395 issued ≥ 4395 → not an error
+        assert sc[0].severity != Severity.ERROR and "4395" in sc[0].message
+
+    def test_multidataset_aggregate_score_below_threshold_fails(self, tmp_path):
+        ar = AccuracyResult(
+            {
+                "a::gptoss": {"num_samples": 100, "score": 0.50},
+                "b::gptoss": {"num_samples": 100, "score": 0.50},
+            }
+        )
+        ctx = _model_ctx(tmp_path, accuracy_result=ar, model_name="gpt-oss-120b")
+        # mean 0.50 → 50% < 82.2987 → error
+        assert any(
+            r.rule == "accuracy-gate" and r.severity == Severity.ERROR and "exact_match" in r.message
+            for r in ctx._check_results
+        )
