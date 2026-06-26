@@ -18,7 +18,7 @@ from ...submissions import api as subs_api
 
 # from ...submissions import github as github_ops
 from ...submissions.builder import build_submission_folder, create_bundle_archive
-from ..common import _console, _get_token, _run_submission_checker
+from ..common import _console, _get_token, _run_submission_checker, _write_cli_metadata
 
 __all__ = ["submissions_create"]
 
@@ -192,6 +192,7 @@ def submissions_create(
 
         # 5. Upload submission bundle
         _console.print("[cyan]Uploading submission bundle…[/cyan]")
+        _write_cli_metadata(submission_dir, "create")
         archive_path = create_bundle_archive(submission_dir, tmp_path / "bundle.tar.gz")
         try:
             subs_api.upload_submission_archive(resolved_token, submission_id, archive_path)

@@ -233,6 +233,27 @@ class TestAccuracyResultModel:
             r.rule == "accuracy-valid" and r.severity == Severity.ERROR for r in ar._check_results
         )
 
+    def test_scalar_score_kept_under_score_key(self):
+        ar = AccuracyResult({"ds": {"num_samples": 4388, "score": 81.34}})
+        assert ar.metric_scores() == {"ds": {"score": 81.34}}
+
+    def test_direct_metric_keys_extracted(self):
+        # Per-dataset metrics sit directly on the entry (no `score` key), alongside
+        # bookkeeping fields which must be ignored.
+        ar = AccuracyResult(
+            {
+                "aime1983": {
+                    "exact_match": 84.01,
+                    "tokens_per_sample": 7338.1,
+                    "num_samples": 932,
+                    "status": "ok",
+                }
+            }
+        )
+        scores = ar.metric_scores()["aime1983"]
+        assert scores == {"exact_match": pytest.approx(84.01), "tokens_per_sample": pytest.approx(7338.1)}
+        assert "num_samples" not in scores and "status" not in scores
+
 
 _WARMUP = {
     "duration_s": 60.0,

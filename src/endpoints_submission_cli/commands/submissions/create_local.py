@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import contextlib
-import importlib.metadata
 import json
 import sys
 import tempfile
@@ -22,7 +21,7 @@ from ...runs import api as runs_api
 from ...runs.parser import build_archive
 from ...submissions import api as subs_api
 from ...submissions.builder import create_bundle_archive
-from ..common import _console, _get_token, _run_submission_checker
+from ..common import _console, _get_token, _run_submission_checker, _write_cli_metadata
 
 __all__ = ["submissions_create_local"]
 
@@ -216,7 +215,7 @@ def submissions_create_local(
 
         # 6. Upload bundle
         _console.print("[cyan]Uploading submission bundle…[/cyan]")
-        _write_cli_metadata(submission_path)
+        _write_cli_metadata(submission_path, "create-local")
         archive_path = create_bundle_archive(submission_path, tmp_path / "bundle.tar.gz")
         try:
             subs_api.upload_submission_archive(resolved_token, submission_id, archive_path)
@@ -240,20 +239,6 @@ def submissions_create_local(
             _console.print(f"[yellow]Warning: status update failed (retryable):[/yellow] {exc}")
 
     _console.print(f"[bold green]Submission created:[/bold green] {submission_id}")
-
-
-def _write_cli_metadata(submission_path: Path) -> None:
-    """Write a cli_metadata.json marker so reviewers can identify create-local bundles."""
-    try:
-        version = importlib.metadata.version("endpoints-submission-cli")
-    except importlib.metadata.PackageNotFoundError:
-        version = "unknown"
-    meta = {
-        "command": "create-local",
-        "cli_version": version,
-        "created_at": datetime.now(tz=timezone.utc).isoformat(),
-    }
-    (submission_path / "cli_metadata.json").write_text(json.dumps(meta, indent=2))
 
 
 def _find_result_dirs(submission_path: Path) -> list[Path]:
