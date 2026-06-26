@@ -42,6 +42,11 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+# §2 — the only benchmark models accepted this submission round. system_desc.model_name
+# must match one of these exactly.
+_ALLOWED_MODEL_NAMES = ("llama3.1-8b", "gpt-oss-120b", "deepseek-r1")
+
+
 def _results_has_accuracy_scores(path: Path) -> bool:
     """True if a results.json carries a non-empty ``accuracy_scores`` mapping."""
     try:
@@ -173,6 +178,27 @@ class SubmissionChecker:
                 "#1",
             )
         )
+
+        # §2 — model_name must be one of the accepted benchmark models, exactly.
+        if system_desc.model_name in _ALLOWED_MODEL_NAMES:
+            results.append(
+                _ok(
+                    "model-name-valid",
+                    f"model_name {system_desc.model_name!r} is an allowed model",
+                    system_json,
+                    "#2",
+                )
+            )
+        else:
+            results.append(
+                _err(
+                    "model-name-valid",
+                    f"model_name {system_desc.model_name!r} is not an allowed model; "
+                    f"must be exactly one of: {', '.join(_ALLOWED_MODEL_NAMES)}",
+                    system_json,
+                    "#2",
+                )
+            )
 
         M = system_desc.max_supported_concurrency
         results.append(
