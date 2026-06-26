@@ -413,7 +413,8 @@ def _write_pareto_entries(
             "requests_completed": warmup_cfg.get("requests_completed"),
             "data_source": warmup_cfg.get("data_source"),
             "concurrency": warmup_cfg.get("concurrency"),
-            "initialization_steps": warmup_cfg.get("initialization_steps"),
+            # Checker types this as a list; default to [] rather than null when absent.
+            "initialization_steps": warmup_cfg.get("initialization_steps") or [],
         }
 
         point_cfg: dict[str, Any] = {

@@ -35,11 +35,15 @@ from .models.loader import (
     load_accuracy_scores,
     load_point_config,
     load_result_summary,
+    load_run_metadata,
     load_system_description,
 )
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+# Absolute tolerance for the tps_utilization consistency check.
+_TPS_UTILIZATION_ABS_TOL = 0.1
 
 
 # §2 — the only benchmark models accepted this submission round. system_desc.model_name
@@ -131,11 +135,16 @@ class SubmissionChecker:
         for system_json in system_jsons:
             report.results.extend(self._check_system(system_json, pareto_dir))
 
+
+        # Submission-wide: tps_utilization must match system_tps / max(system_tps).
+        report.results.extend(self._check_tps_utilization(pareto_dir))
+
         # §15: at least one model must carry accuracy results — either as accuracy_scores
         # embedded in a results.json, or as a standalone accuracy/results.json.
         has_full_accuracy = any(
             True for _ in pareto_dir.rglob("accuracy/results.json")
         ) or any(_results_has_accuracy_scores(p) for p in pareto_dir.rglob("results.json"))
+
         if has_full_accuracy:
             report.results.append(
                 _ok(
@@ -157,6 +166,66 @@ class SubmissionChecker:
             )
 
         return report
+
+    # ------------------------------------------------------------------
+    # Submission-wide checks
+    # ------------------------------------------------------------------
+
+    def _check_tps_utilization(self, pareto_dir: Path) -> list[CheckResult]:
+        """Verify each run's ``tps_utilization`` equals ``system_tps / max(system_tps)``.
+
+        ``tps_utilization`` normalises a run to the peak ``system_tps`` across the
+        whole submission, so this is a cross-run check. Stored values are compared
+        to the recomputed expectation within an absolute tolerance of
+        ``_TPS_UTILIZATION_ABS_TOL``. Structurally invalid metadata (missing or
+        non-numeric fields) is left to the per-file ``run-metadata-valid`` check.
+        """
+        entries: list[tuple[Path, float, float]] = []
+        for md_path in sorted(pareto_dir.rglob("run_metadata.json")):
+            try:
+                data = json.loads(md_path.read_text())
+            except (OSError, ValueError):
+                continue
+            tps = data.get("system_tps")
+            util = data.get("tps_utilization")
+            if (
+                isinstance(tps, (int, float))
+                and not isinstance(tps, bool)
+                and isinstance(util, (int, float))
+                and not isinstance(util, bool)
+            ):
+                entries.append((md_path, float(tps), float(util)))
+
+        if not entries:
+            return []
+        max_tps = max(tps for _, tps, _ in entries)
+        if max_tps <= 0:
+            return []
+
+        results: list[CheckResult] = []
+        for md_path, tps, util in entries:
+            expected = tps / max_tps
+            if abs(util - expected) <= _TPS_UTILIZATION_ABS_TOL:
+                results.append(
+                    _ok(
+                        "tps-utilization",
+                        f"tps_utilization {util:.4f} matches expected {expected:.4f}",
+                        md_path,
+                        "#8.1",
+                    )
+                )
+            else:
+                results.append(
+                    _err(
+                        "tps-utilization",
+                        f"tps_utilization {util} != expected {expected:.4f}"
+                        f" (system_tps {tps} / submission max {max_tps};"
+                        f" abs tol {_TPS_UTILIZATION_ABS_TOL})",
+                        md_path,
+                        "#8.1",
+                    )
+                )
+        return results
 
     # ------------------------------------------------------------------
     # Per-system orchestration
@@ -334,6 +403,30 @@ class SubmissionChecker:
                         "#8.1",
                     )
                 )
+
+            run_metadata_path = point_result_dir / "run_metadata.json"
+            if not run_metadata_path.exists():
+                results.append(
+                    _err(
+                        "run-metadata-present",
+                        f"Missing run_metadata.json for point_{config.concurrency}:"
+                        f" {run_metadata_path.relative_to(self.submission_path)}",
+                        run_metadata_path,
+                        "#8.1",
+                    )
+                )
+            else:
+                run_metadata, rm_results = load_run_metadata(run_metadata_path)
+                results.extend(rm_results)
+                if run_metadata is not None:
+                    results.append(
+                        _ok(
+                            "run-metadata-valid",
+                            f"run_metadata.json valid for point_{config.concurrency}",
+                            run_metadata_path,
+                            "#8.1",
+                        )
+                    )
 
             summary, load_results = load_result_summary(summary_path)
             results.extend(load_results)

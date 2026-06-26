@@ -262,6 +262,7 @@ class TestSubJ:
 
 _SYSTEM_DESC = {
     "submitter_org_names": "Test Org",
+    "submitter_contact": "contact@example.com",
     "system_name": "test-sys",
     "system_category": "datacenter",
     "system_availability_status": "Available",
@@ -279,12 +280,30 @@ _SYSTEM_DESC = {
             "accelerators_per_node": 8,
             "accelerator_memory_capacity": "80 GB",
             "host_networking": "InfiniBand",
+            "host_network_card_count": "4x NIC",
             "host_storage_type": "NVMe",
             "host_storage_capacity": "10 TB",
             "operating_system": "Ubuntu 22.04",
+            "host_memory_configuration": "8x 64GB DDR5",
+            "accelerator_memory_type": "HBM3",
+            "driver": "550.54",
+            "filesystem": "ext4",
         }
     ],
     "division": "Serviced",
+    "system_size": "1 node",
+    "system_node_ensemble_count": 1,
+    "system_node_ensemble_total": 1,
+    "model_id": "test-model",
+    "model_precision": "FP16",
+    "link_to_model": "https://example.com/model",
+    "dataset_id": "cnn_dailymail",
+    "dataset_name": "CNN/DailyMail",
+    "input_token_average": 870.0,
+    "output_token_average": 128.0,
+    "dataset_type": "performance",
+    "dataset_link": "https://example.com/dataset",
+    "measured_accuracy_score": "38.7",
 }
 
 _SUMMARY = {
@@ -326,6 +345,34 @@ def _make_run_yaml(concurrency: int) -> dict:
     }
 
 
+def _make_run_metadata(concurrency: int) -> dict:
+    """A fully-populated, valid run_metadata.json payload."""
+    md = {
+        "run_date": "2026-01-26",
+        "node_config": "8x H100 test node",
+        "config_summary": "TP 1, PP 1, DP 1",
+        "config_summary_notes": None,
+        "concurrency": concurrency,
+        "system_tps": 306.94,
+        "tps_per_user": 2.40,
+        "ttft": 312.5,
+        "qps": 5.07,
+        "tps_utilization": 1.0,
+        "measured_total_output_tokens": 60557,
+        "measured_run_duration": 197.29,
+        "measured_total_requests": 1000,
+        "link_config": None,
+        "link_logs": None,
+    }
+    for group in ("ttft", "tpot", "request"):
+        for stat, val in (
+            ("min", 1.0), ("average", 2.0), ("p50", 2.0), ("p90", 3.0),
+            ("p95", 3.5), ("p99", 4.0), ("p999", 4.5), ("max", 5.0),
+        ):
+            md[f"measured_latency_{group}_{stat}"] = val
+    return md
+
+
 def _build_submission(
     root: Path,
     system_id: str = "test-sys",
@@ -334,6 +381,7 @@ def _build_submission(
     write_runs: bool = True,
     write_results: bool = True,
     write_accuracy_json: bool = True,
+    write_run_metadata: bool = True,
     accuracy_data: dict | None = None,
     model: str = "llama3-70b",
 ) -> Path:
@@ -363,6 +411,8 @@ def _build_submission(
             result_dir.mkdir(parents=True)
             (result_dir / "results_summary.json").write_text(json.dumps(_SUMMARY))
             (result_dir / "config.yaml").write_text(yaml.dump({"concurrency": c}))
+            if write_run_metadata:
+                (result_dir / "run_metadata.json").write_text(json.dumps(_make_run_metadata(c)))
             # Write accuracy inside the first point only; checker scans all points
             if c == concs[0]:
                 accuracy_dir = result_dir / "accuracy"
@@ -451,6 +501,64 @@ class TestCheckerEdgeCases:
         root = _build_submission(tmp_path, write_results=False)
         report = _check(root)
         assert _errors(report, "result-file-present")
+
+    def test_missing_run_metadata_errors(self, tmp_path):
+        """run-metadata-present error when run_metadata.json is absent from a point."""
+        root = _build_submission(tmp_path, write_run_metadata=False)
+        report = _check(root)
+        assert _errors(report, "run-metadata-present")
+
+    def test_valid_run_metadata_ok(self, tmp_path):
+        """A fully-populated run_metadata.json produces a run-metadata-valid ok and no errors."""
+        root = _build_submission(tmp_path)
+        report = _check(root)
+        assert not _errors(report, "run-metadata-present")
+        assert not _errors(report, "run-metadata-valid")
+        assert any(r.rule == "run-metadata-valid" for r in report.results)
+
+    def test_invalid_run_metadata_errors(self, tmp_path):
+        """A null measurement in run_metadata.json produces a run-metadata-valid error."""
+        root = _build_submission(tmp_path)
+        # Null out a measurement that must be non-null in every point's metadata.
+        for md in root.rglob("run_metadata.json"):
+            data = json.loads(md.read_text())
+            data["measured_latency_ttft_p99"] = None
+            md.write_text(json.dumps(data))
+        report = _check(root)
+        assert _errors(report, "run-metadata-valid")
+
+    def _set_tps(self, root, values: dict[int, tuple[float, float]]) -> None:
+        """Set (system_tps, tps_utilization) per concurrency in each run_metadata.json."""
+        for md in root.rglob("run_metadata.json"):
+            data = json.loads(md.read_text())
+            tps, util = values[data["concurrency"]]
+            data["system_tps"], data["tps_utilization"] = tps, util
+            md.write_text(json.dumps(data))
+
+    def test_tps_utilization_consistent_passes(self, tmp_path):
+        """Correctly normalised tps_utilization yields no tps-utilization error."""
+        root = _build_submission(tmp_path, concurrencies=[16, 38])
+        # max system_tps = 200 → expected utils 0.5 and 1.0
+        self._set_tps(root, {16: (100.0, 0.5), 38: (200.0, 1.0)})
+        report = _check(root)
+        assert not _errors(report, "tps-utilization")
+        assert any(r.rule == "tps-utilization" for r in report.results)
+
+    def test_tps_utilization_within_tolerance_passes(self, tmp_path):
+        """A value off by < 0.1 from expected is accepted."""
+        root = _build_submission(tmp_path, concurrencies=[16, 38])
+        # expected for 16 is 0.5; 0.55 is within abs tol 0.1
+        self._set_tps(root, {16: (100.0, 0.55), 38: (200.0, 1.0)})
+        report = _check(root)
+        assert not _errors(report, "tps-utilization")
+
+    def test_tps_utilization_out_of_tolerance_errors(self, tmp_path):
+        """A value off by > 0.1 from expected produces a tps-utilization error."""
+        root = _build_submission(tmp_path, concurrencies=[16, 38])
+        # expected for 16 is 0.5; 0.8 is off by 0.3 > 0.1
+        self._set_tps(root, {16: (100.0, 0.8), 38: (200.0, 1.0)})
+        report = _check(root)
+        assert _errors(report, "tps-utilization")
 
     def test_missing_config_yaml(self, tmp_path):
         """result-file-present error when config.yaml is absent from a result dir."""

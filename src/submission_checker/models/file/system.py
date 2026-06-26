@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 __all__ = ["Division", "NodeType", "SystemAvailabilityStatus", "SystemDescription"]
 
@@ -37,14 +37,14 @@ class NodeType(BaseModel):
     host_processor_core_count: int | None = None
     host_processor_vcpu_count: int | None = None
     host_memory_capacity: str | None = None
-    host_memory_configuration: str | None = None
+    host_memory_configuration: str
     accelerator_model_name: str | None = None
     accelerators_per_node: int | None = None
     accelerator_memory_capacity: str | None = None
-    accelerator_memory_type: str | None = None
+    accelerator_memory_type: str
     accelerator_interconnect: str | None = None
     accelerator_host_interconnect: str | None = None
-    host_network_card_count: str | None = None
+    host_network_card_count: str
     host_networking: str | None = None
     host_storage_capacity: str | None = None
     host_storage_type: str | None = None
@@ -52,9 +52,9 @@ class NodeType(BaseModel):
     hw_notes: str | None = None
     cooling: str | None = None
     inference_backend: str | None = None
-    driver: str | None = None
+    driver: str
     operating_system: str | None = None
-    filesystem: str | None = None
+    filesystem: str
     container_link: str | None = None
     other_software_stack: str | None = None
     sw_notes: str | None = None
@@ -69,6 +69,16 @@ class NodeType(BaseModel):
                 return v
         return v
 
+    @model_validator(mode="after")
+    def _require_core_or_vcpu_count(self) -> NodeType:
+        """A node must disclose at least one of physical core count or vCPU count."""
+        if self.host_processor_core_count is None and self.host_processor_vcpu_count is None:
+            raise ValueError(
+                "node_types entry must specify host_processor_core_count or"
+                " host_processor_vcpu_count"
+            )
+        return self
+
 
 class SystemDescription(BaseModel):
     """Parsed contents of ``systems/<system_id>.json`` (§8.2).
@@ -81,7 +91,7 @@ class SystemDescription(BaseModel):
 
     # Org / submission metadata
     submitter_org_names: str
-    submitter_contact: str | None = None
+    submitter_contact: str
     submission_id: str | None = None
     submission_date: str | None = None
     publish_date: str | None = None
@@ -91,31 +101,31 @@ class SystemDescription(BaseModel):
     system_category: str
     system_availability_status: SystemAvailabilityStatus
     max_supported_concurrency: int
-    system_size: str | None = None
-    system_node_ensemble_count: int | None = None
-    system_node_ensemble_total: int | None = None
+    system_size: str
+    system_node_ensemble_count: int
+    system_node_ensemble_total: int
     serving_framework: str | None = None
     node_types: list[NodeType]
 
     # Division / model metadata
     division: Division
-    model_id: str | None = None
+    model_id: str
     model_name: str | None = None
-    model_precision: str | None = None
-    link_to_model: str | None = None
+    model_precision: str
+    link_to_model: str
     link_to_model_transformation: str | None = None
     model_notes: str | None = None
 
     # Dataset metadata
-    dataset_id: str | None = None
-    dataset_name: str | None = None
-    input_token_average: float | None = None
-    output_token_average: float | None = None
-    dataset_type: str | None = None
-    dataset_link: str | None = None
+    dataset_id: str
+    dataset_name: str
+    input_token_average: float
+    output_token_average: float
+    dataset_type: str
+    dataset_link: str
 
     # Accuracy
-    measured_accuracy_score: str | float | None = None
+    measured_accuracy_score: str | float
 
     @field_validator("division", mode="before")
     @classmethod
