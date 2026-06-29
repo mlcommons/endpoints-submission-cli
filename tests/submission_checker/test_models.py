@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from submission_checker.models import (
     AccuracyResult,
     CheckResult,
+    DatasetAccuracyScores,
     Division,
     PercentileStats,
     PointConfig,
@@ -338,3 +339,45 @@ def test_accuracy_empty_string_measured_score_rejected():
     # measured_accuracy_score is required; an empty string coerces to None and is rejected.
     with pytest.raises(ValidationError):
         SystemDescription(**{**_BASE_FLAT, "measured_accuracy_score": ""})
+
+
+def test_accuracy_scalar_string_measured_score_accepted():
+    # The legacy scalar form (str/float) is still accepted for now.
+    sd = SystemDescription(**{**_BASE_FLAT, "measured_accuracy_score": "38.7"})
+    assert sd.measured_accuracy_score == "38.7"
+
+
+def test_accuracy_scalar_float_measured_score_accepted():
+    sd = SystemDescription(**{**_BASE_FLAT, "measured_accuracy_score": 91.2})
+    assert sd.measured_accuracy_score == 91.2
+
+
+def test_accuracy_structured_measured_score_accepted():
+    # The structured per-dataset form: {dataset: {"scores": {score_name: score_value}}}.
+    sd = SystemDescription(
+        **{
+            **_BASE_FLAT,
+            "measured_accuracy_score": {
+                "cnn_dailymail": {"scores": {"rouge1": 38.73, "rouge2": 16.1}}
+            },
+        }
+    )
+    entry = sd.measured_accuracy_score["cnn_dailymail"]
+    assert isinstance(entry, DatasetAccuracyScores)
+    assert entry.scores == {"rouge1": pytest.approx(38.73), "rouge2": pytest.approx(16.1)}
+
+
+def test_accuracy_structured_missing_scores_key_rejected():
+    # A dataset entry without the `scores` mapping is invalid.
+    with pytest.raises(ValidationError):
+        SystemDescription(
+            **{**_BASE_FLAT, "measured_accuracy_score": {"ds": {"rouge1": 1.0}}}
+        )
+
+
+def test_accuracy_structured_string_score_rejected():
+    # score_value must be a float — strings are validated, not parsed.
+    with pytest.raises(ValidationError):
+        SystemDescription(
+            **{**_BASE_FLAT, "measured_accuracy_score": {"ds": {"scores": {"x": "38.73"}}}}
+        )

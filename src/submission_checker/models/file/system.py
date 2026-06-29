@@ -4,9 +4,15 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, StrictFloat, field_validator, model_validator
 
-__all__ = ["Division", "NodeType", "SystemAvailabilityStatus", "SystemDescription"]
+__all__ = [
+    "DatasetAccuracyScores",
+    "Division",
+    "NodeType",
+    "SystemAvailabilityStatus",
+    "SystemDescription",
+]
 
 
 class Division(str, Enum):
@@ -80,6 +86,19 @@ class NodeType(BaseModel):
         return self
 
 
+class DatasetAccuracyScores(BaseModel):
+    """Per-dataset accuracy scores for ``measured_accuracy_score`` (§8.2).
+
+    Maps a single dataset to a ``scores`` dictionary of ``score_name -> score_value``,
+    e.g. ``{"scores": {"exact_match": 84.01, "rouge1": 38.73}}``. Each score value must
+    be a float — strings are rejected rather than parsed (ints widen to float).
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    scores: dict[str, StrictFloat]
+
+
 class SystemDescription(BaseModel):
     """Parsed contents of ``systems/<system_id>.json`` (§8.2).
 
@@ -124,8 +143,10 @@ class SystemDescription(BaseModel):
     dataset_type: str
     dataset_link: str
 
-    # Accuracy
-    measured_accuracy_score: str | float
+    # Accuracy. A scalar (str/float) is accepted for now; the structured per-dataset
+    # form {dataset: {"scores": {score_name: score_value}}} is also accepted and will
+    # become the only valid form in a future round.
+    measured_accuracy_score: str | float | dict[str, DatasetAccuracyScores]
 
     @field_validator("division", mode="before")
     @classmethod
