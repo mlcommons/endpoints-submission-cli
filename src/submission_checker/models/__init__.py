@@ -4,6 +4,7 @@ from .aggregate import MIN_QUERY_COUNT, ModelContext, PointResult
 from .file import (
     AccuracyResult,
     ConfigSummary,
+    DatasetAccuracyScores,
     Division,
     NodeType,
     PercentileStats,
@@ -21,6 +22,7 @@ from .structure import ModelDir, SrcDir, SubmissionDir, SystemPareto
 __all__ = [
     "AccuracyResult",
     "CheckResult",
+    "DatasetAccuracyScores",
     "Division",
     "MIN_DURATION_MS",
     "MIN_QUERY_COUNT",

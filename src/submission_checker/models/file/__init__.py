@@ -4,11 +4,18 @@ from .accuracy import AccuracyResult
 from .point_config import PointConfig, RuntimeSettings
 from .point_summary import PercentileStats, PointSummary
 from .run_metadata import ConfigSummary, RunMetadata
-from .system import Division, NodeType, SystemAvailabilityStatus, SystemDescription
+from .system import (
+    DatasetAccuracyScores,
+    Division,
+    NodeType,
+    SystemAvailabilityStatus,
+    SystemDescription,
+)
 
 __all__ = [
     "AccuracyResult",
     "ConfigSummary",
+    "DatasetAccuracyScores",
     "Division",
     "NodeType",
     "SystemAvailabilityStatus",
