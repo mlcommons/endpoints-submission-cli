@@ -51,19 +51,6 @@ _TPS_UTILIZATION_ABS_TOL = 0.1
 _ALLOWED_MODEL_NAMES = ("llama3.1-8b", "gpt-oss-120b", "deepseek-r1")
 
 
-def _results_has_accuracy_scores(path: Path) -> bool:
-    """True if a results.json carries a non-empty ``accuracy_scores`` mapping."""
-    try:
-        data = json.loads(path.read_text())
-    except (OSError, ValueError):
-        return False
-    return (
-        isinstance(data, dict)
-        and isinstance(data.get("accuracy_scores"), dict)
-        and bool(data["accuracy_scores"])
-    )
-
-
 class SubmissionChecker:
     """Validates an MLPerf Endpoints submission directory against §9.1 rules.
 
@@ -139,31 +126,7 @@ class SubmissionChecker:
         # Submission-wide: tps_utilization must match system_tps / max(system_tps).
         report.results.extend(self._check_tps_utilization(pareto_dir))
 
-        # §15: at least one model must carry accuracy results — either as accuracy_scores
-        # embedded in a results.json, or as a standalone accuracy/results.json.
-        has_full_accuracy = any(
-            True for _ in pareto_dir.rglob("accuracy/results.json")
-        ) or any(_results_has_accuracy_scores(p) for p in pareto_dir.rglob("results.json"))
-
-        if has_full_accuracy:
-            report.results.append(
-                _ok(
-                    "accuracy-present",
-                    "At least one model has accuracy results",
-                    pareto_dir,
-                    "#15",
-                )
-            )
-        else:
-            report.results.append(
-                _err(
-                    "accuracy-present",
-                    "No model in this submission has accuracy results "
-                    "(accuracy_scores in results.json or accuracy/results.json)",
-                    pareto_dir,
-                    "#15",
-                )
-            )
+        # §15 accuracy presence is enforced per run (per point) in _check_model_files.
 
         return report
 
@@ -441,49 +404,75 @@ class SubmissionChecker:
             results.extend(point_result._check_results)
             loaded_points.append((config, summary))
 
-        # Load accuracy per point, preferring the accuracy_scores embedded in
-        # results.json, then falling back to a standalone accuracy/results.json.
-        # The first valid source wins; run() enforces that at least one model has one.
+        # §15: every run (point) must carry its own accuracy result, preferring the
+        # accuracy_scores embedded in results.json, then a standalone accuracy/results.json.
+        # A run with no accuracy source at all fails accuracy-present; the first valid
+        # result found also feeds the model-level accuracy-gate below.
         accuracy_dir: Path | None = None
         accuracy_result = None
         for config, _ in loaded_points:
-            if accuracy_result is not None:
-                break
             point_dir = results_dir / f"point_{config.concurrency}"
+            loaded = None
+            loaded_dir: Path | None = None
+            has_source = False
 
             # Primary: accuracy_scores embedded in results.json.
             results_json = point_dir / "results.json"
             if results_json.exists():
-                loaded, acc_results, present = load_accuracy_scores(results_json)
+                cand, acc_results, present = load_accuracy_scores(results_json)
                 if present:
+                    has_source = True
                     results.extend(acc_results)
-                    if loaded is not None and not any(
+                    if cand is not None and not any(
                         r.severity == Severity.ERROR for r in acc_results
                     ):
-                        accuracy_result, accuracy_dir = loaded, point_dir
-                    continue
+                        loaded, loaded_dir = cand, point_dir
 
             # Fallback: standalone accuracy/results.json (moved from the run archive).
-            pd = point_dir / "accuracy"
-            if not pd.is_dir():
-                continue
-            json_p = pd / "results.json"
-            if not json_p.exists():
+            if not has_source:
+                pd = point_dir / "accuracy"
+                json_p = pd / "results.json"
+                if json_p.exists():
+                    has_source = True
+                    cand, acc_results = load_accuracy_result(json_p)
+                    results.extend(acc_results)
+                    if cand is not None and not any(
+                        r.severity == Severity.ERROR for r in acc_results
+                    ):
+                        loaded, loaded_dir = cand, pd
+                elif pd.is_dir():
+                    # accuracy/ started but its results.json is absent.
+                    has_source = True
+                    results.append(
+                        _err(
+                            "accuracy-file",
+                            f"Missing results.json in point_{config.concurrency}/accuracy/",
+                            json_p,
+                            "#15",
+                        )
+                    )
+
+            if not has_source:
                 results.append(
                     _err(
-                        "accuracy-file",
-                        f"Missing results.json in point_{config.concurrency}/accuracy/",
-                        json_p,
+                        "accuracy-present",
+                        f"point_{config.concurrency} has no accuracy result "
+                        "(accuracy_scores in results.json or accuracy/results.json)",
+                        point_dir,
                         "#15",
                     )
                 )
-            else:
-                loaded, acc_results = load_accuracy_result(json_p)
-                results.extend(acc_results)
-                if loaded is not None and not any(
-                    r.severity == Severity.ERROR for r in acc_results
-                ):
-                    accuracy_result, accuracy_dir = loaded, pd
+            elif loaded is not None:
+                results.append(
+                    _ok(
+                        "accuracy-present",
+                        f"point_{config.concurrency} has an accuracy result",
+                        loaded_dir,
+                        "#15",
+                    )
+                )
+                if accuracy_result is None:
+                    accuracy_result, accuracy_dir = loaded, loaded_dir
 
         # ModelContext validates point-count, regional-coverage, config-consistency, accuracy-gate
         model_ctx = ModelContext(

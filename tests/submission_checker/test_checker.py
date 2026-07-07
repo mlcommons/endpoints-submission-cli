@@ -413,13 +413,12 @@ def _build_submission(
             (result_dir / "config.yaml").write_text(yaml.dump({"concurrency": c}))
             if write_run_metadata:
                 (result_dir / "run_metadata.json").write_text(json.dumps(_make_run_metadata(c)))
-            # Write accuracy inside the first point only; checker scans all points
-            if c == concs[0]:
-                accuracy_dir = result_dir / "accuracy"
-                accuracy_dir.mkdir()
-                if write_accuracy_json:
-                    data = accuracy_data if accuracy_data is not None else _ACCURACY
-                    (accuracy_dir / "results.json").write_text(json.dumps(data))
+            # Every run (point) carries its own accuracy result (§15 is enforced per run).
+            accuracy_dir = result_dir / "accuracy"
+            accuracy_dir.mkdir()
+            if write_accuracy_json:
+                data = accuracy_data if accuracy_data is not None else _ACCURACY
+                (accuracy_dir / "results.json").write_text(json.dumps(data))
 
     return root
 
@@ -581,11 +580,23 @@ class TestCheckerEdgeCases:
         assert _errors(report, "result-file-valid")
 
     def test_missing_accuracy_results_json(self, tmp_path):
-        """accuracy-file error when accuracy/results.json is absent;
-        accuracy-present error because no model has accuracy data."""
+        """accuracy-file error when a point's accuracy/ dir has no results.json."""
         root = _build_submission(tmp_path, write_accuracy_json=False)
         report = _check(root)
         assert _errors(report, "accuracy-file")
+
+    def test_accuracy_required_per_run(self, tmp_path):
+        """accuracy-present error when any single run lacks an accuracy result."""
+        import shutil
+
+        root = _build_submission(tmp_path)  # accuracy written for every point
+        # Strip accuracy from exactly one run — the rest keep theirs.
+        victim = (
+            root / "pareto" / "test-sys" / "llama3-70b" / "results"
+            / f"point_{_CONCURRENCIES[1]}" / "accuracy"
+        )
+        shutil.rmtree(victim)
+        report = _check(root)
         assert _errors(report, "accuracy-present")
 
     def test_invalid_accuracy_json(self, tmp_path):
@@ -598,16 +609,17 @@ class TestCheckerEdgeCases:
         assert _errors(report, "accuracy-valid")
 
     def test_accuracy_scores_in_results_json(self, tmp_path):
-        """Accuracy is read from a point's results.json accuracy_scores (no accuracy/ dir)."""
+        """Accuracy is read from each point's results.json accuracy_scores (no accuracy/ dir)."""
         root = _build_submission(tmp_path, write_accuracy_json=False)
-        # Drop accuracy_scores into the first point's results.json. The checker reads it
+        # Drop accuracy_scores into every point's results.json. The checker reads it
         # directly; the empty accuracy/ dir is not consulted (no accuracy-file error).
-        first_point = (
-            root / "pareto" / "test-sys" / "llama3-70b" / "results" / f"point_{_CONCURRENCIES[0]}"
-        )
-        (first_point / "results.json").write_text(
-            json.dumps({"config": {}, "results": {}, "accuracy_scores": _ACCURACY, "responses": []})
-        )
+        results_root = root / "pareto" / "test-sys" / "llama3-70b" / "results"
+        for c in _CONCURRENCIES:
+            (results_root / f"point_{c}" / "results.json").write_text(
+                json.dumps(
+                    {"config": {}, "results": {}, "accuracy_scores": _ACCURACY, "responses": []}
+                )
+            )
         report = _check(root)
         assert not _errors(report, "accuracy-present")
         assert not _errors(report, "accuracy-valid")
