@@ -31,8 +31,35 @@ class TestSubmissionDir:
         (tmp_path / "systems").mkdir()
         (tmp_path / "pareto").mkdir()
         (tmp_path / "documentation").mkdir()
+        (tmp_path / "documentation" / "README.md").write_text("docs")
         sd = SubmissionDir(root=tmp_path)
         assert _passed(sd._check_results)
+
+    _REPRO_MSG = "Submission requires documentation and source code for reproducibility"
+
+    def test_empty_documentation_fails_reproducibility(self, tmp_path):
+        (tmp_path / "systems").mkdir()
+        (tmp_path / "pareto").mkdir()
+        (tmp_path / "documentation").mkdir()  # exists but empty
+        sd = SubmissionDir(root=tmp_path)
+        errors = [r for r in sd._check_results if r.severity == Severity.ERROR]
+        assert any(r.rule == "reproducibility-content" and r.message == self._REPRO_MSG
+                   for r in errors)
+
+    def test_missing_documentation_uses_same_error(self, tmp_path):
+        # A missing documentation/ reports the same single reproducibility error as
+        # an empty one — no separate "required-dir" error for docs to fix first.
+        (tmp_path / "systems").mkdir()
+        (tmp_path / "pareto").mkdir()
+        # documentation/ intentionally absent
+        sd = SubmissionDir(root=tmp_path)
+        errors = [r for r in sd._check_results if r.severity == Severity.ERROR]
+        assert any(r.rule == "reproducibility-content" and r.message == self._REPRO_MSG
+                   for r in errors)
+        # documentation must NOT surface as a generic required-dir error
+        assert not any(
+            r.rule == "required-dir" and "documentation" in r.message for r in errors
+        )
 
     def test_computed_paths(self, tmp_path):
         sd = SubmissionDir(root=tmp_path)
@@ -82,14 +109,28 @@ class TestModelDir:
 
 @pytest.mark.unit
 class TestSrcDir:
+    _REPRO_MSG = "Submission requires documentation and source code for reproducibility"
+
     def test_standardized_missing_src(self, tmp_path):
+        # Missing src/<model>/ reports the same single reproducibility error as an
+        # empty one — no separate "missing directory" error to fix first.
         sd = SrcDir(root=tmp_path, division=Division.STANDARDIZED, model="llama3-70b")
-        assert any(r.severity == Severity.ERROR for r in sd._check_results)
+        errors = [r for r in sd._check_results if r.severity == Severity.ERROR]
+        assert any(r.rule == "reproducibility-content" and r.message == self._REPRO_MSG
+                   for r in errors)
 
     def test_standardized_src_present(self, tmp_path):
         (tmp_path / "src" / "llama3-70b").mkdir(parents=True)
+        (tmp_path / "src" / "llama3-70b" / "run.sh").write_text("echo hi")
         sd = SrcDir(root=tmp_path, division=Division.STANDARDIZED, model="llama3-70b")
         assert _passed(sd._check_results)
+
+    def test_standardized_empty_src_fails_reproducibility(self, tmp_path):
+        (tmp_path / "src" / "llama3-70b").mkdir(parents=True)  # exists but empty
+        sd = SrcDir(root=tmp_path, division=Division.STANDARDIZED, model="llama3-70b")
+        errors = [r for r in sd._check_results if r.severity == Severity.ERROR]
+        assert any(r.rule == "reproducibility-content" and r.message == self._REPRO_MSG
+                   for r in errors)
 
     def test_non_standardized_skipped(self, tmp_path):
         sd = SrcDir(root=tmp_path, division=Division.SERVICED, model="llama3-70b")

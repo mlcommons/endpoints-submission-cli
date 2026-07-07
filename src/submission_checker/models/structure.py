@@ -9,6 +9,15 @@ from pydantic import BaseModel, PrivateAttr, computed_field, model_validator
 from .file import Division
 from .results import CheckResult, err, ok
 
+# Emitted when documentation/ or src/<model>/ exists but holds no files — a
+# submission with an empty docs or source tree can't be reproduced.
+_REPRODUCIBILITY_MSG = "Submission requires documentation and source code for reproducibility"
+
+
+def _contains_file(directory: Path) -> bool:
+    """True when *directory* holds at least one file (searched recursively)."""
+    return any(p.is_file() for p in directory.rglob("*"))
+
 
 class SubmissionDir(BaseModel):
     """Validates the top-level submission directory: systems/ and pareto/ must exist."""
@@ -31,7 +40,7 @@ class SubmissionDir(BaseModel):
 
     @model_validator(mode="after")
     def _check_required_dirs(self) -> SubmissionDir:
-        for name in ("systems", "pareto", "documentation"):
+        for name in ("systems", "pareto"):
             path = self.root / name
             if path.is_dir():
                 self._check_results.append(
@@ -41,6 +50,18 @@ class SubmissionDir(BaseModel):
                 self._check_results.append(
                     err("required-dir", f"Missing required directory: {name}/", path, "#1")
                 )
+        # documentation/ must exist *and* contain files. Both are reported as one
+        # check so a submitter isn't sent to fix a missing directory only to hit a
+        # separate "empty directory" error on the next run.
+        docs = self.root / "documentation"
+        if docs.is_dir() and _contains_file(docs):
+            self._check_results.append(
+                ok("reproducibility-content", "Found required directory: documentation/", docs, "#1")
+            )
+        else:
+            self._check_results.append(
+                err("reproducibility-content", _REPRODUCIBILITY_MSG, docs, "#1")
+            )
         return self
 
 
@@ -58,10 +79,13 @@ class SrcDir(BaseModel):
         if self.division != Division.STANDARDIZED:
             return self
         src_dir = self.root / "src" / self.model
-        if src_dir.is_dir():
+        # src/<model>/ must exist *and* contain files. Both are reported as one
+        # check so a submitter isn't sent to fix a missing directory only to hit a
+        # separate "empty directory" error on the next run.
+        if src_dir.is_dir() and _contains_file(src_dir):
             self._check_results.append(
                 ok(
-                    "src-dir",
+                    "reproducibility-content",
                     f"src/{self.model}/ present (required for Standardized division)",
                     src_dir,
                     "#1",
@@ -69,12 +93,7 @@ class SrcDir(BaseModel):
             )
         else:
             self._check_results.append(
-                err(
-                    "src-dir",
-                    f"Missing src/{self.model}/ directory (required for Standardized division)",
-                    src_dir,
-                    "#1",
-                )
+                err("reproducibility-content", _REPRODUCIBILITY_MSG, src_dir, "#1")
             )
         return self
 
