@@ -18,7 +18,7 @@ _TPS_TOLERANCE = 0.01  # 1% relative tolerance for stored-vs-derived comparisons
 # Dataset → minimum completed query count (§6.4).
 # Values equal the full dataset size; every sample must be run for a valid submission.
 MIN_QUERY_COUNT: dict[str, int] = {
-   "open_orca": 24576,
+    "open_orca": 24576,
     "cnn_dailymail": 13368,
     "aime25": 30,
     "gpqa": 198,

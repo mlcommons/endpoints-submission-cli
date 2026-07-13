@@ -45,6 +45,7 @@ def _write_cli_metadata(submission_dir: Path, command: str) -> None:
     }
     (submission_dir / "cli_metadata.json").write_text(json.dumps(meta, indent=2))
 
+
 _console = Console(stderr=True)
 _stdout_console = Console()
 

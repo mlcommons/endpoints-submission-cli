@@ -511,9 +511,7 @@ class TestPointYamlFromConfig:
         assert runtime["scheduler_random_seed"] == 42
         assert runtime["dataloader_random_seed"] == 42
 
-    def test_runtime_block_mirrors_config_runtime(
-        self, run_folder: Path, tmp_path: Path
-    ) -> None:
+    def test_runtime_block_mirrors_config_runtime(self, run_folder: Path, tmp_path: Path) -> None:
         """The whole settings.runtime block is dropped into runtime_settings.runtime."""
         archive = self._make_archive(
             run_folder,
@@ -648,7 +646,9 @@ class TestBuilderCheckerContract:
             assert cfg.runtime_settings.runtime.dataloader_random_seed == 42
             # No per-point structural/seed errors for a compliant input.
             errors = [r for r in cfg._check_results if r.severity == Severity.ERROR]
-            assert not errors, f"{py.name} unexpected errors: {[(r.rule, r.message) for r in errors]}"
+            assert not errors, (
+                f"{py.name} unexpected errors: {[(r.rule, r.message) for r in errors]}"
+            )
 
     def test_full_checker_runs_without_parse_failures(
         self, run_folder: Path, tmp_path: Path
@@ -791,7 +791,9 @@ class TestBuilderTruncatesResults:
         big = {f"uuid-{i:08d}": "hello world " * 5 for i in range(10_000)}
         sub_dir = build_submission_folder(
             [("run-001", self._archive(run_folder, tmp_path, big))],
-            "standardized", "available", tmp_path / "sub",
+            "standardized",
+            "available",
+            tmp_path / "sub",
         )
         written = self._perf_results(sub_dir)
         assert isinstance(written["responses"], dict)
@@ -802,7 +804,9 @@ class TestBuilderTruncatesResults:
         big = [{"text": "hello world", "idx": i} for i in range(10_000)]
         sub_dir = build_submission_folder(
             [("run-001", self._archive(run_folder, tmp_path, big))],
-            "standardized", "available", tmp_path / "sub",
+            "standardized",
+            "available",
+            tmp_path / "sub",
         )
         written = self._perf_results(sub_dir)
         assert isinstance(written["responses"], list)
