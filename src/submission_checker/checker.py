@@ -136,7 +136,8 @@ class SubmissionChecker:
             report.results.extend(self._check_system(system_json, pareto_dir))
 
 
-        # Submission-wide: tps_utilization must match system_tps / max(system_tps).
+        # Per-curve: tps_utilization must match system_tps / max(system_tps)
+        # within each <system_desc_id>/<benchmark_model> pareto curve.
         report.results.extend(self._check_tps_utilization(pareto_dir))
 
         # §15: at least one model must carry accuracy results — either as accuracy_scores
@@ -172,15 +173,24 @@ class SubmissionChecker:
     # ------------------------------------------------------------------
 
     def _check_tps_utilization(self, pareto_dir: Path) -> list[CheckResult]:
-        """Verify each run's ``tps_utilization`` equals ``system_tps / max(system_tps)``.
+        """Verify each run's ``tps_utilization`` equals ``system_tps / max(system_tps)``
+        **within its own pareto curve** (``<system_desc_id>/<benchmark_model>``).
 
-        ``tps_utilization`` normalises a run to the peak ``system_tps`` across the
-        whole submission, so this is a cross-run check. Stored values are compared
-        to the recomputed expectation within an absolute tolerance of
-        ``_TPS_UTILIZATION_ABS_TOL``. Structurally invalid metadata (missing or
-        non-numeric fields) is left to the per-file ``run-metadata-valid`` check.
+        ``tps_utilization`` normalises a run to the peak ``system_tps`` of the
+        system+model curve it belongs to — NOT across the whole submission.
+        Normalising submission-wide is wrong when a submission contains more than
+        one system: e.g. an ``MI355X_1x`` and an ``MI355X_8x`` config sharing a
+        folder would force every 1x point to be divided by the 8x peak, so the
+        smaller system can never match its stored (per-curve) values.
+
+        Stored values are compared to the recomputed expectation within an
+        absolute tolerance of ``_TPS_UTILIZATION_ABS_TOL``. Structurally invalid
+        metadata (missing or non-numeric fields) is left to the per-file
+        ``run-metadata-valid`` check.
         """
-        entries: list[tuple[Path, float, float]] = []
+        # Group run metadata by its pareto curve: the first two path components
+        # under pareto_dir are <system_desc_id>/<benchmark_model>.
+        curves: dict[tuple[str, ...], list[tuple[Path, float, float]]] = {}
         for md_path in sorted(pareto_dir.rglob("run_metadata.json")):
             try:
                 data = json.loads(md_path.read_text())
@@ -194,37 +204,38 @@ class SubmissionChecker:
                 and isinstance(util, (int, float))
                 and not isinstance(util, bool)
             ):
-                entries.append((md_path, float(tps), float(util)))
-
-        if not entries:
-            return []
-        max_tps = max(tps for _, tps, _ in entries)
-        if max_tps <= 0:
-            return []
+                rel = md_path.relative_to(pareto_dir).parts
+                curve = rel[:2] if len(rel) >= 2 else rel
+                curves.setdefault(curve, []).append((md_path, float(tps), float(util)))
 
         results: list[CheckResult] = []
-        for md_path, tps, util in entries:
-            expected = tps / max_tps
-            if abs(util - expected) <= _TPS_UTILIZATION_ABS_TOL:
-                results.append(
-                    _ok(
-                        "tps-utilization",
-                        f"tps_utilization {util:.4f} matches expected {expected:.4f}",
-                        md_path,
-                        "#8.1",
+        for curve in sorted(curves):
+            entries = curves[curve]
+            max_tps = max(tps for _, tps, _ in entries)
+            if max_tps <= 0:
+                continue
+            for md_path, tps, util in entries:
+                expected = tps / max_tps
+                if abs(util - expected) <= _TPS_UTILIZATION_ABS_TOL:
+                    results.append(
+                        _ok(
+                            "tps-utilization",
+                            f"tps_utilization {util:.4f} matches expected {expected:.4f}",
+                            md_path,
+                            "#8.1",
+                        )
                     )
-                )
-            else:
-                results.append(
-                    _err(
-                        "tps-utilization",
-                        f"tps_utilization {util} != expected {expected:.4f}"
-                        f" (system_tps {tps} / submission max {max_tps};"
-                        f" abs tol {_TPS_UTILIZATION_ABS_TOL})",
-                        md_path,
-                        "#8.1",
+                else:
+                    results.append(
+                        _err(
+                            "tps-utilization",
+                            f"tps_utilization {util} != expected {expected:.4f}"
+                            f" (system_tps {tps} / curve max {max_tps} for"
+                            f" {'/'.join(curve)}; abs tol {_TPS_UTILIZATION_ABS_TOL})",
+                            md_path,
+                            "#8.1",
+                        )
                     )
-                )
         return results
 
     # ------------------------------------------------------------------
