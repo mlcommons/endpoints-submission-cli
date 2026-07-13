@@ -34,7 +34,10 @@ class TestLoadPatternValidator:
 
     def test_missing_target_concurrency(self, tmp_path):
         config = PointConfig.model_validate(
-            {"concurrency": 0, "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME}},
+            {
+                "concurrency": 0,
+                "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME},
+            },
             context={"yaml_path": tmp_path / "point_0.yaml"},
         )
         errors = [
@@ -46,7 +49,10 @@ class TestLoadPatternValidator:
 
     def test_valid(self, tmp_path):
         config = PointConfig.model_validate(
-            {"concurrency": 64, "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME}},
+            {
+                "concurrency": 64,
+                "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME},
+            },
             context={"yaml_path": tmp_path / "point_64.yaml"},
         )
         assert all(
@@ -77,7 +83,10 @@ class TestStreamingValidator:
 
     def test_stream_true_passes(self, tmp_path):
         config = PointConfig.model_validate(
-            {"concurrency": 64, "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME}},
+            {
+                "concurrency": 64,
+                "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME},
+            },
             context={"yaml_path": tmp_path / "point_64.yaml"},
         )
         assert all(
@@ -91,7 +100,10 @@ class TestStreamingValidator:
 class TestConcurrencyInRangeValidator:
     def test_out_of_range(self, tmp_path):
         config = PointConfig.model_validate(
-            {"concurrency": 9999, "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME}},
+            {
+                "concurrency": 9999,
+                "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME},
+            },
             context={"yaml_path": tmp_path / "point_9999.yaml", "regions": _REGIONS},
         )
         errors = [
@@ -103,7 +115,10 @@ class TestConcurrencyInRangeValidator:
 
     def test_in_range(self, tmp_path):
         config = PointConfig.model_validate(
-            {"concurrency": 64, "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME}},
+            {
+                "concurrency": 64,
+                "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME},
+            },
             context={"yaml_path": tmp_path / "point_64.yaml", "regions": _REGIONS},
         )
         assert all(
@@ -114,7 +129,10 @@ class TestConcurrencyInRangeValidator:
 
     def test_no_regions_skips_check(self, tmp_path):
         config = PointConfig.model_validate(
-            {"concurrency": 9999, "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME}},
+            {
+                "concurrency": 9999,
+                "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME},
+            },
             context={"yaml_path": tmp_path / "point_9999.yaml"},
         )
         # No regions in context — concurrency-in-range should not be present
@@ -127,7 +145,10 @@ class TestRegionDeclaredValidator:
     def test_absent_region_no_check(self, tmp_path):
         """No region-declared result when region field is omitted."""
         config = PointConfig.model_validate(
-            {"concurrency": 64, "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME}},
+            {
+                "concurrency": 64,
+                "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME},
+            },
             context={"yaml_path": tmp_path / "point_64.yaml", "regions": _REGIONS},
         )
         assert not any(r.rule == "region-declared" for r in config._check_results)
@@ -251,7 +272,10 @@ class TestAccuracyResultModel:
             }
         )
         scores = ar.metric_scores()["aime1983"]
-        assert scores == {"exact_match": pytest.approx(84.01), "tokens_per_sample": pytest.approx(7338.1)}
+        assert scores == {
+            "exact_match": pytest.approx(84.01),
+            "tokens_per_sample": pytest.approx(7338.1),
+        }
         assert "num_samples" not in scores and "status" not in scores
 
 

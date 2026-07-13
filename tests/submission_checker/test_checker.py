@@ -366,8 +366,14 @@ def _make_run_metadata(concurrency: int) -> dict:
     }
     for group in ("ttft", "tpot", "request"):
         for stat, val in (
-            ("min", 1.0), ("average", 2.0), ("p50", 2.0), ("p90", 3.0),
-            ("p95", 3.5), ("p99", 4.0), ("p999", 4.5), ("max", 5.0),
+            ("min", 1.0),
+            ("average", 2.0),
+            ("p50", 2.0),
+            ("p90", 3.0),
+            ("p95", 3.5),
+            ("p99", 4.0),
+            ("p999", 4.5),
+            ("max", 5.0),
         ):
             md[f"measured_latency_{group}_{stat}"] = val
     return md
@@ -557,6 +563,49 @@ class TestCheckerEdgeCases:
         root = _build_submission(tmp_path, concurrencies=[16, 38])
         # expected for 16 is 0.5; 0.8 is off by 0.3 > 0.1
         self._set_tps(root, {16: (100.0, 0.8), 38: (200.0, 1.0)})
+        report = _check(root)
+        assert _errors(report, "tps-utilization")
+
+    def _add_curve(self, root, system_id, model, values: dict[int, tuple[float, float]]):
+        """Add a second <system_id>/<model> pareto curve with per-point (tps, util)."""
+        (root / "systems" / f"{system_id}.json").write_text(json.dumps(_SYSTEM_DESC))
+        model_dir = root / "pareto" / system_id / model
+        (model_dir / "points").mkdir(parents=True)
+        results_dir = model_dir / "results"
+        results_dir.mkdir(parents=True)
+        for c, (tps, util) in values.items():
+            (model_dir / "points" / f"point_{c}.yaml").write_text(yaml.dump(_make_run_yaml(c)))
+            rd = results_dir / f"point_{c}"
+            rd.mkdir()
+            (rd / "results_summary.json").write_text(json.dumps(_SUMMARY))
+            (rd / "config.yaml").write_text(yaml.dump({"concurrency": c}))
+            md = _make_run_metadata(c)
+            md["system_tps"], md["tps_utilization"] = tps, util
+            (rd / "run_metadata.json").write_text(json.dumps(md))
+            acc = rd / "accuracy"
+            acc.mkdir()
+            (acc / "results.json").write_text(json.dumps(_ACCURACY))
+
+    def test_tps_utilization_normalized_per_curve(self, tmp_path):
+        """Each system/model curve normalizes to its OWN peak, not a submission-wide max.
+
+        Regression test: a small system (peak 200) alongside a large one (peak 2000)
+        must not be forced to divide by the large system's peak. With the old
+        submission-wide max this errored on every small-system point.
+        """
+        root = _build_submission(tmp_path, system_id="sys-small", concurrencies=[16, 38])
+        self._set_tps(root, {16: (100.0, 0.5), 38: (200.0, 1.0)})  # own peak 200
+        self._add_curve(root, "sys-big", "llama3-70b", {16: (1000.0, 0.5), 38: (2000.0, 1.0)})
+        report = _check(root)
+        assert not _errors(report, "tps-utilization")
+        assert any(r.rule == "tps-utilization" for r in report.results)
+
+    def test_tps_utilization_per_curve_detects_error(self, tmp_path):
+        """A wrongly-normalized value is still caught within its own curve."""
+        root = _build_submission(tmp_path, system_id="sys-small", concurrencies=[16, 38])
+        self._set_tps(root, {16: (100.0, 0.5), 38: (200.0, 1.0)})  # correct
+        # sys-big point 16 expects 0.5 but stores 0.9 (off by 0.4 > tol)
+        self._add_curve(root, "sys-big", "llama3-70b", {16: (1000.0, 0.9), 38: (2000.0, 1.0)})
         report = _check(root)
         assert _errors(report, "tps-utilization")
 

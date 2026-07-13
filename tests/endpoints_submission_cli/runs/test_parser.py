@@ -278,9 +278,7 @@ class TestBuildArchiveRunDate:
         with tarfile.open(dest) as tar:
             assert not any(n.endswith("run_metadata.json") for n in tar.getnames())
 
-    def test_no_run_date_leaves_metadata_untouched(
-        self, run_folder: Path, tmp_path: Path
-    ) -> None:
+    def test_no_run_date_leaves_metadata_untouched(self, run_folder: Path, tmp_path: Path) -> None:
         (run_folder / "run_metadata.json").write_text(json.dumps({"run_date": "1999-01-01"}))
         dest = tmp_path / "out.tar.gz"
         build_archive(run_folder, dest)  # no run_date passed

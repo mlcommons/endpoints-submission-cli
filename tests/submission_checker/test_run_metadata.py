@@ -67,9 +67,20 @@ class TestRunMetadataModel:
 
     @pytest.mark.parametrize(
         "field",
-        ["concurrency", "system_tps", "tps_per_user", "ttft", "qps", "tps_utilization",
-         "measured_total_output_tokens", "measured_run_duration", "measured_total_requests",
-         "run_date", "node_config", "config_summary"],
+        [
+            "concurrency",
+            "system_tps",
+            "tps_per_user",
+            "ttft",
+            "qps",
+            "tps_utilization",
+            "measured_total_output_tokens",
+            "measured_run_duration",
+            "measured_total_requests",
+            "run_date",
+            "node_config",
+            "config_summary",
+        ],
     )
     def test_core_fields_must_not_be_null(self, field):
         payload = {**_valid(), field: None}
@@ -108,7 +119,16 @@ class TestRunMetadataModel:
         assert md.config_summary.pipeline_parallel == 2
 
     def test_config_summary_object_all_null_ok(self):
-        cs = dict.fromkeys(("disaggregated", "expert_parallel", "tensor_parallel", "pipeline_parallel", "data_parallel", "batch"))
+        cs = dict.fromkeys(
+            (
+                "disaggregated",
+                "expert_parallel",
+                "tensor_parallel",
+                "pipeline_parallel",
+                "data_parallel",
+                "batch",
+            )
+        )
         md = RunMetadata.model_validate({**_valid(), "config_summary": cs})
         assert md.config_summary.batch is None
 

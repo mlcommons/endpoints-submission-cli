@@ -179,8 +179,13 @@ def test_required_system_fields_rejected_when_missing(field):
 
 @pytest.mark.parametrize(
     "field",
-    ["host_memory_configuration", "accelerator_memory_type", "host_network_card_count",
-     "driver", "filesystem"],
+    [
+        "host_memory_configuration",
+        "accelerator_memory_type",
+        "host_network_card_count",
+        "driver",
+        "filesystem",
+    ],
 )
 def test_required_node_fields_rejected_when_missing(field):
     node = {k: v for k, v in _NODE_TYPE.items() if k != field}
@@ -207,7 +212,10 @@ def test_measurement_point_config_valid():
     cfg = PointConfig(
         concurrency=64,
         dataset="test-ds",
-        runtime_settings=RuntimeSettings(min_duration_ms=1_200_000, runtime=RuntimeSettings.Runtime(scheduler_random_seed=42, dataloader_random_seed=42)),
+        runtime_settings=RuntimeSettings(
+            min_duration_ms=1_200_000,
+            runtime=RuntimeSettings.Runtime(scheduler_random_seed=42, dataloader_random_seed=42),
+        ),
     )
     assert cfg.concurrency == 64
     assert cfg.dataset == "test-ds"
@@ -215,17 +223,32 @@ def test_measurement_point_config_valid():
 
 
 def test_measurement_point_config_concurrency_stored():
-    cfg = PointConfig(concurrency=128, runtime_settings=RuntimeSettings(runtime=RuntimeSettings.Runtime(scheduler_random_seed=42, dataloader_random_seed=42)))
+    cfg = PointConfig(
+        concurrency=128,
+        runtime_settings=RuntimeSettings(
+            runtime=RuntimeSettings.Runtime(scheduler_random_seed=42, dataloader_random_seed=42)
+        ),
+    )
     assert cfg.concurrency == 128
 
 
 def test_measurement_point_config_empty_dataset():
-    cfg = PointConfig(concurrency=32, runtime_settings=RuntimeSettings(runtime=RuntimeSettings.Runtime(scheduler_random_seed=42, dataloader_random_seed=42)))
+    cfg = PointConfig(
+        concurrency=32,
+        runtime_settings=RuntimeSettings(
+            runtime=RuntimeSettings.Runtime(scheduler_random_seed=42, dataloader_random_seed=42)
+        ),
+    )
     assert cfg.dataset == ""
 
 
 def test_measurement_point_config_load_pattern_stored():
-    cfg = PointConfig(concurrency=64, runtime_settings=RuntimeSettings(runtime=RuntimeSettings.Runtime(scheduler_random_seed=42, dataloader_random_seed=42)))
+    cfg = PointConfig(
+        concurrency=64,
+        runtime_settings=RuntimeSettings(
+            runtime=RuntimeSettings.Runtime(scheduler_random_seed=42, dataloader_random_seed=42)
+        ),
+    )
     assert cfg.runtime_settings.load_pattern == "concurrency"
 
 
@@ -370,9 +393,7 @@ def test_accuracy_structured_measured_score_accepted():
 def test_accuracy_structured_missing_scores_key_rejected():
     # A dataset entry without the `scores` mapping is invalid.
     with pytest.raises(ValidationError):
-        SystemDescription(
-            **{**_BASE_FLAT, "measured_accuracy_score": {"ds": {"rouge1": 1.0}}}
-        )
+        SystemDescription(**{**_BASE_FLAT, "measured_accuracy_score": {"ds": {"rouge1": 1.0}}})
 
 
 def test_accuracy_structured_string_score_rejected():

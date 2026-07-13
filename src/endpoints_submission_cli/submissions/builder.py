@@ -126,8 +126,12 @@ def build_submission_folder(
             _write_system_description(submission_dir, system_id, runs[0]["system_info"])
             written_systems.add(system_id)
         _write_pareto_entries(
-            submission_dir, system_id, model, runs,
-            system_max_concurrency[system_id], max_tps_by_model[model],
+            submission_dir,
+            system_id,
+            model,
+            runs,
+            system_max_concurrency[system_id],
+            max_tps_by_model[model],
         )
 
     # Copy src/ for Standardized division submissions (mirrors documentation/ handling)
@@ -453,7 +457,7 @@ def _write_pareto_entries(
             if rel_path in ("results.json", "accuracy/results.json"):
                 content = truncate_responses(content)
             dest_rel = (
-                rel_path[len(_acc_prefix):]
+                rel_path[len(_acc_prefix) :]
                 if run_type == "accuracy" and rel_path.startswith(_acc_prefix)
                 else rel_path
             )
