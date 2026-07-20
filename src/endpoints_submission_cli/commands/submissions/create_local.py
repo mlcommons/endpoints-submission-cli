@@ -17,6 +17,7 @@ import yaml
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 
 from ...exceptions import APIError, ArchiveError, RunFolderError, SubmissionCheckError
+from ...pareto_viz import render_pareto_from_result_dirs
 from ...runs import api as runs_api
 from ...runs.parser import build_archive
 from ...submissions import api as subs_api
@@ -115,6 +116,13 @@ def submissions_create_local(
             f"{submission_path / 'pareto'}."
         )
         sys.exit(1)
+
+    # Pareto view — show the submitter their throughput/interactivity curves before
+    # anything is uploaded. Purely diagnostic; never blocks the submission.
+    try:
+        render_pareto_from_result_dirs(result_dirs, submission_path / "pareto", _console)
+    except Exception as exc:  # noqa: BLE001 — visualization must never break a submission
+        _console.print(f"[dim]Pareto view unavailable: {exc}[/dim]")
 
     # 2. Run Submission Checker
     _console.print("[cyan]Running Submission Checker…[/cyan]")

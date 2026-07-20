@@ -1,4 +1,6 @@
 .venv/
+.venv_work/
+scripts/_pareto_out/
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -12,6 +14,8 @@ docs/_build/
 env/
 *.log
 *.jsonl
+# ...but keep the committed documentation sample outputs.
+!docs/pareto_preview/*.log
 
 # Test / lint caches
 .pytest_cache/

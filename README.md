@@ -124,6 +124,26 @@ Use `--help` on any command for full flag details:
 endpoints-submission-cli submissions create --help
 ```
 
+### Terminal Pareto preview
+
+`submissions create-local` renders a text-based Pareto-frontier chart of your
+measurement points before anything is uploaded — the same throughput-vs-interactivity
+trade-off shown by the web visualizer, but drawn with Unicode so it works over SSH on
+a headless results box (no browser or local server needed). Pair it with `--dry-run`
+to preview and run the Submission Checker without creating a submission:
+
+```bash
+endpoints-submission-cli submissions create-local \
+    --path ./my_submission --division standardized \
+    --scenario cop --availability available --dry-run
+```
+
+Each `pareto/<system>/<model>` curve is plotted from its runs' `run_metadata.json`
+(system throughput vs. tokens/s per user). Systems are distinguished by both colour
+**and** marker glyph (so curves stay readable in monochrome terminals, piped logs, and
+for colour-blind readers), the efficient frontier is drawn across systems, and a stats
+table plus a plain-language trade-off summary highlight which system wins on what.
+
 ---
 
 # submission-checker
