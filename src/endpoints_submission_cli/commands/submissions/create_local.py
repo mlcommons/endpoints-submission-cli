@@ -78,6 +78,13 @@ __all__ = ["submissions_create_local"]
     default=False,
     help="Run the Submission Checker and print layout — exit without calling the API.",
 )
+@click.option(
+    "--test",
+    "is_test",
+    is_flag=True,
+    default=False,
+    help="Mark the submission as a test submission (not a real results entry).",
+)
 def submissions_create_local(
     token: str | None,
     submission_path: Path,
@@ -89,6 +96,7 @@ def submissions_create_local(
     target_availability_date: str | None,
     embargo_date: str | None,
     dry_run: bool,
+    is_test: bool,
 ) -> None:
     """Create a submission from a pre-assembled local folder.
 
@@ -196,6 +204,7 @@ def submissions_create_local(
             "availability": availability,
             "run_ids": run_ids,
             "early_publish": early_publish,
+            "is_test": is_test,
         }
         if publication_cycle:
             payload_sub["publication_cycle"] = publication_cycle

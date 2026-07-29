@@ -75,6 +75,13 @@ __all__ = ["submissions_create"]
     default=False,
     help="Assemble folder, run checker, print layout — exit without submitting.",
 )
+@click.option(
+    "--test",
+    "is_test",
+    is_flag=True,
+    default=False,
+    help="Mark the submission as a test submission (not a real results entry).",
+)
 def submissions_create(
     token: str | None,
     division: str,
@@ -86,6 +93,7 @@ def submissions_create(
     target_availability_date: str | None,
     embargo_date: str | None,
     dry_run: bool,
+    is_test: bool,
 ) -> None:
     """Create a new submission from one or more registered runs.
 
@@ -174,6 +182,7 @@ def submissions_create(
             "availability": availability,
             "run_ids": run_ids_list,
             "early_publish": early_publish,
+            "is_test": is_test,
         }
         if publication_cycle:
             payload["publication_cycle"] = publication_cycle
