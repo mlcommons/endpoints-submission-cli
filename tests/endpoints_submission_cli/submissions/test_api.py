@@ -61,6 +61,12 @@ class TestCreateSubmission:
             result = create_submission(TOKEN, {"division": "standardized", "run_ids": [RUN_ID]})
         assert result["id"] == SUBMISSION_ID
 
+    def test_stamps_cli_version(self) -> None:
+        out = {"id": SUBMISSION_ID}
+        with patch("httpx.post", return_value=_mock_response(201, out)) as mock_post:
+            create_submission(TOKEN, {"division": "standardized", "run_ids": [RUN_ID]})
+        assert mock_post.call_args.kwargs["json"]["cli_version"]  # non-empty version stamped in
+
 
 @pytest.mark.unit
 class TestGetSubmission:
