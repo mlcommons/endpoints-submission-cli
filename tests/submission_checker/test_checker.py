@@ -266,6 +266,7 @@ _SYSTEM_DESC = {
     "system_name": "test-sys",
     "system_category": "datacenter",
     "system_availability_status": "Available",
+    "min_supported_concurrency": 32,
     "max_supported_concurrency": 1024,
     "serving_framework": "vLLM",
     "node_types": [

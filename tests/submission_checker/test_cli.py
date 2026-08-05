@@ -44,7 +44,9 @@ def test_check_strict_fails_on_warnings(valid_standardized):
 
 def test_regions_command_known_m():
     runner = CliRunner()
-    result = runner.invoke(main, ["regions", "--max-concurrency", "1024"])
+    result = runner.invoke(
+        main, ["regions", "--min-concurrency", "32", "--max-concurrency", "1024"]
+    )
     assert result.exit_code == 0
     assert "33" in result.output  # LT start
     assert "42" in result.output  # LT end (Appendix B)
@@ -53,7 +55,8 @@ def test_regions_command_known_m():
 
 def test_regions_command_invalid_m():
     runner = CliRunner()
-    result = runner.invoke(main, ["regions", "--max-concurrency", "32"])
+    # M must be greater than m — equal values are rejected.
+    result = runner.invoke(main, ["regions", "--min-concurrency", "32", "--max-concurrency", "32"])
     assert result.exit_code == 1
 
 

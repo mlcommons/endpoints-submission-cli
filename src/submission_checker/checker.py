@@ -278,18 +278,19 @@ class SubmissionChecker:
                 )
             )
 
+        m = system_desc.min_supported_concurrency
         M = system_desc.max_supported_concurrency
         results.append(
             _ok(
                 "max-concurrency-declared",
-                f"max_supported_concurrency = {M}",
+                f"min_supported_concurrency = {m}, max_supported_concurrency = {M}",
                 system_json,
                 "#7",
             )
         )
 
         try:
-            regions = compute_regions(M)
+            regions = compute_regions(m, M)
         except ValueError as exc:
             results.append(_err("region-computation", str(exc), system_json, "#7"))
             return results

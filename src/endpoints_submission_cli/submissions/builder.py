@@ -98,20 +98,24 @@ def build_submission_folder(
     for (system_id, _model), runs in groups.items():
         runs_by_system.setdefault(system_id, []).extend(runs)
 
-    # Validate max_supported_concurrency consistency per system before writing anything
+    # Validate min/max_supported_concurrency consistency per system before writing anything
+    system_min_concurrency: dict[str, int] = {}
     system_max_concurrency: dict[str, int] = {}
     for system_id, system_runs in runs_by_system.items():
-        values = {r["system_info"].get("max_supported_concurrency") for r in system_runs}
-        if None in values:
-            raise SubmissionBuildError(
-                f"System {system_id}: system_desc.json is missing max_supported_concurrency"
-            )
-        if len(values) > 1:
-            raise SubmissionBuildError(
-                f"System {system_id}: runs have inconsistent max_supported_concurrency"
-                f" values: {sorted(values)}"
-            )
-        system_max_concurrency[system_id] = int(values.pop())
+        for field, target in (
+            ("min_supported_concurrency", system_min_concurrency),
+            ("max_supported_concurrency", system_max_concurrency),
+        ):
+            values = {r["system_info"].get(field) for r in system_runs}
+            if None in values:
+                raise SubmissionBuildError(
+                    f"System {system_id}: system_desc.json is missing {field}"
+                )
+            if len(values) > 1:
+                raise SubmissionBuildError(
+                    f"System {system_id}: runs have inconsistent {field} values: {sorted(values)}"
+                )
+            target[system_id] = int(values.pop())
 
     model_runs: dict[str, list[dict[str, Any]]] = {}
     for (_system_id, model), runs in groups.items():
@@ -130,6 +134,7 @@ def build_submission_folder(
             system_id,
             model,
             runs,
+            system_min_concurrency[system_id],
             system_max_concurrency[system_id],
             max_tps_by_model[model],
         )
@@ -347,12 +352,13 @@ def _write_pareto_entries(
     system_id: str,
     model: str,
     runs: list[dict[str, Any]],
+    min_concurrency: int,
     max_concurrency: int,
     max_tps: float | None = None,
 ) -> None:
     from submission_checker.models import classify_concurrency, compute_regions
 
-    regions = compute_regions(max_concurrency)
+    regions = compute_regions(min_concurrency, max_concurrency)
 
     # At most 1 perf + 1 acc run per concurrency (may change; stated here explicitly).
     seen: set[tuple[int, str]] = set()

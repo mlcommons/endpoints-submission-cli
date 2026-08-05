@@ -54,8 +54,9 @@ _NODE_TYPE = {
     "filesystem": "ext4",
 }
 
+_m = 32
 _M = 1024
-_REGIONS = compute_regions(_M)
+_REGIONS = compute_regions(_m, _M)
 
 # ---------------------------------------------------------------------------
 # Builder helpers
@@ -64,6 +65,7 @@ _REGIONS = compute_regions(_M)
 
 def _system_desc(
     division: Division = Division.STANDARDIZED,
+    min_supported_concurrency: int = 32,
     max_supported_concurrency: int = 1024,
     **kwargs,
 ) -> SystemDescription:
@@ -73,6 +75,7 @@ def _system_desc(
         system_name="test-sys",
         system_category="datacenter",
         system_availability_status="Available",
+        min_supported_concurrency=min_supported_concurrency,
         max_supported_concurrency=max_supported_concurrency,
         system_size="1 node",
         system_node_ensemble_count=1,

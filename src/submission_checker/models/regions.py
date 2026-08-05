@@ -34,10 +34,12 @@ class RegionBounds:
 
 @dataclass(frozen=True)
 class Regions:
-    """All region boundaries for a given Maximum Supported Concurrency.
+    """All region boundaries for a declared minimum/maximum supported concurrency.
 
     Attributes:
-        low_latency: Fixed 1–32 range.
+        low_latency: ``1``–``m`` range, where ``m`` is the declared low-latency
+            (minimum supported) concurrency — the offset the throughput regions
+            are measured from.
         low_throughput: First logarithmic throughput region.
         med_throughput: Second logarithmic throughput region.
         high_throughput: Third logarithmic throughput region, extended by the
@@ -60,39 +62,47 @@ MIN_DURATION_MS: dict[str, int] = {
 }
 
 
-def compute_regions(M: int) -> Regions:
-    """Compute region boundaries for a declared Maximum Supported Concurrency *M*.
+def compute_regions(m: int, M: int) -> Regions:
+    """Compute region boundaries from declared min *m* and max *M* concurrency.
 
     This is the reference algorithm from §5.5, using banker's rounding
-    (Python's built-in ``round()``).
+    (Python's built-in ``round()``). The three throughput regions divide the
+    ``(m, M]`` concurrency space into three equal intervals in log2 space, using
+    *m* — the low-latency concurrency — as the offset (previously a fixed 32).
 
     Args:
+        m: Low-latency (minimum supported) concurrency declared in the system
+           description. Must be >= 1.
         M: Maximum Supported Concurrency declared in the system description.
-           Must be greater than 32.
+           Must be greater than *m*.
 
     Returns:
         A :class:`Regions` instance with inclusive ``[start, end]`` boundaries.
 
     Raises:
-        ValueError: If *M* is not greater than 32.
+        ValueError: If *m* < 1 or *M* is not greater than *m*.
 
     Example::
 
-        regions = compute_regions(1024)
-        print(regions.low_throughput)  # 33–42
+        regions = compute_regions(16, 1024)
+        print(regions.low_throughput)  # 17–26
     """
-    if M <= 32:
-        raise ValueError(f"Maximum Supported Concurrency must be > 32, got {M}")
+    if m < 1:
+        raise ValueError(f"Minimum supported concurrency must be >= 1, got {m}")
+    if m >= M:
+        raise ValueError(
+            f"Maximum Supported Concurrency must be > minimum concurrency {m}, got {M}"
+        )
 
-    interval = math.log2(M - 32) / 3
+    interval = math.log2(M - m) / 3
 
-    low_tput_end = round(32 + 2**interval)
-    med_tput_end = round(32 + 2 ** (2 * interval))
+    low_tput_end = round(m + 2**interval)
+    med_tput_end = round(m + 2 ** (2 * interval))
     ht_end = math.ceil(M * 1.10)  # includes §5.4 10% margin
 
     return Regions(
-        low_latency=RegionBounds(1, 32),
-        low_throughput=RegionBounds(33, low_tput_end),
+        low_latency=RegionBounds(1, m),
+        low_throughput=RegionBounds(m + 1, low_tput_end),
         med_throughput=RegionBounds(low_tput_end + 1, med_tput_end),
         high_throughput=RegionBounds(med_tput_end + 1, ht_end),
     )

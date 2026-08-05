@@ -98,24 +98,34 @@ def check(path: Path, strict: bool, quiet: bool, output: Path | None) -> None:
 
 @main.command()
 @click.option(
+    "--min-concurrency",
+    "-m",
+    required=True,
+    type=int,
+    help="Declared low-latency (minimum supported) concurrency.",
+)
+@click.option(
     "--max-concurrency",
     "-M",
     required=True,
     type=int,
     help="Declared Maximum Supported Concurrency.",
 )
-def regions(max_concurrency: int) -> None:
-    """Show computed region boundaries for a given Maximum Supported Concurrency.
+def regions(min_concurrency: int, max_concurrency: int) -> None:
+    """Show computed region boundaries for a given min/max supported concurrency.
 
     Uses the §5.5 reference algorithm (banker's rounding).
     """
     try:
-        r = compute_regions(max_concurrency)
+        r = compute_regions(min_concurrency, max_concurrency)
     except ValueError as exc:
         console.print(f"[bold red]Error:[/] {exc}")
         raise SystemExit(1) from None
 
-    table = Table(title=f"Region Boundaries for M = {max_concurrency}", show_lines=True)
+    table = Table(
+        title=f"Region Boundaries for m = {min_concurrency}, M = {max_concurrency}",
+        show_lines=True,
+    )
     table.add_column("Region", style="cyan")
     table.add_column("Start", justify="right")
     table.add_column("End", justify="right")

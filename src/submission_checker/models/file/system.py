@@ -119,6 +119,7 @@ class SystemDescription(BaseModel):
     system_name: str
     system_category: str
     system_availability_status: SystemAvailabilityStatus
+    min_supported_concurrency: int
     max_supported_concurrency: int
     system_size: str
     system_node_ensemble_count: int

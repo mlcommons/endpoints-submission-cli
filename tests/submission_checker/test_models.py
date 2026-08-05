@@ -112,6 +112,7 @@ _BASE_FLAT = {
     "system_name": "test-node",
     "system_category": "datacenter",
     "system_availability_status": "Available",
+    "min_supported_concurrency": 32,
     "max_supported_concurrency": 1024,
     "system_size": "1 node",
     "system_node_ensemble_count": 1,
