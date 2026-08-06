@@ -19,6 +19,7 @@ from .._http import (
     _raise_request,
     _raise_status,
 )
+from .._version import cli_version
 
 __all__ = [
     "list_runs",
@@ -39,7 +40,12 @@ def list_runs(token: str) -> list[dict[str, Any]]:
 
 
 def create_run(token: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """POST /runs — register a new run."""
+    """POST /runs — register a new run.
+
+    Stamps the calling CLI version into the payload (unless the caller already set
+    it) so the API can record which client produced the run.
+    """
+    payload = {"cli_version": cli_version(), **payload}
     return cast(dict[str, Any], _post("/runs", token, json=payload))
 
 
