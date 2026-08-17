@@ -21,7 +21,13 @@ from ...runs import api as runs_api
 from ...runs.parser import build_archive
 from ...submissions import api as subs_api
 from ...submissions.builder import create_bundle_archive
-from ..common import _console, _get_token, _run_submission_checker, _write_cli_metadata
+from ..common import (
+    _confirm_provisional,
+    _console,
+    _get_token,
+    _run_submission_checker,
+    _write_cli_metadata,
+)
 
 __all__ = ["submissions_create_local"]
 
@@ -56,7 +62,23 @@ __all__ = ["submissions_create_local"]
     required=True,
     help="Availability status (available|preview|rdi).",
 )
-@click.option("--early-publish", is_flag=True, default=False, help="Request early publication.")
+@click.option(
+    "--provisional",
+    is_flag=True,
+    default=False,
+    help=(
+        "Request provisional publication: results become publicly viewable on the "
+        "visualizer during the next cohort with a 'peer review pending' disclaimer."
+    ),
+)
+@click.option(
+    "--yes",
+    "-y",
+    "assume_yes",
+    is_flag=True,
+    default=False,
+    help="Skip the --provisional confirmation prompt (for non-interactive use).",
+)
 @click.option(
     "--publication-cycle",
     default=None,
@@ -91,7 +113,8 @@ def submissions_create_local(
     division: str,
     scenario: str,
     availability: str,
-    early_publish: bool,
+    provisional: bool,
+    assume_yes: bool,
     publication_cycle: str | None,
     target_availability_date: str | None,
     embargo_date: str | None,
@@ -112,6 +135,10 @@ def submissions_create_local(
       6. Bundle --path and upload.
       7. PATCH submission status to REVIEW_PENDING.
     """
+    # Ask before the checker run and any run registration — a declined prompt costs nothing.
+    if provisional and not dry_run:
+        _confirm_provisional(assume_yes)
+
     if not submission_path.is_dir():
         _console.print(f"[bold red]Error:[/bold red] {submission_path} is not a directory.")
         sys.exit(1)
@@ -203,8 +230,9 @@ def submissions_create_local(
             "scenario": scenario,
             "availability": availability,
             "run_ids": run_ids,
-            "early_publish": early_publish,
             "is_test": is_test,
+            # Wire field is still early_publish — the API schema has not been renamed.
+            "early_publish": provisional,
         }
         if publication_cycle:
             payload_sub["publication_cycle"] = publication_cycle

@@ -276,7 +276,8 @@ endpoints-submission-cli submissions create \
   --run-ids     RUN_ID_1 \
   --run-ids     RUN_ID_2 \
   [--token TOKEN] \
-  [--early-publish] \
+  [--provisional] \
+  [--yes] \
   [--publication-cycle CYCLE] \
   [--target-availability-date DATE]
 ```
@@ -287,7 +288,8 @@ endpoints-submission-cli submissions create \
 | `--availability` | yes | `available`, `preview`, or `rdi` |
 | `--run-ids RUN_ID` | yes (repeatable) | Run UUID(s) to include; pass the flag once per run |
 | `--token TOKEN` | no | API token |
-| `--early-publish` | no | Request early publication (default: false) |
+| `--provisional` | no | Request provisional publication (default: false). Results become publicly viewable on the visualizer during the next cohort with a `peer review pending` disclaimer. Prompts for confirmation before submitting |
+| `--yes`, `-y` | no | Skip the `--provisional` confirmation prompt (for non-interactive use) |
 | `--publication-cycle CYCLE` | no | Target cycle, e.g. `2025-04-C1` |
 | `--target-availability-date DATE` | no | `YYYY-MM-DD`; required when availability is `preview` |
 | `--embargo-date DATETIME` | no | Embargo datetime in ISO 8601 format (e.g. `2025-12-01T00:00:00`) |

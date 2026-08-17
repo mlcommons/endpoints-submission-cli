@@ -57,7 +57,7 @@ def print_submission_detail(submission: dict[str, Any]) -> None:
         ("Status", str(submission.get("status", "—"))),
         ("Division", str(submission.get("division", "—"))),
         ("Availability", str(submission.get("availability", "—"))),
-        ("Early Publish", "Yes" if submission.get("early_publish") else "No"),
+        ("Provisional", "Yes" if submission.get("early_publish") else "No"),
         ("Publication Cycle", str(submission.get("publication_cycle") or "—")),
         ("Target Availability Date", str(submission.get("target_availability_date") or "—")),
         ("Run IDs", "\n".join(run_ids) if run_ids else "—"),

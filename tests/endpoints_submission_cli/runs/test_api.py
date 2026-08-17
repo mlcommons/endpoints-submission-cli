@@ -75,6 +75,18 @@ class TestCreateRun:
             with pytest.raises(APIError):
                 create_run(TOKEN, {})
 
+    def test_stamps_cli_version(self) -> None:
+        with patch("httpx.post", return_value=_mock_response(201, {"id": RUN_ID})) as mock_post:
+            create_run(TOKEN, {"benchmark_version": "abc"})
+        sent = mock_post.call_args.kwargs["json"]
+        assert sent["cli_version"]  # non-empty version string stamped in
+        assert sent["benchmark_version"] == "abc"
+
+    def test_caller_cli_version_wins(self) -> None:
+        with patch("httpx.post", return_value=_mock_response(201, {"id": RUN_ID})) as mock_post:
+            create_run(TOKEN, {"cli_version": "explicit-1.2.3"})
+        assert mock_post.call_args.kwargs["json"]["cli_version"] == "explicit-1.2.3"
+
 
 @pytest.mark.unit
 class TestGetRun:
