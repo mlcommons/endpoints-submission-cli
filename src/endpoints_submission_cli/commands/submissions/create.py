@@ -18,7 +18,13 @@ from ...submissions import api as subs_api
 
 # from ...submissions import github as github_ops
 from ...submissions.builder import build_submission_folder, create_bundle_archive
-from ..common import _console, _get_token, _run_submission_checker, _write_cli_metadata
+from ..common import (
+    _confirm_provisional,
+    _console,
+    _get_token,
+    _run_submission_checker,
+    _write_cli_metadata,
+)
 
 __all__ = ["submissions_create"]
 
@@ -53,7 +59,23 @@ __all__ = ["submissions_create"]
     required=True,
     help="Run UUID(s) to include. Repeatable.",
 )
-@click.option("--early-publish", is_flag=True, default=False, help="Request early publication.")
+@click.option(
+    "--provisional",
+    is_flag=True,
+    default=False,
+    help=(
+        "Request provisional publication: results become publicly viewable on the "
+        "visualizer during the next cohort with a 'peer review pending' disclaimer."
+    ),
+)
+@click.option(
+    "--yes",
+    "-y",
+    "assume_yes",
+    is_flag=True,
+    default=False,
+    help="Skip the --provisional confirmation prompt (for non-interactive use).",
+)
 @click.option(
     "--publication-cycle",
     default=None,
@@ -81,7 +103,8 @@ def submissions_create(
     scenario: str,
     availability: str,
     run_ids: tuple[str, ...],
-    early_publish: bool,
+    provisional: bool,
+    assume_yes: bool,
     publication_cycle: str | None,
     target_availability_date: str | None,
     embargo_date: str | None,
@@ -99,6 +122,9 @@ def submissions_create(
       7. PATCH submission with pr_url and pr_number.
     """
     run_ids_list = list(run_ids)
+    # Ask before any downloads — a declined prompt should cost nothing.
+    if provisional and not dry_run:
+        _confirm_provisional(assume_yes)
     resolved_token = _get_token(token)
     """
     if not dry_run:
@@ -173,7 +199,8 @@ def submissions_create(
             "scenario": scenario,
             "availability": availability,
             "run_ids": run_ids_list,
-            "early_publish": early_publish,
+            # Wire field is still early_publish — the API schema has not been renamed.
+            "early_publish": provisional,
         }
         if publication_cycle:
             payload["publication_cycle"] = publication_cycle

@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import click
 from rich.console import Console
 from rich.table import Table
 
@@ -18,6 +19,7 @@ from .. import _http
 from ..exceptions import AuthError, SubmissionCheckError
 
 __all__ = [
+    "_confirm_provisional",
     "_console",
     "_get_token",
     "_SEVERITY_STYLE",
@@ -25,6 +27,26 @@ __all__ = [
     "_write_cli_metadata",
     "output_json",
 ]
+
+_PROVISIONAL_WARNING = (
+    "WARNING: This will make these results publicly viewable on the visualizer "
+    "during the next cohort with a 'peer review pending' disclaimer."
+)
+
+
+def _confirm_provisional(assume_yes: bool) -> None:
+    """Confirm provisional publication before submitting; exit 1 if declined.
+
+    Opting in publishes unreviewed results, so the submitter has to say yes out loud.
+    ``--yes`` is the escape hatch for non-interactive use, where there is no one to ask.
+    """
+    _console.print(f"[bold yellow]{_PROVISIONAL_WARNING}[/bold yellow]")
+    if assume_yes:
+        _console.print("[dim]--yes given: continuing with provisional publication.[/dim]")
+        return
+    if not click.confirm("Would you like to continue?", default=False, err=True):
+        _console.print("[yellow]Aborted — no submission created.[/yellow]")
+        sys.exit(1)
 
 
 def _write_cli_metadata(submission_dir: Path, command: str) -> None:
