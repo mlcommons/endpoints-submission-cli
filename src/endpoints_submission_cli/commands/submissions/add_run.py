@@ -108,7 +108,7 @@ def submissions_add_run(submission_id: str, run_id: str, token: str | None) -> N
         availability = sub_out.get("availability", "available")
         try:
             submission_dir = build_submission_folder(
-                archives, division, availability, tmp_path / "bundle"
+                archives, division, availability, tmp_path / "bundle", submission_id
             )
         except SubmissionBuildError as exc:
             _console.print(f"[bold red]Build error:[/bold red] {exc}")

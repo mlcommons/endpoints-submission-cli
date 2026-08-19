@@ -14,6 +14,7 @@ from click.testing import CliRunner
 
 from endpoints_submission_cli.exceptions import APIError, GitHubError, SubmissionCheckError
 from endpoints_submission_cli.main import app
+from endpoints_submission_cli.submissions.builder import PENDING_SUBMISSION_ID
 from tests.endpoints_submission_cli.conftest import (
     RUN_ID,
     RUN_OUT,
@@ -172,6 +173,8 @@ class TestSubmissionsUpdate:
         fake_archive = _make_fake_archive(tmp_path)
         fake_sub_dir = tmp_path / "sub"
         fake_sub_dir.mkdir()
+        # build_submission_folder returns the org dir; the submission level lives below it.
+        (fake_sub_dir / PENDING_SUBMISSION_ID).mkdir()
         fake_bundle = tmp_path / "bundle.tar.gz"
         fake_bundle.write_bytes(b"bundle")
         fake_repo_dir = tmp_path / "repo"
@@ -231,6 +234,8 @@ class TestSubmissionsUpdate:
         fake_archive = _make_fake_archive(tmp_path)
         fake_sub_dir = tmp_path / "sub"
         fake_sub_dir.mkdir()
+        # build_submission_folder returns the org dir; the submission level lives below it.
+        (fake_sub_dir / PENDING_SUBMISSION_ID).mkdir()
 
         with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
             with patch(
@@ -526,9 +531,13 @@ def _make_submission_dir(tmp_path: Path, n_points: int = 2) -> Path:
     """Create a minimal assembled submission directory with n_points result dirs."""
     sub = tmp_path / "sub"
     for i in range(1, n_points + 1):
-        point_dir = sub / "pareto" / "sys_a" / "Llama-3-8B" / "results" / f"point_{i * 4}"
+        model_dir = sub / "results" / "sys_a" / "Llama-3-8B"
+        point_dir = model_dir / f"r{i * 4}"
         point_dir.mkdir(parents=True)
-        (point_dir / "system_desc.json").write_text("{}")
+        # A point is identified by its result_summary.json.
+        (point_dir / "result_summary.json").write_text("{}")
+        # The system description is shared per system, not stored per point.
+        (model_dir.parent / "system_desc_id.json").write_text("{}")
     return sub
 
 
@@ -725,6 +734,8 @@ class TestSubmissionsCreate:
         fake_archive = _make_fake_archive(tmp_path)
         fake_sub_dir = tmp_path / "sub"
         fake_sub_dir.mkdir()
+        # build_submission_folder returns the org dir; the submission level lives below it.
+        (fake_sub_dir / PENDING_SUBMISSION_ID).mkdir()
         fake_bundle = tmp_path / "bundle.tar.gz"
         fake_bundle.write_bytes(b"bundle")
 
@@ -793,6 +804,8 @@ class TestSubmissionsCreate:
         fake_archive = _make_fake_archive(tmp_path)
         fake_sub_dir = tmp_path / "sub"
         fake_sub_dir.mkdir()
+        # build_submission_folder returns the org dir; the submission level lives below it.
+        (fake_sub_dir / PENDING_SUBMISSION_ID).mkdir()
         fake_bundle = tmp_path / "bundle.tar.gz"
         fake_bundle.write_bytes(b"bundle")
         C = "endpoints_submission_cli"
@@ -879,6 +892,8 @@ class TestSubmissionsCreate:
         fake_archive = _make_fake_archive(tmp_path)
         fake_sub_dir = tmp_path / "sub"
         fake_sub_dir.mkdir()
+        # build_submission_folder returns the org dir; the submission level lives below it.
+        (fake_sub_dir / PENDING_SUBMISSION_ID).mkdir()
 
         with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
             with patch(
@@ -918,6 +933,8 @@ class TestSubmissionsCreate:
         fake_archive = _make_fake_archive(tmp_path)
         fake_sub_dir = tmp_path / "sub"
         fake_sub_dir.mkdir()
+        # build_submission_folder returns the org dir; the submission level lives below it.
+        (fake_sub_dir / PENDING_SUBMISSION_ID).mkdir()
 
         with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
             with patch(
@@ -960,6 +977,8 @@ class TestSubmissionsCreate:
         fake_archive = _make_fake_archive(tmp_path)
         fake_sub_dir = tmp_path / "sub"
         fake_sub_dir.mkdir()
+        # build_submission_folder returns the org dir; the submission level lives below it.
+        (fake_sub_dir / PENDING_SUBMISSION_ID).mkdir()
         fake_bundle = tmp_path / "bundle.tar.gz"
         fake_bundle.write_bytes(b"bundle")
 
@@ -1033,6 +1052,8 @@ class TestSubmissionsAddRun:
         fake_archive = _make_fake_archive(tmp_path)
         fake_sub_dir = tmp_path / "sub"
         fake_sub_dir.mkdir()
+        # build_submission_folder returns the org dir; the submission level lives below it.
+        (fake_sub_dir / PENDING_SUBMISSION_ID).mkdir()
         fake_bundle = tmp_path / "bundle.tar.gz"
         fake_bundle.write_bytes(b"bundle")
         fake_repo_dir = tmp_path / "repo"
@@ -1145,6 +1166,8 @@ class TestSubmissionsAddRun:
         fake_archive = _make_fake_archive(tmp_path)
         fake_sub_dir = tmp_path / "sub"
         fake_sub_dir.mkdir()
+        # build_submission_folder returns the org dir; the submission level lives below it.
+        (fake_sub_dir / PENDING_SUBMISSION_ID).mkdir()
         fake_bundle = tmp_path / "bundle.tar.gz"
         fake_bundle.write_bytes(b"bundle")
         fake_repo_dir = tmp_path / "repo"
@@ -1200,6 +1223,8 @@ class TestSubmissionsAddRun:
         fake_archive = _make_fake_archive(tmp_path)
         fake_sub_dir = tmp_path / "sub"
         fake_sub_dir.mkdir()
+        # build_submission_folder returns the org dir; the submission level lives below it.
+        (fake_sub_dir / PENDING_SUBMISSION_ID).mkdir()
 
         with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
             with patch(
@@ -1261,6 +1286,8 @@ class TestSubmissionsRemoveRun:
         fake_archive = _make_fake_archive(tmp_path)
         fake_sub_dir = tmp_path / "sub"
         fake_sub_dir.mkdir()
+        # build_submission_folder returns the org dir; the submission level lives below it.
+        (fake_sub_dir / PENDING_SUBMISSION_ID).mkdir()
         fake_bundle = tmp_path / "bundle.tar.gz"
         fake_bundle.write_bytes(b"bundle")
         fake_repo_dir = tmp_path / "repo"
@@ -1395,6 +1422,8 @@ class TestSubmissionsRemoveRun:
         fake_archive = _make_fake_archive(tmp_path)
         fake_sub_dir = tmp_path / "sub"
         fake_sub_dir.mkdir()
+        # build_submission_folder returns the org dir; the submission level lives below it.
+        (fake_sub_dir / PENDING_SUBMISSION_ID).mkdir()
 
         with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
             with patch(
@@ -1448,6 +1477,8 @@ def _patched_create(tmp_path: Path):
     """Patch out every side effect of `submissions create` past the confirmation prompt."""
     fake_sub_dir = tmp_path / "sub"
     fake_sub_dir.mkdir(exist_ok=True)
+    # build_submission_folder returns the org dir; the submission level lives below it.
+    (fake_sub_dir / PENDING_SUBMISSION_ID).mkdir(exist_ok=True)
     fake_bundle = tmp_path / "bundle.tar.gz"
     fake_bundle.write_bytes(b"bundle")
     targets = [

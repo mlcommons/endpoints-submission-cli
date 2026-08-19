@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -30,6 +31,9 @@ from ..common import (
 )
 
 __all__ = ["submissions_create_local"]
+
+#: A Pareto-point directory: "r" followed by the concurrency level (r1, r32, r256).
+_POINT_DIR_RE = re.compile(r"r(\d+)")
 
 
 @click.command("create-local")
@@ -123,7 +127,7 @@ def submissions_create_local(
 ) -> None:
     """Create a submission from a pre-assembled local folder.
 
-    Scans pareto/<system>/<model>/results/point_*/ directories for run data,
+    Scans results/<system>/<model>/r<N>/ point directories for run data,
     registers each as a run, then creates and uploads the submission bundle.
 
     Workflow:
@@ -146,8 +150,8 @@ def submissions_create_local(
     result_dirs = _find_result_dirs(submission_path)
     if not result_dirs:
         _console.print(
-            f"[bold red]Error:[/bold red] No result directories found under "
-            f"{submission_path / 'pareto'}."
+            f"[bold red]Error:[/bold red] No point directories found under "
+            f"{submission_path / 'results'}."
         )
         sys.exit(1)
 
@@ -279,38 +283,53 @@ def submissions_create_local(
 
 
 def _find_result_dirs(submission_path: Path) -> list[Path]:
-    """Return all point result directories under pareto/<system>/<model>/results/."""
+    """Return all r<N>/ point directories under results/<system>/<model>/.
+
+    The system description now lives once per system as
+    ``results/<system>/system_desc_id.json`` rather than in every point directory,
+    so a point is identified by its ``result_summary.json``.
+    """
     result_dirs: list[Path] = []
-    pareto_dir = submission_path / "pareto"
-    if not pareto_dir.is_dir():
+    results_dir = submission_path / "results"
+    if not results_dir.is_dir():
         return result_dirs
-    for system_dir in sorted(pareto_dir.iterdir()):
+    for system_dir in sorted(results_dir.iterdir()):
         if not system_dir.is_dir():
             continue
         for model_dir in sorted(system_dir.iterdir()):
-            results_dir = model_dir / "results"
-            if not results_dir.is_dir():
+            if not model_dir.is_dir():
                 continue
-            for point_dir in sorted(results_dir.iterdir()):
-                if point_dir.is_dir() and (point_dir / "system_desc.json").exists():
+            for point_dir in sorted(model_dir.iterdir()):
+                if not point_dir.is_dir() or not _POINT_DIR_RE.fullmatch(point_dir.name):
+                    continue
+                if (point_dir / "result_summary.json").exists():
                     result_dirs.append(point_dir)
     return result_dirs
 
 
-def _parse_result_dir(path: Path) -> dict[str, Any]:
-    """Parse a submission result directory into a RunCreate payload.
+def _system_desc_for_point(point_dir: Path) -> Path:
+    """Path to the system description covering *point_dir* (results/<system>/…)."""
+    return point_dir.parent.parent / "system_desc_id.json"
 
-    Like parse_run_folder but reads results_summary.json
-    (the submission folder name) instead of result_summary.json.
+
+def _parse_result_dir(path: Path) -> dict[str, Any]:
+    """Parse a submission point directory into a RunCreate payload.
+
+    Like parse_run_folder, but the system description is shared per system rather
+    than stored in the point directory.
     """
-    for fname in ("system_desc.json", "config.yaml", "results_summary.json"):
+    for fname in ("config.yaml", "result_summary.json"):
         if not (path / fname).exists():
-            raise RunFolderError(f"Result directory {path} is missing {fname}")
+            raise RunFolderError(f"Point directory {path} is missing {fname}")
+
+    sd_path = _system_desc_for_point(path)
+    if not sd_path.exists():
+        raise RunFolderError(f"Point directory {path} has no {sd_path.name} for its system")
 
     try:
-        system_info = cast(dict[str, Any], json.loads((path / "system_desc.json").read_text()))
+        system_info = cast(dict[str, Any], json.loads(sd_path.read_text()))
     except json.JSONDecodeError as exc:
-        raise RunFolderError(f"Invalid JSON in system_desc.json: {exc}") from exc
+        raise RunFolderError(f"Invalid JSON in {sd_path.name}: {exc}") from exc
 
     try:
         raw_cfg = yaml.safe_load((path / "config.yaml").read_text())
@@ -323,10 +342,10 @@ def _parse_result_dir(path: Path) -> dict[str, Any]:
     try:
         result_summary = cast(
             dict[str, Any],
-            json.loads((path / "results_summary.json").read_text()),
+            json.loads((path / "result_summary.json").read_text()),
         )
     except json.JSONDecodeError as exc:
-        raise RunFolderError(f"Invalid JSON in results_summary.json: {exc}") from exc
+        raise RunFolderError(f"Invalid JSON in result_summary.json: {exc}") from exc
 
     now_utc = datetime.now(tz=timezone.utc)
     duration_s: float = result_summary.get("duration_ns", 0) / 1e9

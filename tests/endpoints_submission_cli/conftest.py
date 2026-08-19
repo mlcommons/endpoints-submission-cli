@@ -209,6 +209,11 @@ def run_folder(tmp_path: Path) -> Path:
     (folder / "config.yaml").write_text(yaml.dump(_CONFIG))
     (folder / "result_summary.json").write_text(json.dumps(_RESULT_SUMMARY))
     (folder / "results.json").write_text(json.dumps(_RESULTS))
+    # Standardized submissions must ship src/<implementation>/ with a README.
+    impl = folder / "src" / "trtllm"
+    impl.mkdir(parents=True)
+    (impl / "README.md").write_text("# trtllm\n\nBuild the SUT, then reproduce a point.\n")
+    (impl / "launch_sut.sh").write_text("#!/bin/sh\necho launching\n")
     return folder
 
 
