@@ -178,12 +178,16 @@ endpoints-submission-cli submissions get \
 | `--token TOKEN` | no | API key. |
 | `-j` / `--json` | no | Print raw JSON. |
 
+The default table renders every field the API returns for a submission — classification (division, scenario, availability), the `Test Submission` flag, publication cycle and embargo date, `Reviewers Assigned` (a count; the reviewer identities are never exposed by the API), the checker/API/CLI versions, PR references, and the full set of lifecycle timestamps in chronological order. Embedded runs follow in their own table.
+
 **Example:**
 
 ```bash
 endpoints-submission-cli submissions get \
   --submission-id a1b2c3d4-e5f6-7890-abcd-ef1234567890
 ```
+
+In `submissions list`, a submission flagged `is_test` is marked with a yellow `*` before the status, with a `* = test submission` legend under the table. That view stays deliberately narrow — use `submissions get` for the full field set.
 
 ---
 

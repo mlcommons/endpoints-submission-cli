@@ -102,7 +102,8 @@ Fetch full details of a single run and optionally download its archive.
 endpoints-submission-cli runs get \
   --run-id RUN_ID \
   [--download-to DIR] \
-  [--token TOKEN]
+  [--token TOKEN] \
+  [-j|--json]
 ```
 
 | Flag | Required | Description |
@@ -110,14 +111,18 @@ endpoints-submission-cli runs get \
 | `--run-id RUN_ID` | yes | Run UUID. |
 | `--download-to DIR` | no | Directory to download the run archive (`.tar.gz`) into. Created automatically if it does not exist. |
 | `--token TOKEN` | no | API key. |
+| `-j`, `--json` | no | Output the raw API record as JSON instead of the table. |
 
-Run details are always printed as JSON (syntax-highlighted in a terminal, plain when piped). When `--download-to` is provided, the archive is saved as `<run-id>.tar.gz` inside the specified directory and the saved path is printed on a separate line after the JSON.
+By default the run is rendered as a table, followed by a **System Info** table. `config` and `result_summary` are nested blobs and are omitted from the table — use `-j/--json` to see them. When `--download-to` is provided, the archive is saved as `<run-id>.tar.gz` inside the specified directory and the saved path is printed afterwards; that message goes to stderr, so `runs get -j` stays pipeable into `jq`.
 
 **Example:**
 
 ```bash
 # Fetch run details only
 endpoints-submission-cli runs get --run-id d5d9873e-5eca-4f8d-a487-4be1cb8b440c
+
+# Raw JSON, including config and result_summary
+endpoints-submission-cli runs get --run-id d5d9873e-5eca-4f8d-a487-4be1cb8b440c -j
 
 # Fetch details and download the archive to ./downloads/
 endpoints-submission-cli runs get \
@@ -128,9 +133,20 @@ endpoints-submission-cli runs get \
 **Output (with `--download-to`):**
 
 ```
-{ ... }  ← run details JSON
+       Run d5d9873e-5eca-4f8d-a487-4be1cb8b440c
+┏━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Field               ┃ Value                              ┃
+┡━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ ID                  │ d5d9873e-5eca-4f8d-a487-4be1cb8b…  │
+│ Model               │ meta-llama/Llama-3.1-8B-Instruct   │
+│ Concurrency         │ 4                                  │
+│ Test Run            │ No                                 │
+│ …                   │ …                                  │
+└─────────────────────┴────────────────────────────────────┘
 Archive saved to ./downloads/d5d9873e-5eca-4f8d-a487-4be1cb8b440c.tar.gz
 ```
+
+In `runs list`, a run flagged `is_test` is marked with a yellow `*` before the model name, with a `* = test run` legend under the table.
 
 ---
 
