@@ -24,7 +24,7 @@ from .models import (
     SrcDir,
     SubmissionDir,
     SystemDescription,
-    SystemPareto,
+    SystemResults,
     compute_regions,
 )
 from .models import err as _err
@@ -64,26 +64,43 @@ def _results_has_accuracy_scores(path: Path) -> bool:
     )
 
 
+def _resolve_submission_root(path: Path) -> Path:
+    """Return the ``<submission_id>/`` level, descending from an org root if needed.
+
+    Submissions are laid out as ``<organisation>/<submission_id>/``, so a path may
+    point at either level. A directory that already holds ``results/`` is the
+    submission root; otherwise a single child holding ``results/`` is used. An
+    ambiguous org root (several submissions) is returned unchanged so the caller
+    gets the normal "missing results/" error rather than an arbitrary pick.
+    """
+    if not path.is_dir() or (path / "results").is_dir():
+        return path
+    candidates = [d for d in sorted(path.iterdir()) if d.is_dir() and (d / "results").is_dir()]
+    return candidates[0] if len(candidates) == 1 else path
+
+
 class SubmissionChecker:
     """Validates an MLPerf Endpoints submission directory against §9.1 rules.
 
-    The *submission_path* should be the submitting organisation's root directory,
-    which must contain ``systems/`` and ``pareto/`` subdirectories as specified
-    in §8.1.
+    The *submission_path* should be a ``<submission_id>/`` directory containing
+    ``results/`` and ``docs/`` as specified in §8.1. The submitting organisation's
+    directory is also accepted — submissions are laid out as
+    ``<organisation>/<submission_id>/`` and the single submission level below the
+    org root is resolved automatically.
 
     Args:
-        submission_path: Root directory of the submission to validate.
+        submission_path: Directory of the submission to validate.
 
     Example::
 
-        checker = SubmissionChecker(Path("/submissions/acme_corp"))
+        checker = SubmissionChecker(Path("/submissions/acme_corp/sub-123"))
         report = checker.run()
         for err in report.errors:
             print(err.rule, err.message)
     """
 
     def __init__(self, submission_path: Path) -> None:
-        self.submission_path = submission_path
+        self.submission_path = _resolve_submission_root(submission_path)
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -117,32 +134,32 @@ class SubmissionChecker:
         if any(r.severity == Severity.ERROR for r in submission_dir._check_results):
             return report
 
-        systems_dir = submission_dir.systems_dir
-        pareto_dir = submission_dir.pareto_dir
+        results_dir = submission_dir.results_dir
 
-        system_jsons = sorted(systems_dir.glob("*.json"))
+        # One system_desc_id.json per system directory, not per point.
+        system_jsons = sorted(results_dir.glob("*/system_desc_id.json"))
         if not system_jsons:
             report.results.append(
                 _err(
                     "system-description-present",
-                    "No *.json files found in systems/",
-                    systems_dir,
+                    "No results/<system>/system_desc_id.json files found",
+                    results_dir,
                     "#1",
                 )
             )
             return report
 
         for system_json in system_jsons:
-            report.results.extend(self._check_system(system_json, pareto_dir))
+            report.results.extend(self._check_system(system_json, results_dir))
 
         # Per-curve: tps_utilization must match system_tps / max(system_tps)
         # within each <system_desc_id>/<benchmark_model> pareto curve.
-        report.results.extend(self._check_tps_utilization(pareto_dir))
+        report.results.extend(self._check_tps_utilization(results_dir))
 
         # §15: at least one model must carry accuracy results — either as accuracy_scores
         # embedded in a results.json, or as a standalone accuracy/results.json.
-        has_full_accuracy = any(True for _ in pareto_dir.rglob("accuracy/results.json")) or any(
-            _results_has_accuracy_scores(p) for p in pareto_dir.rglob("results.json")
+        has_full_accuracy = any(True for _ in results_dir.rglob("accuracy_results.json")) or any(
+            _results_has_accuracy_scores(p) for p in results_dir.rglob("results.json")
         )
 
         if has_full_accuracy:
@@ -150,7 +167,7 @@ class SubmissionChecker:
                 _ok(
                     "accuracy-present",
                     "At least one model has accuracy results",
-                    pareto_dir,
+                    results_dir,
                     "#15",
                 )
             )
@@ -159,8 +176,8 @@ class SubmissionChecker:
                 _err(
                     "accuracy-present",
                     "No model in this submission has accuracy results "
-                    "(accuracy_scores in results.json or accuracy/results.json)",
-                    pareto_dir,
+                    "(accuracy_results.json or accuracy_scores in results.json)",
+                    results_dir,
                     "#15",
                 )
             )
@@ -171,7 +188,7 @@ class SubmissionChecker:
     # Submission-wide checks
     # ------------------------------------------------------------------
 
-    def _check_tps_utilization(self, pareto_dir: Path) -> list[CheckResult]:
+    def _check_tps_utilization(self, results_dir: Path) -> list[CheckResult]:
         """Verify each run's ``tps_utilization`` equals ``system_tps / max(system_tps)``.
 
         ``tps_utilization`` normalises a run to the peak ``system_tps`` of the
@@ -187,9 +204,9 @@ class SubmissionChecker:
         ``run-metadata-valid`` check.
         """
         # Group run metadata by its pareto curve: the first two path components
-        # under pareto_dir are <system_desc_id>/<benchmark_model>.
+        # under results_dir are <system>/<benchmark_model>.
         curves: dict[tuple[str, ...], list[tuple[Path, float, float]]] = {}
-        for md_path in sorted(pareto_dir.rglob("run_metadata.json")):
+        for md_path in sorted(results_dir.rglob("run_metadata.json")):
             try:
                 data = json.loads(md_path.read_text())
             except (OSError, ValueError):
@@ -202,7 +219,7 @@ class SubmissionChecker:
                 and isinstance(util, (int, float))
                 and not isinstance(util, bool)
             ):
-                rel = md_path.relative_to(pareto_dir).parts
+                rel = md_path.relative_to(results_dir).parts
                 curve = rel[:2] if len(rel) >= 2 else rel
                 curves.setdefault(curve, []).append((md_path, float(tps), float(util)))
 
@@ -240,9 +257,10 @@ class SubmissionChecker:
     # Per-system orchestration
     # ------------------------------------------------------------------
 
-    def _check_system(self, system_json: Path, pareto_dir: Path) -> list[CheckResult]:
+    def _check_system(self, system_json: Path, results_dir: Path) -> list[CheckResult]:
         results: list[CheckResult] = []
-        system_id = system_json.stem
+        # results/<system>/system_desc_id.json — the directory names the system.
+        system_id = system_json.parent.name
 
         system_desc, load_results = load_system_description(system_json)
         results.extend(load_results)
@@ -294,18 +312,18 @@ class SubmissionChecker:
             results.append(_err("region-computation", str(exc), system_json, "#7"))
             return results
 
-        system_pareto = SystemPareto(pareto_dir=pareto_dir, system_id=system_id)
-        results.extend(system_pareto._check_results)
-        if any(r.severity == Severity.ERROR for r in system_pareto._check_results):
+        system_results = SystemResults(results_dir=results_dir, system_id=system_id)
+        results.extend(system_results._check_results)
+        if any(r.severity == Severity.ERROR for r in system_results._check_results):
             return results
-        system_pareto_dir = system_pareto.system_dir
-        model_dirs = [d for d in sorted(system_pareto_dir.iterdir()) if d.is_dir()]
+        system_dir = system_results.system_dir
+        model_dirs = [d for d in sorted(system_dir.iterdir()) if d.is_dir()]
         if not model_dirs:
             results.append(
                 _err(
                     "benchmark-model-dir",
-                    f"No benchmark-model directories in pareto/{system_id}/",
-                    system_pareto_dir,
+                    f"No benchmark-model directories in results/{system_id}/",
+                    system_dir,
                     "#1",
                 )
             )
@@ -330,9 +348,7 @@ class SubmissionChecker:
         results: list[CheckResult] = []
         benchmark_model = model_dir.name
 
-        src = SrcDir(
-            root=self.submission_path, division=system_desc.division, model=benchmark_model
-        )
+        src = SrcDir(root=self.submission_path)
         results.extend(src._check_results)
 
         model_structure = ModelDir(
@@ -342,16 +358,24 @@ class SubmissionChecker:
         if any(r.severity == Severity.ERROR for r in model_structure._check_results):
             return results
 
-        points_dir = model_structure.points_dir
-        results_dir = model_structure.results_dir
-
-        point_yamls = sorted(points_dir.glob("point_*.yaml"))
+        point_dirs = model_structure.point_dirs
+        point_yamls = [d / "point.yaml" for d in point_dirs if (d / "point.yaml").exists()]
+        missing_yaml = [d for d in point_dirs if not (d / "point.yaml").exists()]
+        for d in missing_yaml:
+            results.append(
+                _err(
+                    "measurement-points-present",
+                    f"Missing point.yaml in {d.relative_to(self.submission_path)}/",
+                    d / "point.yaml",
+                    "#1",
+                )
+            )
         if not point_yamls:
             results.append(
                 _err(
                     "measurement-points-present",
-                    f"No point_*.yaml files in {points_dir.relative_to(self.submission_path)}",
-                    points_dir,
+                    f"No r<N>/point.yaml files in {model_dir.relative_to(self.submission_path)}",
+                    model_dir,
                     "#1",
                 )
             )
@@ -368,32 +392,30 @@ class SubmissionChecker:
             if config is None:
                 continue
 
-            # filename-concurrency consistency warning
-            try:
-                fname_concurrency = int(yaml_path.stem.split("_")[1])
-                if fname_concurrency != config.concurrency:
-                    results.append(
-                        _warn(
-                            "point-filename-concurrency",
-                            f"{yaml_path.name}: filename concurrency {fname_concurrency}"
-                            f" ≠ declared {config.concurrency}",
-                            yaml_path,
-                            "#1",
-                        )
+            # directory-concurrency consistency warning. ModelDir.point_dirs only
+            # yields names matching r<digits>, so the int() below cannot fail.
+            point_result_dir = yaml_path.parent
+            dir_concurrency = int(point_result_dir.name[1:])
+            if dir_concurrency != config.concurrency:
+                results.append(
+                    _warn(
+                        "point-dirname-concurrency",
+                        f"{point_result_dir.name}/: directory concurrency {dir_concurrency}"
+                        f" ≠ declared {config.concurrency}",
+                        yaml_path,
+                        "#1",
                     )
-            except (IndexError, ValueError):
-                pass
+                )
 
             valid_points.append((yaml_path, config))
 
-            point_result_dir = results_dir / f"point_{config.concurrency}"
-            summary_path = point_result_dir / "results_summary.json"
+            summary_path = point_result_dir / "result_summary.json"
 
             if not summary_path.exists():
                 results.append(
                     _err(
                         "result-file-present",
-                        f"Missing result log for point_{config.concurrency}:"
+                        f"Missing result log for r{config.concurrency}:"
                         f" {summary_path.relative_to(self.submission_path)}",
                         summary_path,
                         "#1",
@@ -406,7 +428,7 @@ class SubmissionChecker:
                 results.append(
                     _err(
                         "result-file-present",
-                        f"Missing config.yaml for point_{config.concurrency}:"
+                        f"Missing config.yaml for r{config.concurrency}:"
                         f" {config_yaml_path.relative_to(self.submission_path)}",
                         config_yaml_path,
                         "#8.1",
@@ -418,7 +440,7 @@ class SubmissionChecker:
                 results.append(
                     _err(
                         "run-metadata-present",
-                        f"Missing run_metadata.json for point_{config.concurrency}:"
+                        f"Missing run_metadata.json for r{config.concurrency}:"
                         f" {run_metadata_path.relative_to(self.submission_path)}",
                         run_metadata_path,
                         "#8.1",
@@ -431,7 +453,7 @@ class SubmissionChecker:
                     results.append(
                         _ok(
                             "run-metadata-valid",
-                            f"run_metadata.json valid for point_{config.concurrency}",
+                            f"run_metadata.json valid for r{config.concurrency}",
                             run_metadata_path,
                             "#8.1",
                         )
@@ -450,17 +472,27 @@ class SubmissionChecker:
             results.extend(point_result._check_results)
             loaded_points.append((config, summary))
 
-        # Load accuracy per point, preferring the accuracy_scores embedded in
-        # results.json, then falling back to a standalone accuracy/results.json.
-        # The first valid source wins; run() enforces that at least one model has one.
+        # Load accuracy per point, preferring the standalone accuracy_results.json
+        # written beside point.yaml, then falling back to accuracy_scores embedded in
+        # the point's results.json. run() enforces that at least one model has one.
         accuracy_dir: Path | None = None
         accuracy_result = None
-        for config, _ in loaded_points:
+        for yaml_path, _config in valid_points:
             if accuracy_result is not None:
                 break
-            point_dir = results_dir / f"point_{config.concurrency}"
+            point_dir = yaml_path.parent
 
-            # Primary: accuracy_scores embedded in results.json.
+            accuracy_json = point_dir / "accuracy_results.json"
+            if accuracy_json.exists():
+                loaded, acc_results = load_accuracy_result(accuracy_json)
+                results.extend(acc_results)
+                if loaded is not None and not any(
+                    r.severity == Severity.ERROR for r in acc_results
+                ):
+                    accuracy_result, accuracy_dir = loaded, point_dir
+                continue
+
+            # Fallback: accuracy_scores embedded in the point's results.json.
             results_json = point_dir / "results.json"
             if results_json.exists():
                 loaded, acc_results, present = load_accuracy_scores(results_json)
@@ -470,29 +502,6 @@ class SubmissionChecker:
                         r.severity == Severity.ERROR for r in acc_results
                     ):
                         accuracy_result, accuracy_dir = loaded, point_dir
-                    continue
-
-            # Fallback: standalone accuracy/results.json (moved from the run archive).
-            pd = point_dir / "accuracy"
-            if not pd.is_dir():
-                continue
-            json_p = pd / "results.json"
-            if not json_p.exists():
-                results.append(
-                    _err(
-                        "accuracy-file",
-                        f"Missing results.json in point_{config.concurrency}/accuracy/",
-                        json_p,
-                        "#15",
-                    )
-                )
-            else:
-                loaded, acc_results = load_accuracy_result(json_p)
-                results.extend(acc_results)
-                if loaded is not None and not any(
-                    r.severity == Severity.ERROR for r in acc_results
-                ):
-                    accuracy_result, accuracy_dir = loaded, pd
 
         # ModelContext validates point-count, regional-coverage, config-consistency, accuracy-gate
         model_ctx = ModelContext(
@@ -500,7 +509,7 @@ class SubmissionChecker:
             system_desc=system_desc,
             model_dir=model_dir,
             regions=regions,
-            points_dir=points_dir,
+            points_dir=model_dir,
             accuracy_dir=accuracy_dir,
             all_point_count=len(point_yamls),
             valid_points=valid_points,

@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from pydantic import BaseModel, PrivateAttr, computed_field, model_validator
 
-from .file import Division
 from .results import CheckResult, err, ok
+
+#: A Pareto-point directory: "r" followed by the concurrency level (r1, r32, r256).
+_POINT_DIR_RE = re.compile(r"r(\d+)")
 
 
 class SubmissionDir(BaseModel):
-    """Validates the top-level submission directory: systems/ and pareto/ must exist."""
+    """Validates the submission directory: results/ and docs/ must exist."""
 
     _check_results: list[CheckResult] = PrivateAttr(default_factory=list)
 
@@ -19,19 +22,19 @@ class SubmissionDir(BaseModel):
 
     @computed_field  # type: ignore[prop-decorator]
     @property
-    def systems_dir(self) -> Path:
-        """Path to the systems/ subdirectory."""
-        return self.root / "systems"
+    def results_dir(self) -> Path:
+        """Path to the results/ subdirectory."""
+        return self.root / "results"
 
     @computed_field  # type: ignore[prop-decorator]
     @property
-    def pareto_dir(self) -> Path:
-        """Path to the pareto/ subdirectory."""
-        return self.root / "pareto"
+    def docs_dir(self) -> Path:
+        """Path to the docs/ subdirectory."""
+        return self.root / "docs"
 
     @model_validator(mode="after")
     def _check_required_dirs(self) -> SubmissionDir:
-        for name in ("systems", "pareto", "documentation"):
+        for name in ("results", "docs"):
             path = self.root / name
             if path.is_dir():
                 self._check_results.append(
@@ -45,70 +48,115 @@ class SubmissionDir(BaseModel):
 
 
 class SrcDir(BaseModel):
-    """Validates src/<model>/ exists for Standardized division submissions (§2.2.1)."""
+    """Validates the shared src/ tree (§2.2.1).
+
+    src/ is shared across the whole submission and holds one directory per
+    implementation (trtllm/, vllm/, sglang/, …). At least one such directory must
+    exist and carry a README.md explaining how to build the SUT and reproduce a
+    point.
+
+    Enforced for every submission regardless of division for now; division-specific
+    rulings are expected to relax this later.
+    """
 
     _check_results: list[CheckResult] = PrivateAttr(default_factory=list)
 
     root: Path
-    division: Division
-    model: str
 
     @model_validator(mode="after")
     def _check_src(self) -> SrcDir:
-        if self.division != Division.STANDARDIZED:
-            return self
-        src_dir = self.root / "src" / self.model
-        if src_dir.is_dir():
-            self._check_results.append(
-                ok(
-                    "src-dir",
-                    f"src/{self.model}/ present (required for Standardized division)",
-                    src_dir,
-                    "#1",
-                )
-            )
-        else:
+        src_dir = self.root / "src"
+        if not src_dir.is_dir():
             self._check_results.append(
                 err(
                     "src-dir",
-                    f"Missing src/{self.model}/ directory (required for Standardized division)",
+                    "Missing src/ directory",
                     src_dir,
                     "#1",
                 )
             )
+            return self
+
+        impl_dirs = [d for d in sorted(src_dir.iterdir()) if d.is_dir()]
+        if not impl_dirs:
+            self._check_results.append(
+                err(
+                    "src-dir",
+                    "src/ contains no implementation directory",
+                    src_dir,
+                    "#1",
+                )
+            )
+            return self
+
+        self._check_results.append(
+            ok(
+                "src-dir",
+                f"src/ present with {len(impl_dirs)} implementation "
+                f"director{'y' if len(impl_dirs) == 1 else 'ies'}: "
+                f"{', '.join(d.name for d in impl_dirs)}",
+                src_dir,
+                "#1",
+            )
+        )
+
+        for impl_dir in impl_dirs:
+            readme = next(
+                (p for p in impl_dir.iterdir() if p.is_file() and p.name.lower() == "readme.md"),
+                None,
+            )
+            if readme is not None:
+                self._check_results.append(
+                    ok("src-readme", f"src/{impl_dir.name}/README.md present", readme, "#1")
+                )
+            else:
+                self._check_results.append(
+                    err(
+                        "src-readme",
+                        f"Missing README.md in src/{impl_dir.name}/ "
+                        "(each implementation must document how to reproduce a point)",
+                        impl_dir / "README.md",
+                        "#1",
+                    )
+                )
         return self
 
 
-class SystemPareto(BaseModel):
-    """Validates pareto/<system_id>/ exists."""
+class SystemResults(BaseModel):
+    """Validates results/<system_id>/ exists."""
 
     _check_results: list[CheckResult] = PrivateAttr(default_factory=list)
 
-    pareto_dir: Path
+    results_dir: Path
     system_id: str
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def system_dir(self) -> Path:
-        """Path to the pareto/<system_id>/ subdirectory."""
-        return self.pareto_dir / self.system_id
+        """Path to the results/<system_id>/ subdirectory."""
+        return self.results_dir / self.system_id
 
     @model_validator(mode="after")
-    def _check_dir_exists(self) -> SystemPareto:
-        path = self.pareto_dir / self.system_id
+    def _check_dir_exists(self) -> SystemResults:
+        path = self.system_dir
         if path.is_dir():
             self._check_results.append(
-                ok("pareto-dir-exists", f"Found pareto/{self.system_id}/", path, "#1")
+                ok("system-results-dir", f"Found results/{self.system_id}/", path, "#1")
             )
         else:
             self._check_results.append(
-                err("pareto-dir-exists", f"No pareto/{self.system_id}/ directory found", path, "#1")
+                err(
+                    "system-results-dir",
+                    f"No results/{self.system_id}/ directory found",
+                    path,
+                    "#1",
+                )
             )
         return self
 
 
 class ModelDir(BaseModel):
-    """Validates points/ and results/ exist under a benchmark-model directory."""
+    """Validates a benchmark-model directory holds at least one r<N>/ point directory."""
 
     _check_results: list[CheckResult] = PrivateAttr(default_factory=list)
 
@@ -118,36 +166,38 @@ class ModelDir(BaseModel):
 
     @computed_field  # type: ignore[prop-decorator]
     @property
-    def points_dir(self) -> Path:
-        """Path to the points/ subdirectory."""
-        return self.root / "points"
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def results_dir(self) -> Path:
-        """Path to the results/ subdirectory."""
-        return self.root / "results"
+    def point_dirs(self) -> list[Path]:
+        """The r<N>/ Pareto-point directories, ordered by concurrency."""
+        found = [d for d in self.root.iterdir() if d.is_dir() and _POINT_DIR_RE.fullmatch(d.name)]
+        return sorted(found, key=lambda d: int(d.name[1:]))
 
     @model_validator(mode="after")
-    def _check_subdirs(self) -> ModelDir:
-        for name in ("points", "results"):
-            path = self.root / name
-            if path.is_dir():
-                self._check_results.append(
-                    ok(
-                        "pareto-subdir",
-                        f"Found {name}/ in pareto/{self.system_id}/{self.benchmark_model}/",
-                        path,
-                        "#1",
-                    )
+    def _check_point_dirs(self) -> ModelDir:
+        rel = f"results/{self.system_id}/{self.benchmark_model}"
+        if not self.root.is_dir():
+            self._check_results.append(
+                err("point-dirs", f"Missing benchmark-model directory: {rel}/", self.root, "#1")
+            )
+            return self
+        dirs = self.point_dirs
+        if dirs:
+            self._check_results.append(
+                ok(
+                    "point-dirs",
+                    f"Found {len(dirs)} Pareto point director"
+                    f"{'y' if len(dirs) == 1 else 'ies'} in {rel}/: "
+                    f"{', '.join(d.name for d in dirs)}",
+                    self.root,
+                    "#1",
                 )
-            else:
-                self._check_results.append(
-                    err(
-                        "pareto-subdir",
-                        f"Missing {name}/ in pareto/{self.system_id}/{self.benchmark_model}/",
-                        path,
-                        "#1",
-                    )
+            )
+        else:
+            self._check_results.append(
+                err(
+                    "point-dirs",
+                    f"No r<N>/ Pareto point directories in {rel}/",
+                    self.root,
+                    "#1",
                 )
+            )
         return self

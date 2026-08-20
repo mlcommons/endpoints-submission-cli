@@ -13,14 +13,23 @@ import yaml
 
 from endpoints_submission_cli.exceptions import SubmissionBuildError, TruncationError
 from endpoints_submission_cli.submissions.builder import (
+    PENDING_SUBMISSION_ID,
     _compute_max_tps,
     _slugify,
     build_submission_folder,
     create_bundle_archive,
     extract_archive,
+    set_submission_id,
 )
 from endpoints_submission_cli.truncation import truncate_responses as _truncate_responses
 from submission_checker.models import Severity
+
+
+def _submission_root(org_dir: Path) -> Path:
+    """The single <submission_id>/ level below the org directory."""
+    subs = [d for d in org_dir.iterdir() if d.is_dir()]
+    assert len(subs) == 1, f"expected one submission dir, got {[d.name for d in subs]}"
+    return subs[0]
 
 
 @pytest.mark.unit
@@ -46,24 +55,55 @@ class TestExtractArchive:
 
 @pytest.mark.unit
 class TestBuildSubmissionFolder:
-    def test_creates_systems_dir(self, run_archive: Path, tmp_path: Path) -> None:
-        sub_dir = build_submission_folder(
+    def test_builds_under_pending_submission_id(self, run_archive: Path, tmp_path: Path) -> None:
+        """Without an id the tree is built under the placeholder level."""
+        org_dir = build_submission_folder(
             [("run-001", run_archive)], "standardized", "available", tmp_path
         )
-        assert (sub_dir / "systems").is_dir()
+        assert (org_dir / PENDING_SUBMISSION_ID).is_dir()
+        assert (org_dir / PENDING_SUBMISSION_ID / "results").is_dir()
 
-    def test_creates_pareto_dir(self, run_archive: Path, tmp_path: Path) -> None:
-        sub_dir = build_submission_folder(
-            [("run-001", run_archive)], "standardized", "available", tmp_path
+    def test_builds_under_given_submission_id(self, run_archive: Path, tmp_path: Path) -> None:
+        org_dir = build_submission_folder(
+            [("run-001", run_archive)], "standardized", "available", tmp_path, "sub-123"
         )
-        pareto = sub_dir / "pareto"
-        assert pareto.is_dir()
+        assert (org_dir / "sub-123" / "results").is_dir()
+        assert not (org_dir / PENDING_SUBMISSION_ID).exists()
+
+    def test_creates_results_dir(self, run_archive: Path, tmp_path: Path) -> None:
+        sub_dir = _submission_root(
+            build_submission_folder(
+                [("run-001", run_archive)], "standardized", "available", tmp_path
+            )
+        )
+        assert (sub_dir / "results").is_dir()
+
+    def test_creates_docs_dir(self, run_archive: Path, tmp_path: Path) -> None:
+        sub_dir = _submission_root(
+            build_submission_folder(
+                [("run-001", run_archive)], "standardized", "available", tmp_path
+            )
+        )
+        assert (sub_dir / "docs").is_dir()
+
+    def test_src_implementation_copied_through(self, run_archive: Path, tmp_path: Path) -> None:
+        """The run archive's src/<implementation>/ is copied through verbatim."""
+        sub_dir = _submission_root(
+            build_submission_folder(
+                [("run-001", run_archive)], "standardized", "available", tmp_path
+            )
+        )
+        impl = sub_dir / "src" / "trtllm"
+        assert (impl / "README.md").exists()
+        assert (impl / "launch_sut.sh").exists()
 
     def test_system_json_created(self, run_archive: Path, tmp_path: Path) -> None:
-        sub_dir = build_submission_folder(
-            [("run-001", run_archive)], "standardized", "available", tmp_path
+        sub_dir = _submission_root(
+            build_submission_folder(
+                [("run-001", run_archive)], "standardized", "available", tmp_path
+            )
         )
-        jsons = list((sub_dir / "systems").glob("*.json"))
+        jsons = list((sub_dir / "results").glob("*/system_desc_id.json"))
         assert len(jsons) == 1
         data = json.loads(jsons[0].read_text())
         assert data["division"] == "Standardized"
@@ -73,7 +113,7 @@ class TestBuildSubmissionFolder:
         sub_dir = build_submission_folder(
             [("run-001", run_archive)], "standardized", "available", tmp_path
         )
-        yamls = list(sub_dir.rglob("point_*.yaml"))
+        yamls = list(sub_dir.rglob("point.yaml"))
         assert len(yamls) >= 1
         data = yaml.safe_load(yamls[0].read_text())
         assert data["concurrency"] == 4
@@ -82,7 +122,7 @@ class TestBuildSubmissionFolder:
         sub_dir = build_submission_folder(
             [("run-001", run_archive)], "standardized", "available", tmp_path
         )
-        summaries = list(sub_dir.rglob("results_summary.json"))
+        summaries = list(sub_dir.rglob("result_summary.json"))
         assert len(summaries) == 1
         data = json.loads(summaries[0].read_text())
         assert "n_samples_completed" in data
@@ -93,7 +133,7 @@ class TestBuildSubmissionFolder:
         sub_dir = build_submission_folder(
             [("run-001", acc_archive)], "standardized", "available", tmp_path / "sub"
         )
-        acc_jsons = list(sub_dir.rglob("accuracy/results.json"))
+        acc_jsons = list(sub_dir.rglob("accuracy_results.json"))
         assert len(acc_jsons) == 1
 
     def test_empty_run_list_raises(self, tmp_path: Path) -> None:
@@ -168,7 +208,7 @@ class TestBuildSubmissionFolder:
             "available",
             tmp_path / "sub",
         )
-        yamls = list(sub_dir.rglob("point_*.yaml"))
+        yamls = list(sub_dir.rglob("point.yaml"))
         concurrencies = {yaml.safe_load(p.read_text())["concurrency"] for p in yamls}
         assert 4 in concurrencies
         assert 16 in concurrencies
@@ -178,7 +218,7 @@ class TestBuildSubmissionFolder:
         sub_dir = build_submission_folder(
             [("run-001", run_archive)], "serviced", "available", tmp_path
         )
-        jsons = list((sub_dir / "systems").glob("*.json"))
+        jsons = list((_submission_root(sub_dir) / "results").glob("*/system_desc_id.json"))
         data = json.loads(jsons[0].read_text())
         assert data["division"] == "Serviced"
 
@@ -225,23 +265,123 @@ class TestBuildSubmissionFolder:
             "available",
             tmp_path / "sub",
         )
-        assert list((sub_dir / "pareto").glob("*/*/points/point_4.yaml"))
-        assert list((sub_dir / "pareto").glob("*/*/results/point_4/accuracy/results.json"))
-        assert list((sub_dir / "pareto").glob("*/*/results/point_4/accuracy/point_4.yaml"))
+        # Both runs describe the same Pareto point, so they share one r4/ directory.
+        results = _submission_root(sub_dir) / "results"
+        assert list(results.glob("*/*/r4/point.yaml"))
+        assert list(results.glob("*/*/r4/result_summary.json"))
+        assert list(results.glob("*/*/r4/accuracy_results.json"))
 
     def test_accuracy_run_routed_to_accuracy(self, run_folder: Path, tmp_path: Path) -> None:
         a_acc = self._make_archive(run_folder, tmp_path, "acc", 4, "accuracy")
         sub_dir = build_submission_folder(
             [("run-acc", a_acc)], "standardized", "available", tmp_path / "sub"
         )
-        model_dirs = list((sub_dir / "pareto").glob("*/*"))
+        model_dirs = [d for d in (_submission_root(sub_dir) / "results").glob("*/*") if d.is_dir()]
         assert len(model_dirs) == 1
-        model_dir = model_dirs[0]
-        acc_dir = model_dir / "results" / "point_4" / "accuracy"
-        assert (acc_dir / "point_4.yaml").exists()
-        assert (acc_dir / "results_summary.json").exists()
-        assert not (model_dir / "points" / "point_4.yaml").exists()
-        assert not (model_dir / "results" / "point_4" / "results_summary.json").exists()
+        point_dir = model_dirs[0] / "r4"
+        # An accuracy-only concurrency still defines the point: it supplies both the
+        # point.yaml/result_summary.json and the accuracy results.
+        assert (point_dir / "point.yaml").exists()
+        assert (point_dir / "result_summary.json").exists()
+        assert (point_dir / "accuracy_results.json").exists()
+
+
+@pytest.mark.unit
+class TestSrcValidation:
+    """src/ defects are the submitter's to fix — the builder must not paper over them."""
+
+    def _archive_without(self, run_folder: Path, tmp_path: Path, *, drop: str) -> Path:
+        import shutil
+
+        folder = tmp_path / "variant"
+        shutil.copytree(run_folder, folder)
+        target = folder / drop
+        if target.is_dir():
+            shutil.rmtree(target)
+        elif target.exists():
+            target.unlink()
+        archive = tmp_path / "variant.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname="variant")
+        return archive
+
+    def test_without_src_raises(self, run_folder: Path, tmp_path: Path) -> None:
+        archive = self._archive_without(run_folder, tmp_path, drop="src")
+        with pytest.raises(SubmissionBuildError, match="no implementation directory"):
+            build_submission_folder(
+                [("run-001", archive)], "standardized", "available", tmp_path / "out"
+            )
+
+    def test_implementation_without_readme_raises(self, run_folder: Path, tmp_path: Path) -> None:
+        archive = self._archive_without(run_folder, tmp_path, drop="src/trtllm/README.md")
+        with pytest.raises(SubmissionBuildError, match=r"Missing README\.md in src/trtllm/"):
+            build_submission_folder(
+                [("run-001", archive)], "standardized", "available", tmp_path / "out"
+            )
+
+    def test_loose_files_at_src_root_are_not_an_implementation(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
+        """Files dumped straight into src/ do not constitute an implementation folder."""
+        import shutil
+
+        folder = tmp_path / "loose"
+        shutil.copytree(run_folder, folder)
+        shutil.rmtree(folder / "src")
+        (folder / "src").mkdir()
+        (folder / "src" / "harness.py").write_text("print('hi')\n")
+        archive = tmp_path / "loose.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname="loose")
+        with pytest.raises(SubmissionBuildError, match="loose file"):
+            build_submission_folder(
+                [("run-001", archive)], "standardized", "available", tmp_path / "out"
+            )
+
+    def test_enforced_for_every_division(self, run_folder: Path, tmp_path: Path) -> None:
+        """Enforced for all divisions for now; expected to become division-specific."""
+        for division in ("standardized", "serviced", "rdi"):
+            archive = self._archive_without(run_folder, tmp_path / division, drop="src")
+            with pytest.raises(SubmissionBuildError, match="no implementation directory"):
+                build_submission_folder(
+                    [("run-001", archive)], division, "available", tmp_path / f"out-{division}"
+                )
+
+    def test_readme_required_for_every_division(self, run_folder: Path, tmp_path: Path) -> None:
+        for division in ("standardized", "serviced", "rdi"):
+            archive = self._archive_without(
+                run_folder, tmp_path / division, drop="src/trtllm/README.md"
+            )
+            with pytest.raises(SubmissionBuildError, match=r"Missing README\.md"):
+                build_submission_folder(
+                    [("run-001", archive)], division, "available", tmp_path / f"out-{division}"
+                )
+
+
+@pytest.mark.unit
+class TestSetSubmissionId:
+    def test_renames_placeholder(self, run_archive: Path, tmp_path: Path) -> None:
+        org_dir = build_submission_folder(
+            [("run-001", run_archive)], "standardized", "available", tmp_path
+        )
+        dest = set_submission_id(org_dir, "sub-123")
+        assert dest == org_dir / "sub-123"
+        assert (dest / "results").is_dir()
+        assert not (org_dir / PENDING_SUBMISSION_ID).exists()
+
+    def test_missing_placeholder_raises(self, tmp_path: Path) -> None:
+        org_dir = tmp_path / "org"
+        org_dir.mkdir()
+        with pytest.raises(SubmissionBuildError, match="nothing to rename"):
+            set_submission_id(org_dir, "sub-123")
+
+    def test_existing_destination_raises(self, run_archive: Path, tmp_path: Path) -> None:
+        org_dir = build_submission_folder(
+            [("run-001", run_archive)], "standardized", "available", tmp_path
+        )
+        (org_dir / "sub-123").mkdir()
+        with pytest.raises(SubmissionBuildError, match="already exists"):
+            set_submission_id(org_dir, "sub-123")
 
 
 @pytest.mark.unit
@@ -254,7 +394,8 @@ class TestCreateBundleArchive:
         assert bundle.exists()
         with tarfile.open(bundle) as tar:
             names = tar.getnames()
-        assert any("systems" in n for n in names)
+        # The archive carries the <organisation>/<submission_id>/ levels.
+        assert any(f"{PENDING_SUBMISSION_ID}/results" in n for n in names)
 
     def test_default_dest(self, run_archive: Path, tmp_path: Path) -> None:
         sub_dir = build_submission_folder(
@@ -380,7 +521,7 @@ class TestPointYamlFromConfig:
         sub_dir = build_submission_folder(
             [("run-001", archive)], "standardized", "available", tmp_path / f"sub_{value}"
         )
-        point_yaml = next(sub_dir.rglob("point_*.yaml"))
+        point_yaml = next(sub_dir.rglob("point.yaml"))
         data = yaml.safe_load(point_yaml.read_text())
         assert data["runtime_settings"]["stream_all_chunks"] is value
 
@@ -394,7 +535,7 @@ class TestPointYamlFromConfig:
         sub_dir = build_submission_folder(
             [("run-001", archive)], "standardized", "available", tmp_path / "sub"
         )
-        point_yaml = next(sub_dir.rglob("point_*.yaml"))
+        point_yaml = next(sub_dir.rglob("point.yaml"))
         data = yaml.safe_load(point_yaml.read_text())
         assert data["runtime_settings"]["min_duration_ms"] == 1_200_000
 
@@ -413,7 +554,7 @@ class TestPointYamlFromConfig:
         sub_dir = build_submission_folder(
             [("run-001", archive)], "standardized", "available", tmp_path / "sub"
         )
-        point_yaml = next(sub_dir.rglob("point_*.yaml"))
+        point_yaml = next(sub_dir.rglob("point.yaml"))
         data = yaml.safe_load(point_yaml.read_text())
         assert data["runtime_settings"]["min_duration_ms"] is None
 
@@ -436,7 +577,7 @@ class TestPointYamlFromConfig:
             "available",
             tmp_path / "sub",
         )
-        point_yaml = next(sub_dir.rglob("point_*.yaml"))
+        point_yaml = next(sub_dir.rglob("point.yaml"))
         data = yaml.safe_load(point_yaml.read_text())
         assert data["runtime_settings"]["min_sample_count"] == 5000
 
@@ -457,16 +598,16 @@ class TestPointYamlFromConfig:
         sub_dir = build_submission_folder(
             [("run-001", archive)], "standardized", "available", tmp_path / "sub"
         )
-        point_yaml = next(sub_dir.rglob("point_*.yaml"))
+        point_yaml = next(sub_dir.rglob("point.yaml"))
         data = yaml.safe_load(point_yaml.read_text())
         assert "min_sample_count" not in data["runtime_settings"]
 
     def test_warmup_block_present_in_point_yaml(self, run_archive: Path, tmp_path: Path) -> None:
-        """point_N.yaml always includes a warmup block (§8.3 §6.3.3)."""
+        """point.yaml always includes a warmup block (§8.3 §6.3.3)."""
         sub_dir = build_submission_folder(
             [("run-001", run_archive)], "standardized", "available", tmp_path
         )
-        point_yaml = next(sub_dir.rglob("point_*.yaml"))
+        point_yaml = next(sub_dir.rglob("point.yaml"))
         data = yaml.safe_load(point_yaml.read_text())
         assert "warmup" in data
         warmup = data["warmup"]
@@ -492,7 +633,7 @@ class TestPointYamlFromConfig:
         sub_dir = build_submission_folder(
             [("run-001", archive)], "standardized", "available", tmp_path / "sub"
         )
-        point_yaml = next(sub_dir.rglob("point_*.yaml"))
+        point_yaml = next(sub_dir.rglob("point.yaml"))
         data = yaml.safe_load(point_yaml.read_text())
         assert data["warmup"]["enabled"] is True
 
@@ -506,7 +647,7 @@ class TestPointYamlFromConfig:
         sub_dir = build_submission_folder(
             [("run-001", archive)], "standardized", "available", tmp_path / "sub"
         )
-        data = yaml.safe_load(next(sub_dir.rglob("point_*.yaml")).read_text())
+        data = yaml.safe_load(next(sub_dir.rglob("point.yaml")).read_text())
         runtime = data["runtime_settings"]["runtime"]
         assert runtime["scheduler_random_seed"] == 42
         assert runtime["dataloader_random_seed"] == 42
@@ -530,7 +671,7 @@ class TestPointYamlFromConfig:
         sub_dir = build_submission_folder(
             [("run-001", archive)], "standardized", "available", tmp_path / "sub"
         )
-        data = yaml.safe_load(next(sub_dir.rglob("point_*.yaml")).read_text())
+        data = yaml.safe_load(next(sub_dir.rglob("point.yaml")).read_text())
         runtime = data["runtime_settings"]["runtime"]
         # Every source key is carried through verbatim, not just the seeds.
         assert runtime == {
@@ -550,7 +691,7 @@ class TestPointYamlFromConfig:
         sub_dir = build_submission_folder(
             [("run-001", archive)], "standardized", "available", tmp_path / "sub"
         )
-        data = yaml.safe_load(next(sub_dir.rglob("point_*.yaml")).read_text())
+        data = yaml.safe_load(next(sub_dir.rglob("point.yaml")).read_text())
         assert data["runtime_settings"]["warmup"]["salt"] is True
 
     def test_built_runtime_settings_validate_against_checker(
@@ -579,7 +720,7 @@ class TestPointYamlFromConfig:
         sub_dir = build_submission_folder(
             [("run-001", archive)], "standardized", "available", tmp_path / "sub"
         )
-        data = yaml.safe_load(next(sub_dir.rglob("point_*.yaml")).read_text())
+        data = yaml.safe_load(next(sub_dir.rglob("point.yaml")).read_text())
         # Must not raise — runtime_settings.runtime is present and well-formed.
         rs = RuntimeSettings.model_validate(data["runtime_settings"])
         assert rs.runtime.scheduler_random_seed == 42
@@ -636,7 +777,7 @@ class TestBuilderCheckerContract:
         sub_dir = build_submission_folder(
             [("run-001", archive)], "standardized", "available", tmp_path / "sub"
         )
-        points = list(sub_dir.rglob("point_*.yaml"))
+        points = list(sub_dir.rglob("point.yaml"))
         assert points, "builder produced no point YAML"
         for py in points:
             data = yaml.safe_load(py.read_text())

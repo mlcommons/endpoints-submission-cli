@@ -17,7 +17,11 @@ from ...runs import api as runs_api
 from ...submissions import api as subs_api
 
 # from ...submissions import github as github_ops
-from ...submissions.builder import build_submission_folder, create_bundle_archive
+from ...submissions.builder import (
+    build_submission_folder,
+    create_bundle_archive,
+    set_submission_id,
+)
 from ..common import (
     _confirm_provisional,
     _console,
@@ -196,7 +200,6 @@ def submissions_create(
             "is_test": is_test,
             # Wire field is still early_publish — the API schema has not been renamed.
             "early_publish": provisional,
-
         }
         if publication_cycle:
             payload["publication_cycle"] = publication_cycle
@@ -214,7 +217,15 @@ def submissions_create(
         submission_id: str = sub_out["id"]
 
         # 5. Upload submission bundle
+        # The tree was built under a placeholder because the id only exists once the
+        # POST above succeeds; rename it before bundling so the archive carries the
+        # required <organisation>/<submission_id>/ layout.
         _console.print("[cyan]Uploading submission bundle…[/cyan]")
+        try:
+            set_submission_id(submission_dir, submission_id)
+        except SubmissionBuildError as exc:
+            _console.print(f"[bold red]Build error:[/bold red] {exc}")
+            sys.exit(1)
         _write_cli_metadata(submission_dir, "create")
         archive_path = create_bundle_archive(submission_dir, tmp_path / "bundle.tar.gz")
         try:

@@ -3,19 +3,26 @@
 """Assemble a submission folder from downloaded run archives.
 
 Transforms run-folder data (system_info.json, config.yaml, result_summary.json)
-into the SubmissionChecker-compatible layout:
+into the MLC submission layout:
 
-    <org>/
-      systems/<system_id>.json
-      src/<benchmark_model>/
-          <endpoint interface code>
-      pareto/<system_id>/<model>/points/point_<concurrency>.yaml
-      pareto/<system_id>/<model>/results/point_<concurrency>/
-          results_summary.json
-          config.yaml
-          accuracy/
-              results.json
-      documentation/
+    <submitting_organization>/
+      <submission_id>/
+        src/<implementation>/           # SHARED — README.md + endpoint interface code
+        docs/                           # SHARED — calibration, software disclosure, etc.
+        results/<system>/
+            system_desc_id.json         # one per system, not per point
+            <benchmark_model>/
+                r<N>/                   # one Pareto point per concurrency level
+                    point.yaml
+                    result_summary.json
+                    accuracy_results.json
+                    run_metadata.json
+                    server_configs/     # OPTIONAL, point-specific, submitter-defined
+
+The ``<submission_id>`` level is assigned by MLC. Callers that do not yet know it
+(``submissions create`` only learns it from the API after the bundle is built and
+checked) build under :data:`PENDING_SUBMISSION_ID` and call :func:`set_submission_id`
+once the real value is known.
 """
 
 from __future__ import annotations
@@ -36,7 +43,16 @@ from submission_checker.models.file import SystemDescription
 from ..exceptions import SubmissionBuildError
 from ..truncation import truncate_responses
 
-__all__ = ["build_submission_folder", "create_bundle_archive", "extract_archive"]
+__all__ = [
+    "PENDING_SUBMISSION_ID",
+    "build_submission_folder",
+    "create_bundle_archive",
+    "extract_archive",
+    "set_submission_id",
+]
+
+#: Placeholder directory name used when the MLC submission id is not yet known.
+PENDING_SUBMISSION_ID = "pending-submission-id"
 
 
 # ---------------------------------------------------------------------------
@@ -49,6 +65,7 @@ def build_submission_folder(
     division: str,
     availability: str,
     work_dir: Path,
+    submission_id: str | None = None,
 ) -> Path:
     """Assemble a submission directory from a list of run archives.
 
@@ -57,9 +74,14 @@ def build_submission_folder(
         division: Submission division (e.g. ``"standardized"``).
         availability: Publication/availability status (e.g. ``"available"``).
         work_dir: Base directory in which to build the submission tree.
+        submission_id: MLC-assigned submission id, used as the directory level
+            beneath the organization. Defaults to :data:`PENDING_SUBMISSION_ID`
+            for callers that only learn the id after the bundle is built; use
+            :func:`set_submission_id` to rename it afterwards.
 
     Returns:
-        Path to the assembled org-level submission directory.
+        Path to the assembled org-level submission directory (the parent of the
+        ``<submission_id>/`` level).
 
     Raises:
         SubmissionBuildError: If any run archive is malformed or required fields
@@ -88,7 +110,9 @@ def build_submission_folder(
 
     # Determine org name from the first run's system_info
     org_name = _slugify(run_data[0]["system_info"].get("submitter_org_names", "org") or "org")
-    submission_dir = work_dir / org_name
+    org_dir = work_dir / org_name
+    # <org>/<submission_id>/ — everything below is scoped to a single submission.
+    submission_dir = org_dir / (submission_id or PENDING_SUBMISSION_ID)
     submission_dir.mkdir(parents=True, exist_ok=True)
 
     # Group runs by system_id + model
@@ -125,7 +149,7 @@ def build_submission_folder(
         if system_id not in written_systems:
             _write_system_description(submission_dir, system_id, runs[0]["system_info"])
             written_systems.add(system_id)
-        _write_pareto_entries(
+        _write_point_dirs(
             submission_dir,
             system_id,
             model,
@@ -134,13 +158,41 @@ def build_submission_folder(
             max_tps_by_model[model],
         )
 
-    # Copy src/ for Standardized division submissions (mirrors documentation/ handling)
-    if run_data[0]["system_info"].get("division") == "Standardized":
-        _write_src(submission_dir, run_data)
+    _write_src(submission_dir, run_data)
 
     _write_documentation(submission_dir, run_data)
 
-    return submission_dir
+    return org_dir
+
+
+def set_submission_id(org_dir: Path, submission_id: str) -> Path:
+    """Rename the placeholder submission-id level under *org_dir* to *submission_id*.
+
+    ``submissions create`` builds and checks the bundle before the API assigns an
+    id, so the tree is written under :data:`PENDING_SUBMISSION_ID` and renamed here
+    once the POST returns.
+
+    Args:
+        org_dir: The org-level directory returned by :func:`build_submission_folder`.
+        submission_id: The MLC-assigned submission id.
+
+    Returns:
+        Path to the renamed ``<org>/<submission_id>/`` directory.
+
+    Raises:
+        SubmissionBuildError: If the placeholder directory is absent, or the
+            destination already exists.
+    """
+    src = org_dir / PENDING_SUBMISSION_ID
+    if not src.is_dir():
+        raise SubmissionBuildError(
+            f"No {PENDING_SUBMISSION_ID}/ directory under {org_dir}; nothing to rename"
+        )
+    dest = org_dir / submission_id
+    if dest.exists():
+        raise SubmissionBuildError(f"Submission directory already exists: {dest}")
+    src.rename(dest)
+    return dest
 
 
 def create_bundle_archive(submission_dir: Path, dest: Path | None = None) -> Path:
@@ -260,7 +312,7 @@ def _load_extra_files(base: Path) -> dict[str, bytes]:
     for p in sorted(base.glob("mlperf-system-info-*.json")):
         if p.is_file():
             extra[p.name] = p.read_bytes()
-    for subdir_name in ("documentation", "src"):
+    for subdir_name in ("documentation", "src", "server_configs"):
         subdir = base / subdir_name
         if subdir.is_dir():
             for p in sorted(subdir.rglob("*")):
@@ -319,9 +371,10 @@ def _write_system_description(
     system_id: str,
     system_info: dict[str, Any],
 ) -> None:
-    systems_dir = submission_dir / "systems"
-    systems_dir.mkdir(parents=True, exist_ok=True)
-    (systems_dir / f"{system_id}.json").write_text(
+    system_dir = submission_dir / "results" / system_id
+    system_dir.mkdir(parents=True, exist_ok=True)
+    # One per system, not per point.
+    (system_dir / "system_desc_id.json").write_text(
         json.dumps(system_info, indent=2), encoding="utf-8"
     )
 
@@ -342,7 +395,7 @@ def _compute_max_tps(run_data: list[dict[str, Any]]) -> float | None:
     return max(values) if values else None
 
 
-def _write_pareto_entries(
+def _write_point_dirs(
     submission_dir: Path,
     system_id: str,
     model: str,
@@ -350,12 +403,20 @@ def _write_pareto_entries(
     max_concurrency: int,
     max_tps: float | None = None,
 ) -> None:
+    """Write one ``r<N>/`` Pareto-point directory per concurrency level.
+
+    A performance run and an accuracy run at the same concurrency describe the
+    same Pareto point, so they share a directory: the performance run supplies
+    ``point.yaml`` / ``result_summary.json`` and the accuracy run contributes
+    ``accuracy_results.json``.
+    """
     from submission_checker.models import classify_concurrency, compute_regions
 
     regions = compute_regions(max_concurrency)
 
     # At most 1 perf + 1 acc run per concurrency (may change; stated here explicitly).
     seen: set[tuple[int, str]] = set()
+    by_concurrency: dict[int, dict[str, dict[str, Any]]] = {}
     for run in runs:
         run_type = _extract_run_type(run["config"])
         c = _extract_concurrency(run["config"])
@@ -363,112 +424,131 @@ def _write_pareto_entries(
         if key in seen:
             raise SubmissionBuildError(f"Duplicate {run_type} run at concurrency {c}")
         seen.add(key)
+        by_concurrency.setdefault(c, {})[run_type] = run
 
-    for run in runs:
-        concurrency = _extract_concurrency(run["config"])
-        run_type = _extract_run_type(run["config"])
-        model_dir = submission_dir / "pareto" / system_id / model
-        points_dir = model_dir / "points"
-        if run_type == "accuracy":
-            result_dir = model_dir / "results" / f"point_{concurrency}" / "accuracy"
-            yaml_dir = result_dir
-        else:
-            result_dir = model_dir / "results" / f"point_{concurrency}"
-            yaml_dir = points_dir
-        result_dir.mkdir(parents=True, exist_ok=True)
-        yaml_dir.mkdir(parents=True, exist_ok=True)
+    model_dir = submission_dir / "results" / system_id / model
+    for concurrency, runs_by_type in sorted(by_concurrency.items()):
+        point_dir = model_dir / f"r{concurrency}"
+        point_dir.mkdir(parents=True, exist_ok=True)
 
-        # Build point YAML from config.yaml
-        cfg_settings = run["config"].get("settings", {}) or {}
-        load_pattern = cfg_settings.get("load_pattern", {}) or {}
-        client_cfg = cfg_settings.get("client", {}) or {}
-        runtime_cfg = cfg_settings.get("runtime", {}) or {}
-        warmup_cfg = cfg_settings.get("warmup", {}) or {}
-        datasets = run["config"].get("datasets", []) or []
-        dataset_name = (
-            datasets[0].get("name", "") if datasets and isinstance(datasets[0], dict) else ""
+        # The performance run defines the point; fall back to the accuracy run when
+        # a concurrency was measured for accuracy only.
+        primary = runs_by_type.get("performance") or runs_by_type["accuracy"]
+        accuracy_run = runs_by_type.get("accuracy")
+
+        _write_point_yaml(point_dir, primary, concurrency, regions, classify_concurrency)
+
+        (point_dir / "result_summary.json").write_text(
+            json.dumps(primary["result_summary"], indent=2), encoding="utf-8"
         )
 
-        stream_all_chunks = client_cfg.get("stream_all_chunks")
-        lp_from_config = load_pattern.get("type", "concurrency")
+        _write_point_extra_files(point_dir, primary, max_tps)
+        if accuracy_run is not None:
+            _write_accuracy_results(point_dir, accuracy_run)
 
-        runtime_settings_out: dict[str, Any] = {
-            "load_pattern": lp_from_config,
-            "stream_all_chunks": stream_all_chunks,
-            "min_duration_ms": runtime_cfg.get("min_duration_ms"),
-            # Drop the source config blocks in wholesale rather than cherry-picking keys.
-            # The checker's Runtime/WarmupLoadgen models are extra="allow", so this carries
-            # every field through while still satisfying the required seed disclosure
-            # (runtime_settings.runtime) and exposing warmup salt for the salt check.
-            "runtime": dict(runtime_cfg),
-            "warmup": dict(warmup_cfg),
-        }
-        if runtime_cfg.get("n_samples_to_issue") is not None:
-            runtime_settings_out["min_sample_count"] = runtime_cfg.get("n_samples_to_issue")
 
-        # §8.3 warmup disclosure block — mapped from config.yaml settings.warmup.
-        # Fields duration_s, requests_issued, requests_completed, data_source,
-        # concurrency, and initialization_steps are submission metadata; populate
-        # from config where available and leave unknown fields as null.
-        warmup_out: dict[str, Any] = {
-            "enabled": warmup_cfg.get("enabled", False),
-            "duration_s": warmup_cfg.get("duration_s"),
-            "requests_issued": warmup_cfg.get("requests_issued"),
-            "requests_completed": warmup_cfg.get("requests_completed"),
-            "data_source": warmup_cfg.get("data_source"),
-            "concurrency": warmup_cfg.get("concurrency"),
-            # Checker types this as a list; default to [] rather than null when absent.
-            "initialization_steps": warmup_cfg.get("initialization_steps") or [],
-        }
+def _write_point_yaml(
+    point_dir: Path,
+    run: dict[str, Any],
+    concurrency: int,
+    regions: Any,
+    classify_concurrency: Any,
+) -> None:
+    """Write ``point.yaml`` describing this Pareto point, derived from config.yaml."""
+    cfg_settings = run["config"].get("settings", {}) or {}
+    load_pattern = cfg_settings.get("load_pattern", {}) or {}
+    client_cfg = cfg_settings.get("client", {}) or {}
+    runtime_cfg = cfg_settings.get("runtime", {}) or {}
+    warmup_cfg = cfg_settings.get("warmup", {}) or {}
+    datasets = run["config"].get("datasets", []) or []
+    dataset_name = datasets[0].get("name", "") if datasets and isinstance(datasets[0], dict) else ""
 
-        point_cfg: dict[str, Any] = {
-            "concurrency": concurrency,
-            "region": classify_concurrency(concurrency, regions),
-            "dataset": dataset_name,
-            "runtime_settings": runtime_settings_out,
-            "warmup": warmup_out,
-        }
-        (yaml_dir / f"point_{concurrency}.yaml").write_text(
-            yaml.dump(point_cfg, default_flow_style=False), encoding="utf-8"
-        )
+    runtime_settings_out: dict[str, Any] = {
+        "load_pattern": load_pattern.get("type", "concurrency"),
+        "stream_all_chunks": client_cfg.get("stream_all_chunks"),
+        "min_duration_ms": runtime_cfg.get("min_duration_ms"),
+        # Drop the source config blocks in wholesale rather than cherry-picking keys.
+        # The checker's Runtime/WarmupLoadgen models are extra="allow", so this carries
+        # every field through while still satisfying the required seed disclosure
+        # (runtime_settings.runtime) and exposing warmup salt for the salt check.
+        "runtime": dict(runtime_cfg),
+        "warmup": dict(warmup_cfg),
+    }
+    if runtime_cfg.get("n_samples_to_issue") is not None:
+        runtime_settings_out["min_sample_count"] = runtime_cfg.get("n_samples_to_issue")
 
-        (result_dir / "results_summary.json").write_text(
-            json.dumps(run["result_summary"], indent=2), encoding="utf-8"
-        )
-        extra_files = run.get("_extra_files", {})
-        (result_dir / "system_desc.json").write_text(
-            json.dumps(run["system_info"], indent=2), encoding="utf-8"
-        )
+    # §8.3 warmup disclosure block — mapped from config.yaml settings.warmup.
+    # Fields duration_s, requests_issued, requests_completed, data_source,
+    # concurrency, and initialization_steps are submission metadata; populate
+    # from config where available and leave unknown fields as null.
+    warmup_out: dict[str, Any] = {
+        "enabled": warmup_cfg.get("enabled", False),
+        "duration_s": warmup_cfg.get("duration_s"),
+        "requests_issued": warmup_cfg.get("requests_issued"),
+        "requests_completed": warmup_cfg.get("requests_completed"),
+        "data_source": warmup_cfg.get("data_source"),
+        "concurrency": warmup_cfg.get("concurrency"),
+        # Checker types this as a list; default to [] rather than null when absent.
+        "initialization_steps": warmup_cfg.get("initialization_steps") or [],
+    }
 
-        # Copy all supplementary files into the result directory, preserving subdirs.
-        # For accuracy runs result_dir is already .../accuracy/, so strip the leading
-        # "accuracy/" prefix from archive paths to avoid double-nesting.
-        _acc_prefix = "accuracy/"
-        for rel_path, content in extra_files.items():
-            if rel_path == "run_metadata.json" and max_tps and max_tps > 0:
-                try:
-                    metadata = json.loads(content)
-                    run_tps = metadata.get("system_tps")
-                    if run_tps is not None:
-                        metadata["tps_utilization"] = float(run_tps) / max_tps
-                        content = json.dumps(metadata, indent=2).encode()
-                except (json.JSONDecodeError, TypeError, ValueError):
-                    pass
-            if rel_path in ("results.json", "accuracy/results.json"):
-                content = truncate_responses(content)
-            dest_rel = (
-                rel_path[len(_acc_prefix) :]
-                if run_type == "accuracy" and rel_path.startswith(_acc_prefix)
-                else rel_path
-            )
-            dest = result_dir / dest_rel
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(content)
+    point_cfg: dict[str, Any] = {
+        "concurrency": concurrency,
+        "region": classify_concurrency(concurrency, regions),
+        "dataset": dataset_name,
+        "runtime_settings": runtime_settings_out,
+        "warmup": warmup_out,
+    }
+    (point_dir / "point.yaml").write_text(
+        yaml.dump(point_cfg, default_flow_style=False), encoding="utf-8"
+    )
+
+
+def _write_point_extra_files(
+    point_dir: Path,
+    run: dict[str, Any],
+    max_tps: float | None,
+) -> None:
+    """Copy a run's supplementary files into its point directory.
+
+    ``src/`` and ``documentation/`` are shared across the whole submission and are
+    written elsewhere; ``accuracy/`` is folded into ``accuracy_results.json``.
+    """
+    for rel_path, content in run.get("_extra_files", {}).items():
+        if rel_path.startswith(("src/", "documentation/", "accuracy/")):
+            continue
+        if rel_path == "run_metadata.json" and max_tps and max_tps > 0:
+            try:
+                metadata = json.loads(content)
+                run_tps = metadata.get("system_tps")
+                if run_tps is not None:
+                    metadata["tps_utilization"] = float(run_tps) / max_tps
+                    content = json.dumps(metadata, indent=2).encode()
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+        if rel_path == "results.json":
+            content = truncate_responses(content)
+        dest = point_dir / rel_path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(content)
+
+
+def _write_accuracy_results(point_dir: Path, accuracy_run: dict[str, Any]) -> None:
+    """Write ``accuracy_results.json`` for a point from its accuracy run.
+
+    Run archives carry accuracy either as a standalone ``accuracy/results.json`` or
+    as ``accuracy_scores`` embedded in the run's own ``results.json``.
+    """
+    extras = accuracy_run.get("_extra_files", {})
+    content = extras.get("accuracy/results.json") or extras.get("results.json")
+    if content is None:
+        return
+    (point_dir / "accuracy_results.json").write_bytes(truncate_responses(content))
 
 
 def _write_documentation(submission_dir: Path, run_data: list[dict[str, Any]]) -> None:
-    """Merge documentation files from all runs into submission_dir/documentation/."""
-    doc_dir = submission_dir / "documentation"
+    """Merge documentation files from all runs into submission_dir/docs/."""
+    doc_dir = submission_dir / "docs"
     doc_dir.mkdir(exist_ok=True)
     for run in run_data:
         for rel, content in run.get("_extra_files", {}).items():
@@ -480,17 +560,63 @@ def _write_documentation(submission_dir: Path, run_data: list[dict[str, Any]]) -
 
 
 def _write_src(submission_dir: Path, run_data: list[dict[str, Any]]) -> None:
-    """Copy src/ files from run archives into submission_dir/src/<model>/."""
+    """Populate the shared ``src/`` tree from the runs' ``src/`` folders.
+
+    ``src/`` is shared across the whole submission and holds one directory per
+    implementation (``trtllm/``, ``vllm/``, ``sglang/``, …), each documenting how to
+    build the SUT and reproduce a point. Whatever the run archives provide is copied
+    through verbatim and then validated — a missing implementation directory or a
+    missing README is a defect in the submission, not something to paper over with a
+    generated stub.
+
+    Raises:
+        SubmissionBuildError: If the submission ships no implementation directory, or
+            if any implementation directory has no README.md.
+    """
+    src_dir = submission_dir / "src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+
     for run in run_data:
-        model = _extract_model(run["config"])
-        src_model_dir = submission_dir / "src" / model
-        src_model_dir.mkdir(parents=True, exist_ok=True)
         for rel, content in run.get("_extra_files", {}).items():
             if not rel.startswith("src/"):
                 continue
-            dest = src_model_dir / Path(rel).relative_to("src")
+            dest = src_dir / Path(rel).relative_to("src")
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(content)
+
+    _validate_src(src_dir)
+
+
+def _validate_src(src_dir: Path) -> None:
+    """Check the assembled ``src/`` tree against the §2.2.1 source requirement.
+
+    Enforced for every submission regardless of division for now; division-specific
+    rulings are expected to relax this later.
+    """
+    impl_dirs = [d for d in sorted(src_dir.iterdir()) if d.is_dir()]
+
+    if not impl_dirs:
+        stray = sorted(p.name for p in src_dir.iterdir() if p.is_file())
+        detail = f" (found loose file(s) at the top of src/: {', '.join(stray)})" if stray else ""
+        raise SubmissionBuildError(
+            "Submissions must ship source, but no implementation directory was found "
+            f"under src/{detail}. Add src/<implementation>/ — e.g. src/trtllm/ — "
+            "containing a README.md describing how to build/launch the SUT and reproduce "
+            "a Pareto point."
+        )
+
+    missing = [d.name for d in impl_dirs if not _has_readme(d)]
+    if missing:
+        listed = ", ".join(f"src/{name}/" for name in missing)
+        raise SubmissionBuildError(
+            f"Missing README.md in {listed}. Each implementation directory must document "
+            "how to build/launch the SUT and reproduce a Pareto point."
+        )
+
+
+def _has_readme(impl_dir: Path) -> bool:
+    """True if *impl_dir* contains a README.md (matched case-insensitively)."""
+    return any(p.is_file() and p.name.lower() == "readme.md" for p in impl_dir.iterdir())
 
 
 def _slugify(name: str) -> str:
