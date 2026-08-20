@@ -11,6 +11,7 @@ import click
 
 from ...exceptions import APIError
 from ...runs import api as runs_api
+from ...runs.formatters import print_run_detail
 from ..common import _console, _get_token, output_json
 
 __all__ = ["runs_get"]
@@ -30,7 +31,8 @@ __all__ = ["runs_get"]
     default=None,
     help="PRISM API key (mlc_...).",
 )
-def runs_get(run_id: str, download_to: str | None, token: str | None) -> None:
+@click.option("-j", "--json", "as_json", is_flag=True, default=False, help="Output raw JSON.")
+def runs_get(run_id: str, download_to: str | None, token: str | None, as_json: bool) -> None:
     """Get full details of a specific run."""
     resolved_token = _get_token(token)
     try:
@@ -39,7 +41,10 @@ def runs_get(run_id: str, download_to: str | None, token: str | None) -> None:
         _console.print(f"[bold red]Error:[/bold red] {exc}")
         sys.exit(1)
 
-    output_json(run)
+    if as_json:
+        output_json(run)
+    else:
+        print_run_detail(run)
 
     if download_to is not None:
         try:

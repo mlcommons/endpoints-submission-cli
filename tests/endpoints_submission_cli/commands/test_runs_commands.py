@@ -96,12 +96,25 @@ class TestRunsCreate:
 
 @pytest.mark.unit
 class TestRunsGet:
-    def test_get_outputs_json(self) -> None:
+    def test_get_json_flag(self) -> None:
+        with patch("endpoints_submission_cli.runs.api.get_run", return_value=RUN_OUT):
+            with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
+                result = _runner.invoke(
+                    app, ["runs", "get", "--run-id", RUN_ID, "-j", *_TOKEN_ARGS]
+                )
+        assert result.exit_code == 0
+        assert RUN_ID in result.output
+        # Raw JSON, not the table — a quoted key only the json.dumps path emits.
+        assert '"benchmark_version":' in result.output
+
+    def test_get_renders_table_by_default(self) -> None:
         with patch("endpoints_submission_cli.runs.api.get_run", return_value=RUN_OUT):
             with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
                 result = _runner.invoke(app, ["runs", "get", "--run-id", RUN_ID, *_TOKEN_ARGS])
         assert result.exit_code == 0
-        assert RUN_ID in result.output
+        # A row label the table path emits and the JSON path never does.
+        assert "Benchmark Version" in result.output
+        assert '"benchmark_version":' not in result.output
 
     def test_get_api_error_exits_1(self) -> None:
         with patch("endpoints_submission_cli.runs.api.get_run", side_effect=APIError("404")):

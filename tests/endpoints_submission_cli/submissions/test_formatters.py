@@ -37,3 +37,11 @@ class TestPrintSubmissionDetail:
 
     def test_renders_minimal(self) -> None:
         print_submission_detail({"id": SUBMISSION_ID})
+
+    def test_zero_reviewers_renders_as_zero_not_dash(self, capsys) -> None:
+        """A count of 0 must stay visible — `value or "—"` would swallow it."""
+        print_submission_detail({**SUBMISSION_OUT, "reviewers_assigned": 0})
+        out = capsys.readouterr().out
+        row = next(line for line in out.splitlines() if "Reviewers Assigned" in line)
+        assert "0" in row
+        assert "—" not in row
