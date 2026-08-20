@@ -19,6 +19,7 @@ from .._http import (
     _raise_request,
     _raise_status,
 )
+from .._version import cli_version
 
 __all__ = [
     "list_submissions",
@@ -40,7 +41,12 @@ def list_submissions(token: str) -> list[dict[str, Any]]:
 
 
 def create_submission(token: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """POST /submissions — create a new submission."""
+    """POST /submissions — create a new submission.
+
+    Stamps the calling CLI version into the payload (unless the caller already set
+    it) so the API can record which client produced the submission.
+    """
+    payload = {"cli_version": cli_version(), **payload}
     return cast(dict[str, Any], _post("/submissions", token, json=payload))
 
 

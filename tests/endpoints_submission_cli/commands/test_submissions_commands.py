@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
 from unittest.mock import patch
@@ -777,12 +778,72 @@ class TestSubmissionsCreate:
                                                         *_TOKEN_ARGS,
                                                     )
         mock_create.assert_called_once()
+        # Without --test, the submission is created as a non-test entry.
+        assert mock_create.call_args.args[1]["is_test"] is False
         # The bundle carries a cli_metadata.json marker identifying the build command.
         meta_path = fake_sub_dir / "cli_metadata.json"
         assert meta_path.is_file()
         meta = json.loads(meta_path.read_text())
         assert meta["command"] == "create"
         assert "cli_version" in meta and "created_at" in meta
+
+    def test_create_test_flag_sets_is_test(self, tmp_path: Path) -> None:
+        import contextlib
+
+        fake_archive = _make_fake_archive(tmp_path)
+        fake_sub_dir = tmp_path / "sub"
+        fake_sub_dir.mkdir()
+        fake_bundle = tmp_path / "bundle.tar.gz"
+        fake_bundle.write_bytes(b"bundle")
+        C = "endpoints_submission_cli"
+
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch(f"{C}._http.get_token", return_value=TOKEN))
+            stack.enter_context(
+                patch(f"{C}.runs.api.download_run_archive", return_value=fake_archive)
+            )
+            stack.enter_context(
+                patch(
+                    f"{C}.commands.submissions.create.build_submission_folder",
+                    return_value=fake_sub_dir,
+                )
+            )
+            stack.enter_context(patch(f"{C}.commands.submissions.create._run_submission_checker"))
+            mock_create = stack.enter_context(
+                patch(f"{C}.submissions.api.create_submission", return_value=SUBMISSION_OUT)
+            )
+            stack.enter_context(
+                patch(
+                    f"{C}.commands.submissions.create.create_bundle_archive",
+                    return_value=fake_bundle,
+                )
+            )
+            stack.enter_context(patch(f"{C}.submissions.api.upload_submission_archive"))
+            stack.enter_context(patch(f"{C}.submissions.github.prepare_submission_branch"))
+            stack.enter_context(
+                patch(f"{C}.submissions.github.create_pr", return_value=(_PR_URL, _PR_NUMBER))
+            )
+            stack.enter_context(patch(f"{C}.submissions.api.update_submission"))
+            stack.enter_context(
+                patch(f"{C}.submissions.github.get_target_repo", return_value="org/repo")
+            )
+            _run_app(
+                "submissions",
+                "create",
+                "--division",
+                "standardized",
+                "--scenario",
+                "cop",
+                "--availability",
+                "available",
+                "--run-ids",
+                RUN_ID,
+                "--test",
+                *_TOKEN_ARGS,
+            )
+
+        mock_create.assert_called_once()
+        assert mock_create.call_args.args[1]["is_test"] is True
 
     def test_create_download_failure_exits_1(self) -> None:
         with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
@@ -1376,3 +1437,166 @@ class TestSubmissionsRemoveRun:
                                         )
         assert result.exit_code == 1
         mock_rollback.assert_called_once_with(TOKEN, SUBMISSION_ID, self._REMOVED_RUN_ID)
+
+
+_PROMPT_TEXT = "Would you like to continue?"
+_WARNING_TEXT = "publicly viewable on the visualizer"
+
+
+@contextlib.contextmanager
+def _patched_create(tmp_path: Path):
+    """Patch out every side effect of `submissions create` past the confirmation prompt."""
+    fake_sub_dir = tmp_path / "sub"
+    fake_sub_dir.mkdir(exist_ok=True)
+    fake_bundle = tmp_path / "bundle.tar.gz"
+    fake_bundle.write_bytes(b"bundle")
+    targets = [
+        patch("endpoints_submission_cli._http.get_token", return_value=TOKEN),
+        patch(
+            "endpoints_submission_cli.runs.api.download_run_archive",
+            return_value=_make_fake_archive(tmp_path),
+        ),
+        patch(
+            "endpoints_submission_cli.commands.submissions.create.build_submission_folder",
+            return_value=fake_sub_dir,
+        ),
+        patch("endpoints_submission_cli.commands.submissions.create._run_submission_checker"),
+        patch(
+            "endpoints_submission_cli.commands.submissions.create.create_bundle_archive",
+            return_value=fake_bundle,
+        ),
+        patch("endpoints_submission_cli.submissions.api.upload_submission_archive"),
+        patch("endpoints_submission_cli.submissions.api.update_submission"),
+    ]
+    with contextlib.ExitStack() as stack:
+        for target in targets:
+            stack.enter_context(target)
+        yield stack.enter_context(
+            patch(
+                "endpoints_submission_cli.submissions.api.create_submission",
+                return_value=SUBMISSION_OUT,
+            )
+        )
+
+
+@pytest.mark.unit
+class TestProvisionalConfirmation:
+    """`--provisional` must be confirmed before anything is submitted."""
+
+    _CREATE_ARGS = [
+        "submissions",
+        "create",
+        "--division",
+        "standardized",
+        "--scenario",
+        "cop",
+        "--availability",
+        "available",
+        "--run-ids",
+        RUN_ID,
+        *_TOKEN_ARGS,
+    ]
+
+    def test_no_prompt_without_provisional(self, tmp_path: Path) -> None:
+        with _patched_create(tmp_path) as mock_create:
+            result = _runner.invoke(app, self._CREATE_ARGS)
+        assert result.exit_code == 0, result.output
+        assert _PROMPT_TEXT not in result.output
+        assert mock_create.call_args[0][1]["early_publish"] is False
+
+    def test_declining_prompt_exits_1_without_downloading(self, tmp_path: Path) -> None:
+        with _patched_create(tmp_path) as mock_create:
+            result = _runner.invoke(app, [*self._CREATE_ARGS, "--provisional"], input="n\n")
+        assert result.exit_code == 1
+        assert _WARNING_TEXT in result.output
+        assert "peer review pending" in result.output
+        mock_create.assert_not_called()
+
+    def test_accepting_prompt_sets_flag(self, tmp_path: Path) -> None:
+        with _patched_create(tmp_path) as mock_create:
+            result = _runner.invoke(app, [*self._CREATE_ARGS, "--provisional"], input="y\n")
+        assert result.exit_code == 0, result.output
+        assert _PROMPT_TEXT in result.output
+        assert mock_create.call_args[0][1]["early_publish"] is True
+
+    def test_empty_answer_declines(self, tmp_path: Path) -> None:
+        """The prompt defaults to "no" — a bare Enter must not publish."""
+        with _patched_create(tmp_path) as mock_create:
+            result = _runner.invoke(app, [*self._CREATE_ARGS, "--provisional"], input="\n")
+        assert result.exit_code == 1
+        mock_create.assert_not_called()
+
+    def test_yes_flag_skips_prompt(self, tmp_path: Path) -> None:
+        with _patched_create(tmp_path) as mock_create:
+            result = _runner.invoke(app, [*self._CREATE_ARGS, "--provisional", "--yes"])
+        assert result.exit_code == 0, result.output
+        assert _PROMPT_TEXT not in result.output
+        assert _WARNING_TEXT in result.output
+        assert mock_create.call_args[0][1]["early_publish"] is True
+
+    def test_dry_run_skips_prompt(self, tmp_path: Path) -> None:
+        with _patched_create(tmp_path) as mock_create:
+            result = _runner.invoke(app, [*self._CREATE_ARGS, "--provisional", "--dry-run"])
+        assert result.exit_code == 0, result.output
+        assert _PROMPT_TEXT not in result.output
+        mock_create.assert_not_called()
+
+    def test_create_local_declining_prompt_exits_1(self, tmp_path: Path) -> None:
+        sub = _make_submission_dir(tmp_path)
+        with patch(
+            "endpoints_submission_cli.commands.submissions.create_local._run_submission_checker"
+        ) as mock_checker:
+            with patch("endpoints_submission_cli.submissions.api.create_submission") as mock_create:
+                result = _runner.invoke(
+                    app,
+                    [*_CREATE_LOCAL_BASE_ARGS, "--path", str(sub), *_TOKEN_ARGS, "--provisional"],
+                    input="n\n",
+                )
+        assert result.exit_code == 1
+        assert _WARNING_TEXT in result.output
+        # Aborted before the checker ran, so nothing was registered either.
+        mock_checker.assert_not_called()
+        mock_create.assert_not_called()
+
+    def test_create_local_accepting_prompt_sets_flag(self, tmp_path: Path) -> None:
+        sub = _make_submission_dir(tmp_path)
+        fake_bundle = tmp_path / "bundle.tar.gz"
+        fake_bundle.write_bytes(_FAKE_BUNDLE)
+        targets = [
+            patch("endpoints_submission_cli._http.get_token", return_value=TOKEN),
+            patch(
+                "endpoints_submission_cli.commands.submissions.create_local._run_submission_checker"
+            ),
+            patch(
+                "endpoints_submission_cli.commands.submissions.create_local._parse_result_dir",
+                return_value=_FAKE_RUN_PAYLOAD,
+            ),
+            patch("endpoints_submission_cli.runs.api.create_run", return_value=RUN_OUT),
+            patch(
+                "endpoints_submission_cli.commands.submissions.create_local.build_archive",
+                return_value=fake_bundle,
+            ),
+            patch("endpoints_submission_cli.runs.api.upload_run_archive"),
+            patch(
+                "endpoints_submission_cli.commands.submissions.create_local.create_bundle_archive",
+                return_value=fake_bundle,
+            ),
+            patch("endpoints_submission_cli.submissions.api.upload_submission_archive"),
+            patch("endpoints_submission_cli.submissions.api.update_submission"),
+        ]
+        with contextlib.ExitStack() as stack:
+            for target in targets:
+                stack.enter_context(target)
+            mock_create = stack.enter_context(
+                patch(
+                    "endpoints_submission_cli.submissions.api.create_submission",
+                    return_value=SUBMISSION_OUT,
+                )
+            )
+            result = _runner.invoke(
+                app,
+                [*_CREATE_LOCAL_BASE_ARGS, "--path", str(sub), *_TOKEN_ARGS, "--provisional"],
+                input="y\n",
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_create.call_args[0][1]["early_publish"] is True

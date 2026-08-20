@@ -18,7 +18,13 @@ from ...submissions import api as subs_api
 
 # from ...submissions import github as github_ops
 from ...submissions.builder import build_submission_folder, create_bundle_archive
-from ..common import _console, _get_token, _run_submission_checker, _write_cli_metadata
+from ..common import (
+    _confirm_provisional,
+    _console,
+    _get_token,
+    _run_submission_checker,
+    _write_cli_metadata,
+)
 
 __all__ = ["submissions_create"]
 
@@ -53,7 +59,23 @@ __all__ = ["submissions_create"]
     required=True,
     help="Run UUID(s) to include. Repeatable.",
 )
-@click.option("--early-publish", is_flag=True, default=False, help="Request early publication.")
+@click.option(
+    "--provisional",
+    is_flag=True,
+    default=False,
+    help=(
+        "Request provisional publication: results become publicly viewable on the "
+        "visualizer during the next cohort with a 'peer review pending' disclaimer."
+    ),
+)
+@click.option(
+    "--yes",
+    "-y",
+    "assume_yes",
+    is_flag=True,
+    default=False,
+    help="Skip the --provisional confirmation prompt (for non-interactive use).",
+)
 @click.option(
     "--publication-cycle",
     default=None,
@@ -75,17 +97,26 @@ __all__ = ["submissions_create"]
     default=False,
     help="Assemble folder, run checker, print layout — exit without submitting.",
 )
+@click.option(
+    "--test",
+    "is_test",
+    is_flag=True,
+    default=False,
+    help="Mark the submission as a test submission (not a real results entry).",
+)
 def submissions_create(
     token: str | None,
     division: str,
     scenario: str,
     availability: str,
     run_ids: tuple[str, ...],
-    early_publish: bool,
+    provisional: bool,
+    assume_yes: bool,
     publication_cycle: str | None,
     target_availability_date: str | None,
     embargo_date: str | None,
     dry_run: bool,
+    is_test: bool,
 ) -> None:
     """Create a new submission from one or more registered runs.
 
@@ -95,23 +126,12 @@ def submissions_create(
       3. Run the Submission Checker — abort on errors.
       4. POST /submissions → get submission_id.
       5. Upload the submission bundle.
-      6. Create a GitHub PR.
-      7. PATCH submission with pr_url and pr_number.
     """
     run_ids_list = list(run_ids)
+    # Ask before any downloads — a declined prompt should cost nothing.
+    if provisional and not dry_run:
+        _confirm_provisional(assume_yes)
     resolved_token = _get_token(token)
-    """
-    if not dry_run:
-        target_repo = github_ops.get_target_repo()
-        _console.print("[cyan]Checking GitHub prerequisites…[/cyan]")
-        try:
-            repo_ok, repo_warning = github_ops.check_prerequisites(target_repo)
-        except GitHubError as exc:
-            _console.print(f"[bold red]GitHub prerequisite check failed:[/bold red] {exc}")
-            sys.exit(1)
-        if not repo_ok:
-            _console.print(f"[yellow]Warning:[/yellow] {repo_warning}")
-    """
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
@@ -173,7 +193,10 @@ def submissions_create(
             "scenario": scenario,
             "availability": availability,
             "run_ids": run_ids_list,
-            "early_publish": early_publish,
+            "is_test": is_test,
+            # Wire field is still early_publish — the API schema has not been renamed.
+            "early_publish": provisional,
+
         }
         if publication_cycle:
             payload["publication_cycle"] = publication_cycle
@@ -207,31 +230,6 @@ def submissions_create(
                 _console.print(f"[bold red]Rollback failed:[/bold red] {rb_exc}")
             sys.exit(1)
 
-        """
-        # 6. Push submission branch and create GitHub PR
-        _console.print("[cyan]Creating GitHub PR…[/cyan]")
-        branch = f"submission-{submission_id}"
-        try:
-            github_ops.prepare_submission_branch(
-                submission_dir, branch, target_repo,  # type: ignore[possibly-undefined]
-                tmp_path / "gh"
-            )
-            pr_url, pr_number = github_ops.create_pr(submission_id, branch, target_repo)
-        except GitHubError as exc:
-            _console.print(
-                f"[bold red]PR creation failed:[/bold red] {exc}\n"
-                f"[yellow]Rolling back submission {submission_id}…[/yellow]"
-            )
-            try:
-                subs_api.withdraw_submission(resolved_token, submission_id)
-                _console.print("[green]Rollback successful — submission withdrawn.[/green]")
-            except APIError as rb_exc:
-                _console.print(
-                    f"[bold red]Rollback also failed:[/bold red] {rb_exc}\n"
-                    f"Orphaned submission ID: {submission_id}"
-                )
-            sys.exit(1)
-        """
         # 7. PATCH with pr_url, pr_number, status
         try:
             subs_api.update_submission(
