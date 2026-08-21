@@ -37,6 +37,10 @@ class SubmissionBuildError(Exception):
     """Raised when assembling the submission folder structure fails."""
 
 
+class MixedTestRunsError(Exception):
+    """A submission would mix test runs with real ones."""
+
+
 class SubmissionCheckError(Exception):
     """Raised when the Submission Checker reports validation errors."""
 

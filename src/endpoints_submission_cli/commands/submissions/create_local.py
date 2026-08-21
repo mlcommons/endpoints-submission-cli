@@ -109,7 +109,9 @@ _POINT_DIR_RE = re.compile(r"r(\d+)")
     "is_test",
     is_flag=True,
     default=False,
-    help="Mark the submission as a test submission (not a real results entry).",
+    help=(
+        "Mark the submission and every run it registers as test entries (not real results entries)."
+    ),
 )
 def submissions_create_local(
     token: str | None,
@@ -197,6 +199,11 @@ def submissions_create_local(
                     _console.print(f"[bold red]Parse error ({result_dir.name}):[/bold red] {exc}")
                     _rollback_runs(resolved_token, run_ids)
                     sys.exit(1)
+
+                # A test submission's runs are test runs too; leaving them unflagged
+                # would let them count towards published reporting on their own.
+                if is_test:
+                    payload["is_test"] = True
 
                 try:
                     run_out = runs_api.create_run(resolved_token, payload)

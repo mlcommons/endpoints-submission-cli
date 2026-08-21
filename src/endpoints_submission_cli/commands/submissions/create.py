@@ -12,16 +12,22 @@ from typing import Any
 import click
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 
-from ...exceptions import APIError, SubmissionBuildError, SubmissionCheckError
+from ...exceptions import (
+    APIError,
+    MixedTestRunsError,
+    SubmissionBuildError,
+    SubmissionCheckError,
+)
 from ...runs import api as runs_api
 from ...submissions import api as subs_api
-
-# from ...submissions import github as github_ops
 from ...submissions.builder import (
     build_submission_folder,
     create_bundle_archive,
     set_submission_id,
 )
+
+# from ...submissions import github as github_ops
+from ...submissions.validation import resolve_test_flag
 from ..common import (
     _confirm_provisional,
     _console,
@@ -136,6 +142,17 @@ def submissions_create(
     if provisional and not dry_run:
         _confirm_provisional(assume_yes)
     resolved_token = _get_token(token)
+
+    # Before any downloads: the run set must be all-test or all-real, and agree
+    # with --test. Cheap to check, and a mismatch invalidates everything after it.
+    try:
+        resolve_test_flag(resolved_token, run_ids_list, expected=is_test)
+    except MixedTestRunsError as exc:
+        _console.print(f"[bold red]Run set error:[/bold red] {exc}")
+        sys.exit(1)
+    except APIError as exc:
+        _console.print(f"[bold red]API error reading runs:[/bold red] {exc}")
+        sys.exit(1)
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
