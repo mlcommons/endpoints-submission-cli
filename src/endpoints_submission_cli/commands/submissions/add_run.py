@@ -11,16 +11,10 @@ from pathlib import Path
 import click
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 
-from ...exceptions import (
-    APIError,
-    MixedTestRunsError,
-    SubmissionBuildError,
-    SubmissionCheckError,
-)
+from ...exceptions import APIError, SubmissionBuildError, SubmissionCheckError
 from ...runs import api as runs_api
 from ...submissions import api as subs_api
 from ...submissions.builder import build_submission_folder, create_bundle_archive
-from ...submissions.validation import resolve_test_flag
 from ..common import _console, _get_token, _run_submission_checker
 
 __all__ = ["submissions_add_run"]
@@ -56,22 +50,6 @@ def submissions_add_run(submission_id: str, run_id: str, token: str | None) -> N
       7. Clone repo, check out existing PR branch, surgically update files, push
     """
     resolved_token = _get_token(token)
-
-    # Pre-flight: a test run cannot join a real submission, or vice versa. Checked
-    # before POST so a mismatch never has to be rolled back.
-    try:
-        submission = subs_api.get_submission(resolved_token, submission_id)
-        resolve_test_flag(
-            resolved_token,
-            [run_id],
-            expected=submission.get("is_test"),
-        )
-    except MixedTestRunsError as exc:
-        _console.print(f"[bold red]Run set error:[/bold red] {exc}")
-        sys.exit(1)
-    except APIError as exc:
-        _console.print(f"[bold red]API error reading submission:[/bold red] {exc}")
-        sys.exit(1)
     """
     target_repo = github_ops.get_target_repo()
     _console.print("[cyan]Checking GitHub prerequisites…[/cyan]")

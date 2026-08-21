@@ -12,17 +12,11 @@ from typing import Any
 import click
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 
-from ...exceptions import (
-    APIError,
-    MixedTestRunsError,
-    SubmissionBuildError,
-    SubmissionCheckError,
-)
+from ...exceptions import APIError, SubmissionBuildError, SubmissionCheckError
 from ...runs import api as runs_api
 from ...submissions import api as subs_api
 from ...submissions.builder import build_submission_folder, create_bundle_archive
 from ...submissions.formatters import print_submission_detail
-from ...submissions.validation import resolve_test_flag
 from ..common import _console, _get_token, _run_submission_checker
 
 __all__ = ["submissions_update"]
@@ -115,18 +109,6 @@ def submissions_update(
         sys.exit(1)
 
     original_run_ids: list[str] = current_sub.get("run_ids", [])
-
-    # The replacement set must be all-test or all-real, and match the submission.
-    # Checked before the PATCH so a mismatch never has to be rolled back.
-    try:
-        resolve_test_flag(resolved_token, desired_run_ids, expected=current_sub.get("is_test"))
-    except MixedTestRunsError as exc:
-        _console.print(f"[bold red]Run set error:[/bold red] {exc}")
-        sys.exit(1)
-    except APIError as exc:
-        _console.print(f"[bold red]API error reading runs:[/bold red] {exc}")
-        sys.exit(1)
-
     division: str = current_sub.get("division", "standardized")
     availability: str = current_sub.get("availability", "available")
     added = [r for r in desired_run_ids if r not in original_run_ids]
