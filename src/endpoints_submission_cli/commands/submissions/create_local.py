@@ -256,7 +256,7 @@ def submissions_create_local(
 
         # 6. Upload bundle
         _console.print("[cyan]Uploading submission bundle…[/cyan]")
-        _write_cli_metadata(submission_path, "create-local")
+        _write_cli_metadata(submission_path, "create-local", sub_out)
         archive_path = create_bundle_archive(submission_path, tmp_path / "bundle.tar.gz")
         try:
             subs_api.upload_submission_archive(resolved_token, submission_id, archive_path)

@@ -175,6 +175,9 @@ class TestSubmissionsUpdate:
         fake_sub_dir.mkdir()
         # build_submission_folder returns the org dir; the submission level lives below it.
         (fake_sub_dir / PENDING_SUBMISSION_ID).mkdir()
+        # These commands pass submission_id to the builder, so the rebuilt tree
+        # carries the real id rather than the placeholder.
+        (fake_sub_dir / SUBMISSION_ID).mkdir(exist_ok=True)
         fake_bundle = tmp_path / "bundle.tar.gz"
         fake_bundle.write_bytes(b"bundle")
         fake_repo_dir = tmp_path / "repo"
@@ -236,6 +239,9 @@ class TestSubmissionsUpdate:
         fake_sub_dir.mkdir()
         # build_submission_folder returns the org dir; the submission level lives below it.
         (fake_sub_dir / PENDING_SUBMISSION_ID).mkdir()
+        # These commands pass submission_id to the builder, so the rebuilt tree
+        # carries the real id rather than the placeholder.
+        (fake_sub_dir / SUBMISSION_ID).mkdir(exist_ok=True)
 
         with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
             with patch(
@@ -791,9 +797,11 @@ class TestSubmissionsCreate:
         mock_create.assert_called_once()
         # Without --test, the submission is created as a non-test entry.
         assert mock_create.call_args.args[1]["is_test"] is False
-        # The bundle carries a cli_metadata.json marker identifying the build command.
-        meta_path = fake_sub_dir / "cli_metadata.json"
+        # The marker lives inside <submission_id>/, not at the organisation level:
+        # the org directory is shared across submissions.
+        meta_path = fake_sub_dir / SUBMISSION_ID / "cli_metadata.json"
         assert meta_path.is_file()
+        assert not (fake_sub_dir / "cli_metadata.json").exists()
         meta = json.loads(meta_path.read_text())
         assert meta["command"] == "create"
         assert "cli_version" in meta and "created_at" in meta
@@ -1054,6 +1062,9 @@ class TestSubmissionsAddRun:
         fake_sub_dir.mkdir()
         # build_submission_folder returns the org dir; the submission level lives below it.
         (fake_sub_dir / PENDING_SUBMISSION_ID).mkdir()
+        # These commands pass submission_id to the builder, so the rebuilt tree
+        # carries the real id rather than the placeholder.
+        (fake_sub_dir / SUBMISSION_ID).mkdir(exist_ok=True)
         fake_bundle = tmp_path / "bundle.tar.gz"
         fake_bundle.write_bytes(b"bundle")
         fake_repo_dir = tmp_path / "repo"
@@ -1168,6 +1179,9 @@ class TestSubmissionsAddRun:
         fake_sub_dir.mkdir()
         # build_submission_folder returns the org dir; the submission level lives below it.
         (fake_sub_dir / PENDING_SUBMISSION_ID).mkdir()
+        # These commands pass submission_id to the builder, so the rebuilt tree
+        # carries the real id rather than the placeholder.
+        (fake_sub_dir / SUBMISSION_ID).mkdir(exist_ok=True)
         fake_bundle = tmp_path / "bundle.tar.gz"
         fake_bundle.write_bytes(b"bundle")
         fake_repo_dir = tmp_path / "repo"
@@ -1225,6 +1239,9 @@ class TestSubmissionsAddRun:
         fake_sub_dir.mkdir()
         # build_submission_folder returns the org dir; the submission level lives below it.
         (fake_sub_dir / PENDING_SUBMISSION_ID).mkdir()
+        # These commands pass submission_id to the builder, so the rebuilt tree
+        # carries the real id rather than the placeholder.
+        (fake_sub_dir / SUBMISSION_ID).mkdir(exist_ok=True)
 
         with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
             with patch(
@@ -1288,6 +1305,9 @@ class TestSubmissionsRemoveRun:
         fake_sub_dir.mkdir()
         # build_submission_folder returns the org dir; the submission level lives below it.
         (fake_sub_dir / PENDING_SUBMISSION_ID).mkdir()
+        # These commands pass submission_id to the builder, so the rebuilt tree
+        # carries the real id rather than the placeholder.
+        (fake_sub_dir / SUBMISSION_ID).mkdir(exist_ok=True)
         fake_bundle = tmp_path / "bundle.tar.gz"
         fake_bundle.write_bytes(b"bundle")
         fake_repo_dir = tmp_path / "repo"
@@ -1424,6 +1444,9 @@ class TestSubmissionsRemoveRun:
         fake_sub_dir.mkdir()
         # build_submission_folder returns the org dir; the submission level lives below it.
         (fake_sub_dir / PENDING_SUBMISSION_ID).mkdir()
+        # These commands pass submission_id to the builder, so the rebuilt tree
+        # carries the real id rather than the placeholder.
+        (fake_sub_dir / SUBMISSION_ID).mkdir(exist_ok=True)
 
         with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
             with patch(
