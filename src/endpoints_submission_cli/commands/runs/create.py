@@ -48,13 +48,25 @@ __all__ = ["runs_create"]
     help="Pin the run immediately to prevent automatic expiry.",
 )
 @click.option(
+    "--test",
+    "is_test",
+    is_flag=True,
+    default=False,
+    help="Mark the run as a test run (not a real results entry).",
+)
+@click.option(
     "--dry-run",
     is_flag=True,
     default=False,
     help="Print the parsed payload as JSON and exit without calling the API.",
 )
 def runs_create(
-    path: Path, token: str | None, expires_at: str | None, pinned: bool, dry_run: bool
+    path: Path,
+    token: str | None,
+    expires_at: str | None,
+    pinned: bool,
+    is_test: bool,
+    dry_run: bool,
 ) -> None:
     """Create a run from a local benchmark result folder.
 
@@ -62,6 +74,10 @@ def runs_create(
     registers the run with the Submission API, and uploads the run folder as
     an archive.  If the archive upload fails the run record is deleted
     (rollback to clean state).
+
+    Pass ``--test`` to flag the run as a test entry so it is excluded from
+    published reporting. It is fixed at creation — the API offers no way to
+    change it afterwards, since flipping it would rewrite reporting history.
     """
     try:
         payload = parse_run_folder(path)
@@ -73,6 +89,8 @@ def runs_create(
         payload["expires_at"] = expires_at
     if pinned:
         payload["pinned"] = True
+    if is_test:
+        payload["is_test"] = True
 
     if dry_run:
         print(json.dumps(payload, indent=2, default=str))

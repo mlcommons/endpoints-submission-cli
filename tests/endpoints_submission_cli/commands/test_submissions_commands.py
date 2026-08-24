@@ -599,6 +599,100 @@ class TestSubmissionsCreateLocal:
         assert meta["command"] == "create-local"
         assert "cli_version" in meta and "created_at" in meta
 
+    def test_create_local_test_flag_marks_runs_and_submission(self, tmp_path: Path) -> None:
+        """--test must flag the runs it registers too, not just the submission."""
+        sub = _make_submission_dir(tmp_path)
+        fake_bundle = tmp_path / "bundle.tar.gz"
+        fake_bundle.write_bytes(_FAKE_BUNDLE)
+        C = "endpoints_submission_cli"
+
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch(f"{C}._http.get_token", return_value=TOKEN))
+            stack.enter_context(
+                patch(f"{C}.commands.submissions.create_local._run_submission_checker")
+            )
+            # side_effect, not return_value: the payload is mutated downstream and a
+            # shared dict would leak is_test into every other test in this module.
+            stack.enter_context(
+                patch(
+                    f"{C}.commands.submissions.create_local._parse_result_dir",
+                    side_effect=lambda *_a, **_k: dict(_FAKE_RUN_PAYLOAD),
+                )
+            )
+            mock_create_run = stack.enter_context(
+                patch(f"{C}.runs.api.create_run", return_value=RUN_OUT)
+            )
+            stack.enter_context(
+                patch(
+                    f"{C}.commands.submissions.create_local.build_archive",
+                    return_value=fake_bundle,
+                )
+            )
+            stack.enter_context(patch(f"{C}.runs.api.upload_run_archive"))
+            mock_create_sub = stack.enter_context(
+                patch(f"{C}.submissions.api.create_submission", return_value=SUBMISSION_OUT)
+            )
+            stack.enter_context(
+                patch(
+                    f"{C}.commands.submissions.create_local.create_bundle_archive",
+                    return_value=fake_bundle,
+                )
+            )
+            stack.enter_context(patch(f"{C}.submissions.api.upload_submission_archive"))
+            stack.enter_context(patch(f"{C}.submissions.api.update_submission"))
+            result = self._invoke(sub, "--test")
+
+        assert result.exit_code == 0, result.output
+        assert mock_create_run.call_count == 2
+        for call in mock_create_run.call_args_list:
+            assert call[0][1]["is_test"] is True
+        assert mock_create_sub.call_args[0][1]["is_test"] is True
+
+    def test_create_local_without_test_flag_leaves_runs_unflagged(self, tmp_path: Path) -> None:
+        sub = _make_submission_dir(tmp_path)
+        fake_bundle = tmp_path / "bundle.tar.gz"
+        fake_bundle.write_bytes(_FAKE_BUNDLE)
+        C = "endpoints_submission_cli"
+
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch(f"{C}._http.get_token", return_value=TOKEN))
+            stack.enter_context(
+                patch(f"{C}.commands.submissions.create_local._run_submission_checker")
+            )
+            stack.enter_context(
+                patch(
+                    f"{C}.commands.submissions.create_local._parse_result_dir",
+                    side_effect=lambda *_a, **_k: dict(_FAKE_RUN_PAYLOAD),
+                )
+            )
+            mock_create_run = stack.enter_context(
+                patch(f"{C}.runs.api.create_run", return_value=RUN_OUT)
+            )
+            stack.enter_context(
+                patch(
+                    f"{C}.commands.submissions.create_local.build_archive",
+                    return_value=fake_bundle,
+                )
+            )
+            stack.enter_context(patch(f"{C}.runs.api.upload_run_archive"))
+            mock_create_sub = stack.enter_context(
+                patch(f"{C}.submissions.api.create_submission", return_value=SUBMISSION_OUT)
+            )
+            stack.enter_context(
+                patch(
+                    f"{C}.commands.submissions.create_local.create_bundle_archive",
+                    return_value=fake_bundle,
+                )
+            )
+            stack.enter_context(patch(f"{C}.submissions.api.upload_submission_archive"))
+            stack.enter_context(patch(f"{C}.submissions.api.update_submission"))
+            result = self._invoke(sub)
+
+        assert result.exit_code == 0, result.output
+        for call in mock_create_run.call_args_list:
+            assert "is_test" not in call[0][1]
+        assert mock_create_sub.call_args[0][1]["is_test"] is False
+
     def test_create_local_dry_run(self, tmp_path: Path) -> None:
         sub = _make_submission_dir(tmp_path)
         with patch(
