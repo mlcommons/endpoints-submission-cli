@@ -25,6 +25,7 @@ __all__ = [
     "_SEVERITY_STYLE",
     "_run_submission_checker",
     "_write_cli_metadata",
+    "CLI_METADATA_FILENAME",
     "output_json",
 ]
 
@@ -49,23 +50,58 @@ def _confirm_provisional(assume_yes: bool) -> None:
         sys.exit(1)
 
 
-def _write_cli_metadata(submission_dir: Path, command: str) -> None:
-    """Write a cli_metadata.json marker at the bundle root.
+CLI_METADATA_FILENAME = "cli_metadata.json"
 
-    Records which CLI command and version assembled the submission so reviewers and
-    the lifecycle can tell which bundled builder/checker schema produced it — the
-    marker is what lets us reason about checker-format drift across CLI versions.
-    """
+
+def _cli_version() -> str:
+    """The installed CLI version, or ``"unknown"`` outside an installed package."""
     try:
-        version = importlib.metadata.version("endpoints-submission-cli")
+        return importlib.metadata.version("endpoints-submission-cli")
     except importlib.metadata.PackageNotFoundError:
-        version = "unknown"
-    meta = {
+        return "unknown"
+
+
+def _write_cli_metadata(
+    submission_dir: Path,
+    command: str,
+    submission: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Write the cli_metadata.json marker inside a submission directory.
+
+    Everything in the marker is derived from what the command already holds — the
+    submission record it just received from the API, plus the version of the CLI
+    running now. Nothing has to be read back out of the previous bundle.
+
+    ``cli_version`` is the client that created the submission and stays fixed for its
+    lifetime; ``most_recent_cli_used`` is the client running this command. On
+    ``create`` the two are the same, because this *is* the creating command.
+
+    Args:
+        submission_dir: The ``<submission_id>/`` directory the marker describes. Pass
+            the submission level, never the organisation directory above it: that one
+            is shared by every submission from the org, so a marker there would claim
+            to describe all of them and be overwritten by the next build.
+        command: The CLI command that assembled the bundle.
+        submission: The API's submission record, supplying the creating
+            ``cli_version`` and ``created_at``. Omit it on ``create``, where the
+            running CLI is the creating one and there is no earlier record.
+
+    Returns:
+        The metadata that was written.
+    """
+    current = _cli_version()
+    record = submission or {}
+    meta: dict[str, Any] = {
         "command": command,
-        "cli_version": version,
-        "created_at": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
+        # Falls back to the running version: on create there is no prior record, and
+        # an API too old to report cli_version should not blank the field out.
+        "cli_version": record.get("cli_version") or current,
+        "most_recent_cli_used": current,
+        "created_at": record.get("created_at")
+        or datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
     }
-    (submission_dir / "cli_metadata.json").write_text(json.dumps(meta, indent=2))
+    (submission_dir / CLI_METADATA_FILENAME).write_text(json.dumps(meta, indent=2))
+    return meta
 
 
 _console = Console(stderr=True)

@@ -15,7 +15,12 @@ from ...exceptions import APIError, SubmissionBuildError, SubmissionCheckError
 from ...runs import api as runs_api
 from ...submissions import api as subs_api
 from ...submissions.builder import build_submission_folder, create_bundle_archive
-from ..common import _console, _get_token, _run_submission_checker
+from ..common import (
+    _console,
+    _get_token,
+    _run_submission_checker,
+    _write_cli_metadata,
+)
 
 __all__ = ["submissions_add_run"]
 
@@ -146,6 +151,7 @@ def submissions_add_run(submission_id: str, run_id: str, token: str | None) -> N
 
         # 5. Upload merged bundle to blob storage
         _console.print("[cyan]Uploading submission bundle…[/cyan]")
+        _write_cli_metadata(submission_dir / submission_id, "add-run", sub_out)
         archive_path = create_bundle_archive(upload_source, tmp_path / "bundle.tar.gz")
         try:
             subs_api.upload_submission_archive(resolved_token, submission_id, archive_path)

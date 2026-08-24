@@ -222,11 +222,14 @@ def submissions_create(
         # required <organisation>/<submission_id>/ layout.
         _console.print("[cyan]Uploading submission bundle…[/cyan]")
         try:
-            set_submission_id(submission_dir, submission_id)
+            submission_root = set_submission_id(submission_dir, submission_id)
         except SubmissionBuildError as exc:
             _console.print(f"[bold red]Build error:[/bold red] {exc}")
             sys.exit(1)
-        _write_cli_metadata(submission_dir, "create")
+        # The marker belongs to the submission, so it goes inside <submission_id>/ —
+        # not beside it at the organisation level, which is shared across submissions.
+        _write_cli_metadata(submission_root, "create", sub_out)
+        # Bundle the organisation dir so the archive keeps the <org>/<submission_id>/ layout.
         archive_path = create_bundle_archive(submission_dir, tmp_path / "bundle.tar.gz")
         try:
             subs_api.upload_submission_archive(resolved_token, submission_id, archive_path)
