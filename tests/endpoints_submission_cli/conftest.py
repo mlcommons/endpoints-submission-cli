@@ -217,6 +217,52 @@ def run_folder(tmp_path: Path) -> Path:
     return folder
 
 
+#: Accuracy artifact as endpoints writes it: accuracy/accuracy_results.json, whose
+#: accuracy_scores is a LIST of per-dataset entries (not a dict).
+_ACCURACY_RESULTS = {
+    "osl_tokenization_s": 0.012,
+    "accuracy_scores": [
+        {
+            "dataset_name": "cnn_dailymail_validation",
+            "extractor": "IdentityExtractor",
+            "ground_truth_column": "highlights",
+            "score": {"rouge1": "38.7287", "rouge2": "16.0968"},
+            "unit_samples": 500,
+            "num_repeats": 1,
+            "total_samples": 500,
+            "complete": True,
+            "dataset_type": "accuracy",
+        }
+    ],
+}
+
+
+@pytest.fixture
+def endpoints_run_folder(tmp_path: Path) -> Path:
+    """A run folder in the layout mlcommons/endpoints actually writes.
+
+    Performance metrics under ``performance/``, accuracy under ``accuracy/``; see
+    docs/endpoints-cli/reference/run-folder-layout.md. This is the only layout
+    ``runs create`` accepts. ``system_desc.json`` is submitter-authored, not an
+    endpoints artifact.
+    """
+    folder = tmp_path / "test_run"
+    (folder / "performance").mkdir(parents=True)
+    (folder / "accuracy").mkdir()
+    (folder / "metrics").mkdir()
+
+    (folder / "system_desc.json").write_text(json.dumps(_SYSTEM_DESC))
+    (folder / "config.yaml").write_text(yaml.dump(_CONFIG))
+    (folder / "performance" / "result_summary.json").write_text(json.dumps(_RESULT_SUMMARY))
+    (folder / "accuracy" / "accuracy_results.json").write_text(json.dumps(_ACCURACY_RESULTS))
+    (folder / "metrics" / "final_snapshot.json").write_text(json.dumps({"counter": 1}))
+    (folder / "metrics" / ".ready").write_text("")
+    (folder / "report.txt").write_text("Summary\n")
+    (folder / "sample_idx_map.json").write_text(json.dumps({"0": 0}))
+    (folder / "events.jsonl").write_text('{"event_type":"start","timestamp_ns":1}\n')
+    return folder
+
+
 @pytest.fixture
 def run_archive(run_folder: Path, tmp_path: Path) -> Path:
     """Create a .tar.gz archive of the run folder."""

@@ -22,10 +22,17 @@ from endpoints_submission_cli.runs.parser import (
 )
 
 
+def _write_summary(folder: Path, content: str) -> None:
+    """Write the performance result summary where endpoints puts it."""
+    perf = folder / "performance"
+    perf.mkdir(parents=True, exist_ok=True)
+    (perf / "result_summary.json").write_text(content)
+
+
 @pytest.mark.unit
 class TestParseRunFolder:
-    def test_valid_folder_returns_payload(self, run_folder: Path) -> None:
-        payload = parse_run_folder(run_folder)
+    def test_valid_folder_returns_payload(self, endpoints_run_folder: Path) -> None:
+        payload = parse_run_folder(endpoints_run_folder)
 
         assert "benchmark_version" in payload
         assert "started_at" in payload
@@ -34,36 +41,36 @@ class TestParseRunFolder:
         assert "config" in payload
         assert "result_summary" in payload
 
-    def test_system_info_passthrough(self, run_folder: Path) -> None:
-        payload = parse_run_folder(run_folder)
+    def test_system_info_passthrough(self, endpoints_run_folder: Path) -> None:
+        payload = parse_run_folder(endpoints_run_folder)
         si = payload["system_info"]
         assert si["system_name"] == "Test System"
         assert si["node_types"][0]["accelerator_model_name"] == "NVIDIA H100 SXM5 80GB"
 
-    def test_config_passthrough(self, run_folder: Path) -> None:
-        payload = parse_run_folder(run_folder)
+    def test_config_passthrough(self, endpoints_run_folder: Path) -> None:
+        payload = parse_run_folder(endpoints_run_folder)
         cfg = payload["config"]
         assert cfg["model_params"]["name"] == "meta-llama/Llama-3.1-8B-Instruct"
 
-    def test_result_summary_passthrough(self, run_folder: Path) -> None:
-        payload = parse_run_folder(run_folder)
+    def test_result_summary_passthrough(self, endpoints_run_folder: Path) -> None:
+        payload = parse_run_folder(endpoints_run_folder)
         rs = payload["result_summary"]
         assert rs["n_samples_completed"] == 2000
 
-    def test_timestamps_are_iso_strings(self, run_folder: Path) -> None:
-        payload = parse_run_folder(run_folder)
+    def test_timestamps_are_iso_strings(self, endpoints_run_folder: Path) -> None:
+        payload = parse_run_folder(endpoints_run_folder)
         assert "T" in payload["started_at"]
         assert "T" in payload["finished_at"]
 
-    def test_finished_after_started(self, run_folder: Path) -> None:
-        payload = parse_run_folder(run_folder)
+    def test_finished_after_started(self, endpoints_run_folder: Path) -> None:
+        payload = parse_run_folder(endpoints_run_folder)
         assert payload["started_at"] <= payload["finished_at"]
 
     def test_missing_system_info_raises(self, tmp_path: Path) -> None:
         folder = tmp_path / "bad_run"
         folder.mkdir()
         (folder / "config.yaml").write_text("name: test")
-        (folder / "result_summary.json").write_text("{}")
+        _write_summary(folder, "{}")
         with pytest.raises(RunFolderError, match="system_desc.json"):
             parse_run_folder(folder)
 
@@ -71,7 +78,7 @@ class TestParseRunFolder:
         folder = tmp_path / "bad_run"
         folder.mkdir()
         (folder / "system_desc.json").write_text("{}")
-        (folder / "result_summary.json").write_text("{}")
+        _write_summary(folder, "{}")
         with pytest.raises(RunFolderError, match="config.yaml"):
             parse_run_folder(folder)
 
@@ -92,7 +99,7 @@ class TestParseRunFolder:
         folder.mkdir()
         (folder / "system_desc.json").write_text("{bad json")
         (folder / "config.yaml").write_text("name: test")
-        (folder / "result_summary.json").write_text("{}")
+        _write_summary(folder, "{}")
         with pytest.raises(RunFolderError, match="Invalid JSON"):
             parse_run_folder(folder)
 
@@ -101,7 +108,7 @@ class TestParseRunFolder:
         folder.mkdir()
         (folder / "system_desc.json").write_text("{}")
         (folder / "config.yaml").write_text(": invalid: yaml: [")
-        (folder / "result_summary.json").write_text("{}")
+        _write_summary(folder, "{}")
         with pytest.raises(RunFolderError, match="Invalid YAML"):
             parse_run_folder(folder)
 
@@ -110,7 +117,7 @@ class TestParseRunFolder:
         folder.mkdir()
         (folder / "system_desc.json").write_text("{}")
         (folder / "config.yaml").write_text("- item1\n- item2\n")
-        (folder / "result_summary.json").write_text("{}")
+        _write_summary(folder, "{}")
         with pytest.raises(RunFolderError, match="must be a YAML mapping"):
             parse_run_folder(folder)
 
@@ -120,7 +127,7 @@ class TestParseRunFolder:
         folder.mkdir()
         (folder / "system_desc.json").write_text("{}")
         (folder / "config.yaml").write_text(yaml.dump({"name": "x"}))
-        (folder / "result_summary.json").write_text(json.dumps({"duration_ns": 0}))
+        _write_summary(folder, json.dumps({"duration_ns": 0}))
         payload = parse_run_folder(folder)
         assert payload["started_at"] == payload["finished_at"]
 
@@ -129,7 +136,7 @@ class TestParseRunFolder:
         folder.mkdir()
         (folder / "system_desc.json").write_text("{}")
         (folder / "config.yaml").write_text(yaml.dump({"name": "x"}))
-        (folder / "result_summary.json").write_text(json.dumps({"git_sha": "abc123"}))
+        _write_summary(folder, json.dumps({"git_sha": "abc123"}))
         payload = parse_run_folder(folder)
         assert payload["benchmark_version"] == "abc123"
 
@@ -138,38 +145,38 @@ class TestParseRunFolder:
         folder.mkdir()
         (folder / "system_desc.json").write_text("{}")
         (folder / "config.yaml").write_text(yaml.dump({"name": "x"}))
-        (folder / "result_summary.json").write_text("{}")
+        _write_summary(folder, "{}")
         payload = parse_run_folder(folder)
         assert payload["benchmark_version"] == "unknown"
 
 
 @pytest.mark.unit
 class TestBuildArchive:
-    def test_creates_tar_gz(self, run_folder: Path, tmp_path: Path) -> None:
+    def test_creates_tar_gz(self, endpoints_run_folder: Path, tmp_path: Path) -> None:
         dest = tmp_path / "out.tar.gz"
-        result = build_archive(run_folder, dest)
+        result = build_archive(endpoints_run_folder, dest)
         assert result == dest
         assert dest.exists()
 
-    def test_default_dest_beside_folder(self, run_folder: Path) -> None:
-        expected = run_folder.parent / f"{run_folder.name}.tar.gz"
+    def test_default_dest_beside_folder(self, endpoints_run_folder: Path) -> None:
+        expected = endpoints_run_folder.parent / f"{endpoints_run_folder.name}.tar.gz"
         try:
-            result = build_archive(run_folder)
+            result = build_archive(endpoints_run_folder)
             assert result == expected
         finally:
             expected.unlink(missing_ok=True)
 
-    def test_archive_contains_files(self, run_folder: Path, tmp_path: Path) -> None:
+    def test_archive_contains_files(self, endpoints_run_folder: Path, tmp_path: Path) -> None:
         dest = tmp_path / "out.tar.gz"
-        build_archive(run_folder, dest)
+        build_archive(endpoints_run_folder, dest)
         with tarfile.open(dest) as tar:
             names = tar.getnames()
         assert any("system_desc.json" in n for n in names)
         assert any("config.yaml" in n for n in names)
         assert any("result_summary.json" in n for n in names)
 
-    def test_truncates_results_responses(self, run_folder: Path, tmp_path: Path) -> None:
-        results_path = run_folder / "results.json"
+    def test_truncates_results_responses(self, endpoints_run_folder: Path, tmp_path: Path) -> None:
+        results_path = endpoints_run_folder / "accuracy" / "accuracy_results.json"
         big = {
             "config": {"mode": "perf"},
             "results": {"total": 5000},
@@ -179,9 +186,9 @@ class TestBuildArchive:
         original_bytes = results_path.read_bytes()
 
         dest = tmp_path / "out.tar.gz"
-        build_archive(run_folder, dest)
+        build_archive(endpoints_run_folder, dest)
 
-        archived = _read_member(dest, "/results.json")
+        archived = _read_member(dest, "/accuracy/accuracy_results.json")
         # responses capped well below the original count...
         assert 0 < len(archived["responses"]) < 5000
         # ...while the other keys survive intact.
@@ -190,32 +197,17 @@ class TestBuildArchive:
         # source folder is never mutated.
         assert results_path.read_bytes() == original_bytes
 
-    def test_truncates_nested_accuracy_results(self, run_folder: Path, tmp_path: Path) -> None:
-        # Accuracy run folders carry an accuracy/results.json; it must be truncated too.
-        acc_dir = run_folder / "accuracy"
-        acc_dir.mkdir()
-        big = {
-            "results": {"total": 5000},
-            "responses": [{"idx": i, "text": "lorem ipsum " * 10} for i in range(5000)],
-        }
-        (acc_dir / "results.json").write_text(json.dumps(big))
-
-        dest = tmp_path / "out.tar.gz"
-        build_archive(run_folder, dest)
-
-        archived = _read_member(dest, "/accuracy/results.json")
-        assert 0 < len(archived["responses"]) < 5000
-        assert archived["results"] == {"total": 5000}
-
     def test_results_without_responses_archived_unchanged(
-        self, run_folder: Path, tmp_path: Path
+        self, endpoints_run_folder: Path, tmp_path: Path
     ) -> None:
-        # The fixture's results.json has no "responses" key -> archived byte-for-byte.
-        original = (run_folder / "results.json").read_bytes()
+        # The fixture's accuracy_results.json has no "responses" key -> byte-for-byte.
+        original = (endpoints_run_folder / "accuracy" / "accuracy_results.json").read_bytes()
         dest = tmp_path / "out.tar.gz"
-        build_archive(run_folder, dest)
+        build_archive(endpoints_run_folder, dest)
         with tarfile.open(dest) as tar:
-            member = next(m for m in tar.getmembers() if m.name.endswith("/results.json"))
+            member = next(
+                m for m in tar.getmembers() if m.name.endswith("/accuracy/accuracy_results.json")
+            )
             fh = tar.extractfile(member)
             assert fh is not None
             assert fh.read() == original
@@ -254,43 +246,49 @@ class TestStartedAtToRunDate:
 
 @pytest.mark.unit
 class TestBuildArchiveRunDate:
-    def test_run_date_injected_into_metadata(self, run_folder: Path, tmp_path: Path) -> None:
-        (run_folder / "run_metadata.json").write_text(
+    def test_run_date_injected_into_metadata(
+        self, endpoints_run_folder: Path, tmp_path: Path
+    ) -> None:
+        (endpoints_run_folder / "run_metadata.json").write_text(
             json.dumps({"system_tps": 100.0, "run_date": None})
         )
         dest = tmp_path / "out.tar.gz"
-        build_archive(run_folder, dest, run_date="2026-03-15")
+        build_archive(endpoints_run_folder, dest, run_date="2026-03-15")
         meta = _read_member(dest, "run_metadata.json")
         assert meta["run_date"] == "2026-03-15"
         assert meta["system_tps"] == 100.0  # other fields preserved
 
-    def test_source_folder_not_mutated(self, run_folder: Path, tmp_path: Path) -> None:
-        meta_path = run_folder / "run_metadata.json"
+    def test_source_folder_not_mutated(self, endpoints_run_folder: Path, tmp_path: Path) -> None:
+        meta_path = endpoints_run_folder / "run_metadata.json"
         meta_path.write_text(json.dumps({"run_date": None}))
-        build_archive(run_folder, tmp_path / "out.tar.gz", run_date="2026-03-15")
+        build_archive(endpoints_run_folder, tmp_path / "out.tar.gz", run_date="2026-03-15")
         # The on-disk source file must be untouched.
         assert json.loads(meta_path.read_text())["run_date"] is None
 
-    def test_no_metadata_file_no_crash(self, run_folder: Path, tmp_path: Path) -> None:
-        # run_folder fixture has no run_metadata.json — should archive without error.
+    def test_no_metadata_file_no_crash(self, endpoints_run_folder: Path, tmp_path: Path) -> None:
+        # endpoints_run_folder fixture has no run_metadata.json — should archive without error.
         dest = tmp_path / "out.tar.gz"
-        build_archive(run_folder, dest, run_date="2026-03-15")
+        build_archive(endpoints_run_folder, dest, run_date="2026-03-15")
         with tarfile.open(dest) as tar:
             assert not any(n.endswith("run_metadata.json") for n in tar.getnames())
 
-    def test_no_run_date_leaves_metadata_untouched(self, run_folder: Path, tmp_path: Path) -> None:
-        (run_folder / "run_metadata.json").write_text(json.dumps({"run_date": "1999-01-01"}))
+    def test_no_run_date_leaves_metadata_untouched(
+        self, endpoints_run_folder: Path, tmp_path: Path
+    ) -> None:
+        (endpoints_run_folder / "run_metadata.json").write_text(
+            json.dumps({"run_date": "1999-01-01"})
+        )
         dest = tmp_path / "out.tar.gz"
-        build_archive(run_folder, dest)  # no run_date passed
+        build_archive(endpoints_run_folder, dest)  # no run_date passed
         meta = _read_member(dest, "run_metadata.json")
         assert meta["run_date"] == "1999-01-01"
 
     def test_all_files_still_present_after_injection(
-        self, run_folder: Path, tmp_path: Path
+        self, endpoints_run_folder: Path, tmp_path: Path
     ) -> None:
-        (run_folder / "run_metadata.json").write_text(json.dumps({"run_date": None}))
+        (endpoints_run_folder / "run_metadata.json").write_text(json.dumps({"run_date": None}))
         dest = tmp_path / "out.tar.gz"
-        build_archive(run_folder, dest, run_date="2026-03-15")
+        build_archive(endpoints_run_folder, dest, run_date="2026-03-15")
         with tarfile.open(dest) as tar:
             names = tar.getnames()
         for expected in ("system_desc.json", "config.yaml", "result_summary.json"):
@@ -358,3 +356,73 @@ class TestExtractTimestamps:
         started, finished = _extract_timestamps({"duration_ns": 0})
         after = datetime.now(tz=timezone.utc)
         assert before <= started == finished <= after
+
+
+@pytest.mark.unit
+class TestEndpointsLayoutOnly:
+    """Only the layout mlcommons/endpoints writes is accepted.
+
+    Performance metrics live in ``performance/result_summary.json`` and accuracy
+    scores in ``accuracy/accuracy_results.json``. Flat layouts placing either at the
+    top level are rejected. See docs/endpoints-cli/reference/run-folder-layout.md.
+    """
+
+    def test_nested_result_summary_is_found(self, endpoints_run_folder: Path) -> None:
+        payload = parse_run_folder(endpoints_run_folder)
+        assert payload["result_summary"]["n_samples_completed"] == 2000
+
+    def test_flat_result_summary_is_rejected(self, endpoints_run_folder: Path) -> None:
+        # Move it back to the top level: the legacy position is no longer honoured.
+        perf = endpoints_run_folder / "performance"
+        (perf / "result_summary.json").rename(endpoints_run_folder / "result_summary.json")
+        perf.rmdir()
+        with pytest.raises(RunFolderError, match="performance/result_summary.json"):
+            parse_run_folder(endpoints_run_folder)
+
+    def test_top_level_copy_does_not_satisfy_requirement(self, endpoints_run_folder: Path) -> None:
+        # A stale top-level copy must not stand in for the real one.
+        perf = endpoints_run_folder / "performance"
+        summary = (perf / "result_summary.json").read_bytes()
+        (endpoints_run_folder / "result_summary.json").write_bytes(summary)
+        (perf / "result_summary.json").unlink()
+        with pytest.raises(RunFolderError, match="performance/result_summary.json"):
+            parse_run_folder(endpoints_run_folder)
+
+    def test_missing_result_summary_raises(self, endpoints_run_folder: Path) -> None:
+        (endpoints_run_folder / "performance" / "result_summary.json").unlink()
+        with pytest.raises(RunFolderError, match="performance/result_summary.json"):
+            parse_run_folder(endpoints_run_folder)
+
+    def test_truncates_endpoints_accuracy_results(
+        self, endpoints_run_folder: Path, tmp_path: Path
+    ) -> None:
+        # endpoints names the file accuracy_results.json, not results.json.
+        big = {
+            "osl_tokenization_s": 0.012,
+            "accuracy_scores": [{"dataset_name": "accuracy", "score": {"rouge1": "38.7"}}],
+            "responses": [{"idx": i, "text": "lorem ipsum " * 10} for i in range(5000)],
+        }
+        acc = endpoints_run_folder / "accuracy" / "accuracy_results.json"
+        acc.write_text(json.dumps(big))
+
+        dest = tmp_path / "out.tar.gz"
+        build_archive(endpoints_run_folder, dest)
+
+        archived = _read_member(dest, "/accuracy/accuracy_results.json")
+        assert 0 < len(archived["responses"]) < 5000
+        # Scores survive truncation intact.
+        assert archived["accuracy_scores"][0]["score"] == {"rouge1": "38.7"}
+
+    def test_legacy_results_json_is_not_truncated(
+        self, endpoints_run_folder: Path, tmp_path: Path
+    ) -> None:
+        # Legacy support dropped: a stray results.json is archived verbatim.
+        big = {"responses": [{"idx": i, "text": "lorem ipsum " * 10} for i in range(5000)]}
+        legacy = endpoints_run_folder / "results.json"
+        legacy.write_text(json.dumps(big))
+
+        dest = tmp_path / "out.tar.gz"
+        build_archive(endpoints_run_folder, dest)
+
+        archived = _read_member(dest, "/results.json")
+        assert len(archived["responses"]) == 5000
