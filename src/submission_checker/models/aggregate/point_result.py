@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 __all__ = ["MIN_QUERY_COUNT", "PointResult"]
@@ -212,23 +213,60 @@ class PointResult(BaseModel):
             )
         )
 
-    def _check_tps_per_user(self, s: PointSummary, concurrency: int, path: Path | None) -> None:
-        """§9.1: tps_per_user must equal system_tps / concurrency.
+    def _check_tpot_p90(self, s: PointSummary, path: Path | None) -> None:
+        """§9.1: TPOT P90 must be present, finite, and strictly positive.
 
-        If the result log also stores a tps_per_user field, verify it matches the
-        derived value within _TPS_TOLERANCE. Always emits ok when consistent.
+        §9.1 words this as "the valid per-response TPOT distribution must be non-empty
+        with a finite, strictly positive P90". A checker reading only the summary can
+        never see the distribution, so what is actually verifiable is the *reported*
+        percentile — the message says so rather than implying the samples were audited.
         """
-        if concurrency <= 0:
+        p90 = s.tpot_p90_ms
+        if p90 is None:
             self._check_results.append(
                 err(
-                    "metric-consistency-tps-per-user",
-                    f"concurrency={concurrency} is not positive",
+                    "metric-consistency-tpot-p90",
+                    "No TPOT P90 reported (result_summary.json has no tpot.percentiles['90']);"
+                    " tps_per_user is defined as 1000 / tpot_p90_ms and has no other source",
                     path,
                     "#9.1",
                 )
             )
             return
-        derived = s.system_tps / concurrency
+        if not math.isfinite(p90) or p90 <= 0:
+            self._check_results.append(
+                err(
+                    "metric-consistency-tpot-p90",
+                    f"Reported TPOT P90 is {p90}, which is not finite and strictly positive",
+                    path,
+                    "#9.1",
+                )
+            )
+            return
+        self._check_results.append(
+            ok(
+                "metric-consistency-tpot-p90",
+                f"Reported TPOT P90 = {p90:.4f} ms (distribution itself is not verifiable"
+                " from the summary)",
+                path,
+                "#9.1",
+            )
+        )
+
+    def _check_tps_per_user(self, s: PointSummary, concurrency: int, path: Path | None) -> None:
+        """§9.1: ``tps_per_user = 1000 / tpot_p90_ms``.
+
+        v0.7 defined this as ``system_tps / concurrency``; v1.0 redefines it as the
+        per-user token rate implied by the P90 time per output token, which is a
+        latency the user actually experiences rather than an average over the batch.
+
+        If the result log stores a ``tps_per_user`` field, it is verified against the
+        derived value within ``_TPS_TOLERANCE``.
+        """
+        p90 = s.tpot_p90_ms
+        if p90 is None or not math.isfinite(p90) or p90 <= 0:
+            return  # already reported by metric-consistency-tpot-p90
+        derived = 1000.0 / p90
         stored = (s.model_extra or {}).get("tps_per_user")
         if stored is not None:
             rel_err = abs(float(stored) - derived) / max(abs(derived), 1e-9)
@@ -236,7 +274,7 @@ class PointResult(BaseModel):
                 self._check_results.append(
                     err(
                         "metric-consistency-tps-per-user",
-                        f"stored tps_per_user {stored:.4f} ≠ derived system_tps/concurrency"
+                        f"stored tps_per_user {stored:.4f} ≠ derived 1000 / tpot_p90_ms"
                         f" {derived:.4f} (rel err {rel_err:.1%})",
                         path,
                         "#9.1",
@@ -246,8 +284,7 @@ class PointResult(BaseModel):
         self._check_results.append(
             ok(
                 "metric-consistency-tps-per-user",
-                f"tps_per_user={derived:.4f} tok/s/user"
-                f" (system_tps={s.system_tps:.3f} / concurrency={concurrency})",
+                f"tps_per_user={derived:.4f} tok/s/user (1000 / tpot_p90_ms {p90:.4f})",
                 path,
                 "#9.1",
             )
@@ -262,5 +299,6 @@ class PointResult(BaseModel):
         self._check_sample_accounting(s, summary_path)
         self._check_output_tokens_nonnegative(s, summary_path)
         self._check_system_tps_derivable(s, summary_path)
+        self._check_tpot_p90(s, summary_path)
         self._check_tps_per_user(s, self.config.concurrency, summary_path)
         return self

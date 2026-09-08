@@ -23,7 +23,7 @@ src/endpoints_submission_cli/
 | `main.py` | Registers command groups. Entry point for the `endpoints-submission-cli` script. |
 | `api_client.py` | All HTTP calls to the PRISM API. Three timeout profiles. Token resolution. Error translation to `APIError`/`AuthError`. |
 | `run_parser.py` | Reads `system_info.json`, `config.yaml`, `result_summary.json` from a local folder. Derives `benchmark_version` from `git_sha` or `"unknown"`. Builds `.tar.gz` archive. |
-| `submission_builder.py` | Extracts run archives, groups by `(system_id, model)`, writes the submission folder tree (`systems/`, `pareto/`). Calls `submission_checker.models` for `compute_regions`. |
+| `submission_builder.py` | Extracts run archives, groups by `(system_id, model)`, writes the submission folder tree (`<org>/<submission_id>/{src,docs,results}`). Calls `submission_checker.models` for `compute_regions`. |
 | `github_ops.py` | Clones the submission repo, creates/updates branches, commits, pushes, creates/closes PRs. All via `gh` CLI subprocess calls. |
 | `formatters.py` | Rich table renderers for run and submission lists/details. JSON output with syntax highlighting. |
 | `exceptions.py` | `APIError`, `AuthError`, `ArchiveError`, `GitHubError`, `RunFolderError`, `SubmissionBuildError`, `SubmissionCheckError`. |
@@ -179,7 +179,7 @@ For each <system_id>/<model> in the fresh build:
             ├── Preserve from PR branch (manual edits survive)
             └── Seed from fresh build only for new points
 
-systems/   → preserve from PR branch (seed if absent)
+results/<system>/system_desc_id.json → preserve from PR branch (seed if absent)
 src/       → preserve from PR branch
 ```
 

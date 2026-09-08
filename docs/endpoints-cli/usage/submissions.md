@@ -87,6 +87,35 @@ endpoints-submission-cli submissions create \
 | `--embargo-date DATETIME` | no | Embargo datetime in ISO 8601 format, e.g. `2025-12-01T00:00:00`. |
 | `--dry-run` | no | Assemble folder and run checker, then print the folder layout and exit without creating the submission or PR. |
 
+**`cli_metadata.json`** is written inside the `<submission_id>/` directory of every bundle
+(not at the organisation level, which is shared across submissions). It records which CLI
+shaped the submission, generated from the submission record the command already received
+from the API plus the version of the CLI running now:
+
+```json
+{
+  "command": "add-run",
+  "cli_version": "1.0.0.0",
+  "most_recent_cli_used": "1.2.0.0",
+  "created_at": "2026-08-20T17:08:02.936070Z"
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `command` | the command that assembled this bundle |
+| `cli_version` | the CLI that **created** the submission (from the API record) |
+| `most_recent_cli_used` | the CLI that ran **this** command |
+| `created_at` | when the submission was created (from the API record) |
+
+On `create` the two versions are identical, because that command *is* the creating one.
+`add-run`, `remove-run`, `update` and `create-local` report the creating version from the
+API alongside their own, so a bundle built by 1.0.0.0 and later amended by 1.2.0.0 shows
+both. `created_at` is the submission's creation time, not the rebuild time.
+
+No extra API calls and no new API fields are involved — every value is already in hand by
+the time the marker is written.
+
 **Rollback behaviour:** if the GitHub PR step fails, the submission is automatically withdrawn (`DELETE /submissions/{id}`) to leave a clean state. If that rollback also fails, the orphaned submission ID is printed.
 
 **If only the PATCH step (step 9) fails** — the submission and PR both exist; the failure is a warning, not a fatal error. The PR URL can be linked manually.
@@ -143,22 +172,28 @@ PR: https://github.com/MLCommons-Systems/test-endpoints-submission-repo/pull/42
 **Submission folder structure** assembled by the CLI:
 
 ```
-<org>/
-├── systems/
-│   └── <system_id>.json              # hardware + software description
-└── pareto/
-    └── <system_id>/
-        └── <model>/
-            ├── points/
-            │   └── point_<N>.yaml    # one config per concurrency level
-            ├── results/
-            │   └── point_<N>/
-            │       ├── mlperf_endpoints_log_summary.json
-            │       ├── mlperf_endpoints_log_detail.json
-            │       └── system_desc.json
-            └── accuracy/
-                ├── accuracy.txt
-                └── accuracy_result.json
+<submitting_organization>/
+└── <submission_id>/                       # assigned by MLC; one per submission
+    ├── src/                               # SHARED across the whole submission
+    │   └── <implementation>/              # e.g. trtllm/, vllm/, sglang/
+    │       ├── README.md                  # how to build/launch the SUT, reproduce a point
+    │       └── <endpoint interface code, infra/cluster setup, client harness>
+    │
+    ├── docs/                              # SHARED across the whole submission
+    │   ├── calibration.adoc               # if weight transformations applied (§3.3)
+    │   ├── software_disclosure.md         # §8.4
+    │   └── <additional documentation>
+    │
+    └── results/
+        └── <system>/                      # e.g. H200-SXM-141GBx8_TRT/
+            ├── system_desc_id.json        # §8.2 — one per system, not per point
+            └── <benchmark_model>/         # e.g. deepseek-r1/, gpt-oss-120b/
+                └── r<N>/                  # one PARETO POINT per concurrency (r1, r32, …)
+                    ├── point.yaml             # §8.3
+                    ├── result_summary.json    # aggregate metrics (QPS, TPS, TTFT, TPOT)
+                    ├── accuracy_results.json  # §6.6
+                    ├── run_metadata.json      # framework/parallelism/precision
+                    └── server_configs/        # OPTIONAL, point-specific backend configs
 ```
 
 ---
@@ -243,10 +278,10 @@ The command runs the full rebuild pipeline:
 | `results/<point>/mlperf_endpoints_log_*.json` | Replaced from the fresh build. |
 | `results/<point>/system_desc.json` | Preserved from the PR branch. Seeded from the fresh build only for points not yet on the branch. |
 | Point dirs in `results/` removed from the fresh build | Deleted from the PR branch. |
-| `systems/` | Preserved from the PR branch. Seeded from the fresh build only if the directory does not yet exist on the branch. |
-| `src/`, `documentation/` | Preserved from the PR branch. |
+| `results/<system>/system_desc_id.json` | Preserved from the PR branch. Seeded from the fresh build only if it does not yet exist on the branch. |
+| `src/`, `docs/` | Preserved from the PR branch. |
 
-> **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the fresh build with reviewer-edited files (`system_desc.json`, `systems/`) preserved from the PR branch. Blob storage and the GitHub PR branch always contain identical content.
+> **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the fresh build with reviewer-edited files (`system_desc_id.json`) preserved from the PR branch. Blob storage and the GitHub PR branch always contain identical content.
 
 ### When only metadata flags are provided (DB-only PATCH)
 
@@ -351,10 +386,10 @@ endpoints-submission-cli submissions add-run \
 | `results/<point>/mlperf_endpoints_log_*.json` | Replaced from the fresh build. |
 | `results/<point>/system_desc.json` | Preserved from the PR branch. Seeded from the fresh build only for points not yet on the branch. |
 | Point dirs in `results/` removed from the fresh build | Deleted from the PR branch. |
-| `systems/` | Preserved from the PR branch. Seeded from the fresh build only if the directory does not yet exist on the branch. |
-| `src/`, `documentation/` | Preserved from the PR branch. |
+| `results/<system>/system_desc_id.json` | Preserved from the PR branch. Seeded from the fresh build only if it does not yet exist on the branch. |
+| `src/`, `docs/` | Preserved from the PR branch. |
 
-> **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the fresh build with reviewer-edited files (`system_desc.json`, `systems/`) preserved from the PR branch. Blob storage and the GitHub PR branch always contain identical content.
+> **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the fresh build with reviewer-edited files (`system_desc_id.json`) preserved from the PR branch. Blob storage and the GitHub PR branch always contain identical content.
 
 **Example:**
 
@@ -407,10 +442,10 @@ If no runs remain after removal, steps 3–7 are skipped and a warning is printe
 | `results/<point>/mlperf_endpoints_log_*.json` | Replaced from the fresh build. |
 | `results/<point>/system_desc.json` | Preserved from the PR branch. Seeded from the fresh build only for points not yet on the branch. |
 | Point dirs in `results/` for the removed run | Deleted from the PR branch. |
-| `systems/` | Preserved from the PR branch. Seeded from the fresh build only if the directory does not yet exist on the branch. |
-| `src/`, `documentation/` | Preserved from the PR branch. |
+| `results/<system>/system_desc_id.json` | Preserved from the PR branch. Seeded from the fresh build only if it does not yet exist on the branch. |
+| `src/`, `docs/` | Preserved from the PR branch. |
 
-> **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the fresh build with reviewer-edited files (`system_desc.json`, `systems/`) preserved from the PR branch. Blob storage and the GitHub PR branch always contain identical content.
+> **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the fresh build with reviewer-edited files (`system_desc_id.json`) preserved from the PR branch. Blob storage and the GitHub PR branch always contain identical content.
 
 **Example:**
 

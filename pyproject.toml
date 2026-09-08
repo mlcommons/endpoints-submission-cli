@@ -55,6 +55,11 @@ packages = [
 [tool.setuptools.package-dir]
 "" = "src"
 
+[tool.setuptools.package-data]
+# The published seed sets (§4.6) ship as data so a newly published set can be
+# supplied without a checker release; see submission_checker.seed_sets.
+submission_checker = ["data/*.yaml"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--cov=src --cov-report=term-missing -v"

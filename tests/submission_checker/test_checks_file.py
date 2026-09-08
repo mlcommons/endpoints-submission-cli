@@ -13,8 +13,6 @@ from submission_checker.models import (
 )
 from submission_checker.models.file.point_config import WarmupSpec
 
-from .conftest import _REGIONS
-
 _RUNTIME = {"scheduler_random_seed": 42, "dataloader_random_seed": 42}
 
 
@@ -97,59 +95,21 @@ class TestStreamingValidator:
 
 
 @pytest.mark.unit
-class TestConcurrencyInRangeValidator:
-    def test_out_of_range(self, tmp_path):
-        config = PointConfig.model_validate(
-            {
-                "concurrency": 9999,
-                "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME},
-            },
-            context={"yaml_path": tmp_path / "point_9999.yaml", "regions": _REGIONS},
-        )
-        errors = [
-            r
-            for r in config._check_results
-            if r.rule == "concurrency-in-range" and r.severity == Severity.ERROR
-        ]
-        assert errors
-
-    def test_in_range(self, tmp_path):
-        config = PointConfig.model_validate(
-            {
-                "concurrency": 64,
-                "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME},
-            },
-            context={"yaml_path": tmp_path / "point_64.yaml", "regions": _REGIONS},
-        )
-        assert all(
-            r.severity != Severity.ERROR
-            for r in config._check_results
-            if r.rule == "concurrency-in-range"
-        )
-
-    def test_no_regions_skips_check(self, tmp_path):
-        config = PointConfig.model_validate(
-            {
-                "concurrency": 9999,
-                "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME},
-            },
-            context={"yaml_path": tmp_path / "point_9999.yaml"},
-        )
-        # No regions in context — concurrency-in-range should not be present
-        rules = {r.rule for r in config._check_results}
-        assert "concurrency-in-range" not in rules
-
-
-@pytest.mark.unit
 class TestRegionDeclaredValidator:
+    """PointConfig checks the region *vocabulary* only.
+
+    Whether a declared region matches the concurrency depends on C_min, derived from
+    the whole curve (§5.4), so that lives in RegionPlacement — see
+    test_checks_aggregate.py::TestRegionPlacement.
+    """
+
     def test_absent_region_no_check(self, tmp_path):
-        """No region-declared result when region field is omitted."""
         config = PointConfig.model_validate(
             {
                 "concurrency": 64,
                 "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME},
             },
-            context={"yaml_path": tmp_path / "point_64.yaml", "regions": _REGIONS},
+            context={"yaml_path": tmp_path / "point_64.yaml"},
         )
         assert not any(r.rule == "region-declared" for r in config._check_results)
 
@@ -168,63 +128,37 @@ class TestRegionDeclaredValidator:
             for r in config._check_results
         )
 
-    def test_valid_region_matches_computed(self, tmp_path):
-        """Declared region matching the computed region produces an ok result."""
-        # concurrency=64 → med_throughput for M=1024
+    def test_v07_throughput_names_are_rejected(self, tmp_path):
+        """v0.7's *_throughput names are gone — §5.5 and §9.1 both say *_concurrency."""
         config = PointConfig.model_validate(
             {
                 "concurrency": 64,
                 "region": "med_throughput",
                 "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME},
             },
-            context={"yaml_path": tmp_path / "point_64.yaml", "regions": _REGIONS},
+            context={"yaml_path": tmp_path / "point_64.yaml"},
         )
         assert any(
-            r.rule == "region-declared" and r.severity != Severity.ERROR
+            r.rule == "region-declared" and r.severity == Severity.ERROR
             for r in config._check_results
         )
 
-    def test_region_mismatch_warns(self, tmp_path):
-        """Declared region that doesn't match the computed region produces a warning."""
-        # concurrency=64 → med_throughput, but we declare low_latency
+    @pytest.mark.parametrize(
+        "region",
+        [
+            "low_latency",
+            "low_concurrency",
+            "med_concurrency",
+            "high_concurrency",
+            "margin",
+            "submitters_choice",
+        ],
+    )
+    def test_valid_region_values_accepted(self, tmp_path, region):
         config = PointConfig.model_validate(
             {
                 "concurrency": 64,
-                "region": "low_latency",
-                "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME},
-            },
-            context={"yaml_path": tmp_path / "point_64.yaml", "regions": _REGIONS},
-        )
-        assert any(
-            r.rule == "region-declared" and r.severity == Severity.WARNING
-            for r in config._check_results
-        )
-
-    def test_submitters_choice_no_cross_check(self, tmp_path):
-        """submitters_choice is valid for any concurrency — no cross-check performed."""
-        config = PointConfig.model_validate(
-            {
-                "concurrency": 64,
-                "region": "submitters_choice",
-                "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME},
-            },
-            context={"yaml_path": tmp_path / "point_64.yaml", "regions": _REGIONS},
-        )
-        assert any(
-            r.rule == "region-declared" and r.severity != Severity.ERROR
-            for r in config._check_results
-        )
-        assert not any(
-            r.rule == "region-declared" and r.severity == Severity.WARNING
-            for r in config._check_results
-        )
-
-    def test_valid_region_no_regions_context(self, tmp_path):
-        """Valid region string without regions context emits ok without cross-check."""
-        config = PointConfig.model_validate(
-            {
-                "concurrency": 64,
-                "region": "high_throughput",
+                "region": region,
                 "runtime_settings": {"load_pattern": "concurrency", "runtime": _RUNTIME},
             },
             context={"yaml_path": tmp_path / "point_64.yaml"},

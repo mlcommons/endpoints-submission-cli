@@ -44,6 +44,7 @@ endpoints-submission-cli runs create \
   [--token TOKEN] \
   [--expires-at DATETIME] \
   [--pinned] \
+  [--test] \
   [--dry-run]
 ```
 
@@ -53,7 +54,16 @@ endpoints-submission-cli runs create \
 | `--token TOKEN` | no | API key. |
 | `--expires-at DATETIME` | no | Expiry datetime in ISO 8601 format (e.g. `2026-01-01T00:00:00`). Defaults to server policy when omitted. |
 | `--pinned` | no | Pin the run immediately to prevent automatic expiry. |
+| `--test` | no | Mark the run as a test run so it is excluded from published reporting. Fixed at creation — there is no API to change it later. |
 | `--dry-run` | no | Print the parsed API payload as JSON and exit without calling the API. |
+
+A run flagged `--test` shows as `Test Run │ Yes` in `runs get`. It is **not** visible in
+`runs list`: that view is served by the API's `RunSummary` schema, which does not carry
+`is_test`, so the test marker stays dormant there until the API exposes it.
+
+`submissions create-local --test` sets the same flag on every run it registers, so a test
+submission never leaves untagged runs behind. `submissions create` takes already-registered
+runs, so flag those at `runs create` time.
 
 **Run folder layout** — the folder must contain:
 
@@ -61,9 +71,16 @@ endpoints-submission-cli runs create \
 <run-folder>/
 ├── system_info.json        # Hardware and software description (required)
 ├── config.yaml             # Benchmark configuration (required)
+├── point.yaml              # §8.3 Pareto-point disclosure (required)
 ├── result_summary.json     # Aggregated performance metrics (required)
 └── runtime_settings.json   # Inference server settings (optional)
 ```
+
+`config.yaml` and `point.yaml` are **both required** and serve different purposes:
+`config.yaml` is what the harness was told to do, `point.yaml` is the §8.3 disclosure the
+Submission Checker validates (seeds, warmup counts, data source, region). `point.yaml` is
+copied into the bundle verbatim — the CLI does not derive it from `config.yaml` and does
+not fill in missing fields, so whatever the harness emits is what gets submitted.
 
 **Rollback behaviour:** if the archive upload fails after the run record has been created, the CLI automatically deletes the run record to leave a clean state. If that delete also fails, the orphaned run ID is printed so it can be cleaned up manually.
 
@@ -83,6 +100,9 @@ endpoints-submission-cli runs create \
 
 # Register and pin immediately
 endpoints-submission-cli runs create --path ./results/llama3_h100_c4 --pinned
+
+# Register as a test run, excluded from published reporting
+endpoints-submission-cli runs create --path ./results/llama3_h100_c4 --test
 ```
 
 **Output:**
@@ -146,7 +166,9 @@ endpoints-submission-cli runs get \
 Archive saved to ./downloads/d5d9873e-5eca-4f8d-a487-4be1cb8b440c.tar.gz
 ```
 
-In `runs list`, a run flagged `is_test` is marked with a yellow `*` before the model name, with a `* = test run` legend under the table.
+`submissions get` marks a flagged run with a yellow `*` before the model name in its embedded
+runs table, with a `* = test run` legend beneath. `runs list` cannot show this yet — its
+`RunSummary` payload omits `is_test`.
 
 ---
 
