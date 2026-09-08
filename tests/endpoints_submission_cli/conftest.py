@@ -198,6 +198,40 @@ _RESULT_SUMMARY = {
 }
 
 
+# §8.3 Pareto-point disclosure. Supplied by the harness, not derived from _CONFIG:
+# a config carries runtime knobs, while point.yaml carries the disclosure the checker
+# validates (seeds, warmup counts, data source). Validated against the checker's
+# PointConfig, so the fixture represents a bundle that actually passes.
+_POINT = {
+    "concurrency": 4,
+    "region": "low_latency",
+    "dataset": "cnn_dailymail",
+    "runtime_settings": {
+        "load_pattern": "concurrency",
+        "stream_all_chunks": True,
+        "min_duration_ms": 600000,
+        "min_sample_count": 2000,
+        "runtime": {
+            "min_duration_ms": 600000,
+            "max_duration_ms": 3600000,
+            "n_samples_to_issue": 2000,
+            "scheduler_random_seed": 42,
+            "dataloader_random_seed": 42,
+        },
+        "warmup": {"enabled": False, "salt": False},
+    },
+    "warmup": {
+        "enabled": False,
+        "duration_s": 0,
+        "requests_issued": 0,
+        "requests_completed": 0,
+        "data_source": "n/a",
+        "concurrency": 1,
+        "initialization_steps": [],
+    },
+}
+
+
 @pytest.fixture
 def run_folder(tmp_path: Path) -> Path:
     """Create a minimal valid run folder in a temp directory."""
@@ -207,6 +241,7 @@ def run_folder(tmp_path: Path) -> Path:
     (folder / "mlperf-system-info-single-node-0.json").write_text(json.dumps(_HW_INFO))
     (folder / "serving_config.json").write_text(json.dumps(_SERVING_CONFIG))
     (folder / "config.yaml").write_text(yaml.dump(_CONFIG))
+    (folder / "point.yaml").write_text(yaml.dump(_POINT))
     (folder / "result_summary.json").write_text(json.dumps(_RESULT_SUMMARY))
     (folder / "results.json").write_text(json.dumps(_RESULTS))
     # Standardized submissions must ship src/<implementation>/ with a README.

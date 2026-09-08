@@ -145,6 +145,7 @@ class TestBuildSubmissionFolder:
         folder = tmp_path / "bad_run"
         folder.mkdir()
         (folder / "config.yaml").write_text(yaml.dump({"name": "x"}))
+        (folder / "point.yaml").write_text("concurrency: 4\n")
         (folder / "result_summary.json").write_text("{}")
         archive = tmp_path / "bad.tar.gz"
         with tarfile.open(archive, "w:gz") as tar:
@@ -161,6 +162,7 @@ class TestBuildSubmissionFolder:
         bad_desc = {"system_category": "datacenter"}
         (folder / "system_desc.json").write_text(json.dumps(bad_desc))
         (folder / "config.yaml").write_text(yaml.dump({"name": "x"}))
+        (folder / "point.yaml").write_text("concurrency: 4\n")
         (folder / "result_summary.json").write_text("{}")
         archive = tmp_path / "bad.tar.gz"
         with tarfile.open(archive, "w:gz") as tar:
@@ -196,6 +198,10 @@ class TestBuildSubmissionFolder:
 
         cfg["settings"]["load_pattern"]["target_concurrency"] = 16
         (second_folder / "config.yaml").write_text(yaml.dump(cfg))
+        # point.yaml is supplied per run now, so the second point declares its own.
+        point = yaml.safe_load((run_folder / "point.yaml").read_text())
+        point["concurrency"] = 16
+        (second_folder / "point.yaml").write_text(yaml.dump(point))
         (second_folder / "result_summary.json").write_text(_json.dumps(rs))
 
         second_archive = tmp_path / "run2.tar.gz"
@@ -485,246 +491,112 @@ class TestTpsUtilizationInjection:
 
 
 @pytest.mark.unit
-class TestPointYamlFromConfig:
-    """Tests that point YAML fields are sourced from config.yaml."""
+class TestPointYamlIsCopiedNotDerived:
+    """point.yaml is supplied by the submitter and copied through untouched (issue #72).
 
-    def _make_archive(
-        self, run_folder: Path, cfg_patch: dict, tmp_path: Path, name: str = "run"
-    ) -> Path:
+    It used to be derived from config.yaml, which silently produced nulls for any §8.3
+    field a harness did not put in its config — the checker then rejected the bundle.
+    """
+
+    def _archive(self, run_folder: Path, tmp_path: Path, name: str = "run") -> Path:
         import shutil
 
         folder = tmp_path / name
         shutil.copytree(run_folder, folder)
-        cfg = yaml.safe_load((folder / "config.yaml").read_text())
-        # Deep-merge cfg_patch into cfg
-        for k, v in cfg_patch.items():
-            if isinstance(v, dict) and isinstance(cfg.get(k), dict):
-                cfg[k].update(v)
-            else:
-                cfg[k] = v
-        (folder / "config.yaml").write_text(yaml.dump(cfg))
         archive = tmp_path / f"{name}.tar.gz"
         with tarfile.open(archive, "w:gz") as tar:
             tar.add(folder, arcname=name)
         return archive
 
-    @pytest.mark.parametrize("value", [True, False])
-    def test_stream_all_chunks_written_from_config(
-        self, value: bool, run_folder: Path, tmp_path: Path
-    ) -> None:
-        """stream_all_chunks is read from config.yaml and written as-is; checker validates compliance."""
-        archive = self._make_archive(
-            run_folder,
-            {"settings": {"client": {"stream_all_chunks": value}}},
-            tmp_path,
-        )
-        sub_dir = build_submission_folder(
-            [("run-001", archive)], "standardized", "available", tmp_path / f"sub_{value}"
-        )
-        point_yaml = next(sub_dir.rglob("point.yaml"))
-        data = yaml.safe_load(point_yaml.read_text())
-        assert data["runtime_settings"]["stream_all_chunks"] is value
-
-    def test_min_duration_ms_from_config(self, run_folder: Path, tmp_path: Path) -> None:
-        """min_duration_ms is read from config.yaml settings.runtime."""
-        archive = self._make_archive(
-            run_folder,
-            {"settings": {"runtime": {"min_duration_ms": 1_200_000}}},
-            tmp_path,
-        )
+    def test_copied_byte_for_byte(self, run_folder: Path, tmp_path: Path) -> None:
+        original = (run_folder / "point.yaml").read_bytes()
+        archive = self._archive(run_folder, tmp_path)
         sub_dir = build_submission_folder(
             [("run-001", archive)], "standardized", "available", tmp_path / "sub"
         )
-        point_yaml = next(sub_dir.rglob("point.yaml"))
-        data = yaml.safe_load(point_yaml.read_text())
-        assert data["runtime_settings"]["min_duration_ms"] == 1_200_000
+        assert next(sub_dir.rglob("point.yaml")).read_bytes() == original
 
-    def test_min_duration_ms_null_when_absent(self, run_folder: Path, tmp_path: Path) -> None:
-        """min_duration_ms is null in point YAML when absent from config.yaml."""
-        folder = tmp_path / "run_nodur"
+    def test_unknown_keys_survive(self, run_folder: Path, tmp_path: Path) -> None:
+        """The builder must not filter the disclosure down to fields it knows about."""
         import shutil
 
+        folder = tmp_path / "extra"
         shutil.copytree(run_folder, folder)
-        cfg = yaml.safe_load((folder / "config.yaml").read_text())
-        cfg["settings"]["runtime"].pop("min_duration_ms", None)
-        (folder / "config.yaml").write_text(yaml.dump(cfg))
-        archive = tmp_path / "run_nodur.tar.gz"
+        point = yaml.safe_load((folder / "point.yaml").read_text())
+        point["submitter_specific_note"] = "keep me"
+        point["runtime_settings"]["future_field"] = 123
+        (folder / "point.yaml").write_text(yaml.dump(point))
+        archive = tmp_path / "extra.tar.gz"
         with tarfile.open(archive, "w:gz") as tar:
-            tar.add(folder, arcname="run_nodur")
+            tar.add(folder, arcname="extra")
+
         sub_dir = build_submission_folder(
             [("run-001", archive)], "standardized", "available", tmp_path / "sub"
         )
-        point_yaml = next(sub_dir.rglob("point.yaml"))
-        data = yaml.safe_load(point_yaml.read_text())
-        assert data["runtime_settings"]["min_duration_ms"] is None
+        out = yaml.safe_load(next(sub_dir.rglob("point.yaml")).read_text())
+        assert out["submitter_specific_note"] == "keep me"
+        assert out["runtime_settings"]["future_field"] == 123
 
-    def test_min_sample_count_from_n_samples_to_issue(
-        self, run_folder: Path, tmp_path: Path
-    ) -> None:
-        """min_sample_count in point YAML comes from n_samples_to_issue in config.yaml."""
-        sub_dir = build_submission_folder(
-            [
-                (
-                    "run-001",
-                    self._make_archive(
-                        run_folder,
-                        {"settings": {"runtime": {"n_samples_to_issue": 5000}}},
-                        tmp_path,
-                    ),
-                )
-            ],
-            "standardized",
-            "available",
-            tmp_path / "sub",
-        )
-        point_yaml = next(sub_dir.rglob("point.yaml"))
-        data = yaml.safe_load(point_yaml.read_text())
-        assert data["runtime_settings"]["min_sample_count"] == 5000
-
-    def test_min_sample_count_absent_when_not_in_config(
-        self, run_folder: Path, tmp_path: Path
-    ) -> None:
-        """min_sample_count is omitted from point YAML when n_samples_to_issue absent."""
-        folder = tmp_path / "run_nosamples"
+    def test_config_changes_do_not_alter_point_yaml(self, run_folder: Path, tmp_path: Path) -> None:
+        """Proof the value is no longer sourced from config.yaml."""
         import shutil
 
+        folder = tmp_path / "divergent"
         shutil.copytree(run_folder, folder)
         cfg = yaml.safe_load((folder / "config.yaml").read_text())
-        cfg["settings"]["runtime"].pop("n_samples_to_issue", None)
+        cfg["settings"]["client"]["stream_all_chunks"] = False
+        cfg["settings"]["runtime"]["min_duration_ms"] = 999
         (folder / "config.yaml").write_text(yaml.dump(cfg))
-        archive = tmp_path / "run_nosamples.tar.gz"
+        archive = tmp_path / "divergent.tar.gz"
         with tarfile.open(archive, "w:gz") as tar:
-            tar.add(folder, arcname="run_nosamples")
+            tar.add(folder, arcname="divergent")
+
         sub_dir = build_submission_folder(
             [("run-001", archive)], "standardized", "available", tmp_path / "sub"
         )
-        point_yaml = next(sub_dir.rglob("point.yaml"))
-        data = yaml.safe_load(point_yaml.read_text())
-        assert "min_sample_count" not in data["runtime_settings"]
+        out = yaml.safe_load(next(sub_dir.rglob("point.yaml")).read_text())
+        # point.yaml still reports its own values, untouched by the config edits.
+        assert out["runtime_settings"]["stream_all_chunks"] is True
+        assert out["runtime_settings"]["min_duration_ms"] == 600000
 
-    def test_warmup_block_present_in_point_yaml(self, run_archive: Path, tmp_path: Path) -> None:
-        """point.yaml always includes a warmup block (§8.3 §6.3.3)."""
-        sub_dir = build_submission_folder(
-            [("run-001", run_archive)], "standardized", "available", tmp_path
-        )
-        point_yaml = next(sub_dir.rglob("point.yaml"))
-        data = yaml.safe_load(point_yaml.read_text())
-        assert "warmup" in data
-        warmup = data["warmup"]
-        # All §6.3.3 fields must be present (may be null)
-        for field in (
-            "enabled",
-            "duration_s",
-            "requests_issued",
-            "requests_completed",
-            "data_source",
-            "concurrency",
-            "initialization_steps",
-        ):
-            assert field in warmup, f"warmup.{field} missing from point YAML"
+    def test_missing_point_yaml_raises(self, run_folder: Path, tmp_path: Path) -> None:
+        import shutil
 
-    def test_warmup_enabled_from_config(self, run_folder: Path, tmp_path: Path) -> None:
-        """warmup.enabled is read from config.yaml settings.warmup.enabled."""
-        archive = self._make_archive(
-            run_folder,
-            {"settings": {"warmup": {"enabled": True}}},
-            tmp_path,
-        )
-        sub_dir = build_submission_folder(
-            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
-        )
-        point_yaml = next(sub_dir.rglob("point.yaml"))
-        data = yaml.safe_load(point_yaml.read_text())
-        assert data["warmup"]["enabled"] is True
+        folder = tmp_path / "nopoint"
+        shutil.copytree(run_folder, folder)
+        (folder / "point.yaml").unlink()
+        archive = tmp_path / "nopoint.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname="nopoint")
 
-    def test_runtime_seeds_from_config(self, run_folder: Path, tmp_path: Path) -> None:
-        """runtime_settings.runtime carries the seeds from config.yaml settings.runtime."""
-        archive = self._make_archive(
-            run_folder,
-            {"settings": {"runtime": {"scheduler_random_seed": 42, "dataloader_random_seed": 42}}},
-            tmp_path,
-        )
-        sub_dir = build_submission_folder(
-            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
-        )
-        data = yaml.safe_load(next(sub_dir.rglob("point.yaml")).read_text())
-        runtime = data["runtime_settings"]["runtime"]
-        assert runtime["scheduler_random_seed"] == 42
-        assert runtime["dataloader_random_seed"] == 42
+        with pytest.raises(SubmissionBuildError, match="missing point.yaml"):
+            build_submission_folder(
+                [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+            )
 
-    def test_runtime_block_mirrors_config_runtime(self, run_folder: Path, tmp_path: Path) -> None:
-        """The whole settings.runtime block is dropped into runtime_settings.runtime."""
-        archive = self._make_archive(
-            run_folder,
-            {
-                "settings": {
-                    "runtime": {
-                        "scheduler_random_seed": 42,
-                        "dataloader_random_seed": 42,
-                        "max_duration_ms": 3_600_000,
-                        "n_samples_to_issue": 2000,
-                    }
-                }
-            },
-            tmp_path,
-        )
-        sub_dir = build_submission_folder(
-            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
-        )
-        data = yaml.safe_load(next(sub_dir.rglob("point.yaml")).read_text())
-        runtime = data["runtime_settings"]["runtime"]
-        # Every source key is carried through verbatim, not just the seeds.
-        assert runtime == {
-            "scheduler_random_seed": 42,
-            "dataloader_random_seed": 42,
-            "max_duration_ms": 3_600_000,
-            "n_samples_to_issue": 2000,
-        }
-
-    def test_warmup_salt_from_config(self, run_folder: Path, tmp_path: Path) -> None:
-        """runtime_settings.warmup.salt is sourced from config.yaml settings.warmup.salt."""
-        archive = self._make_archive(
-            run_folder,
-            {"settings": {"warmup": {"salt": True}}},
-            tmp_path,
-        )
-        sub_dir = build_submission_folder(
-            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
-        )
-        data = yaml.safe_load(next(sub_dir.rglob("point.yaml")).read_text())
-        assert data["runtime_settings"]["warmup"]["salt"] is True
-
-    def test_built_runtime_settings_validate_against_checker(
+    def test_accuracy_only_point_uses_its_own_point_yaml(
         self, run_folder: Path, tmp_path: Path
     ) -> None:
-        """Regression: built runtime_settings must satisfy the checker's RuntimeSettings.
+        """An accuracy-only concurrency still supplies the point, so its file is used."""
+        import shutil
 
-        Previously the builder omitted runtime_settings.runtime, which the checker
-        requires (no default), so a freshly built submission failed to even parse.
-        """
-        from submission_checker.models.file.point_config import RuntimeSettings
+        folder = tmp_path / "acc"
+        shutil.copytree(run_folder, folder)
+        cfg = yaml.safe_load((folder / "config.yaml").read_text())
+        cfg["datasets"][0]["type"] = "accuracy"
+        (folder / "config.yaml").write_text(yaml.dump(cfg))
+        point = yaml.safe_load((folder / "point.yaml").read_text())
+        point["marker"] = "from-accuracy-run"
+        (folder / "point.yaml").write_text(yaml.dump(point))
+        archive = tmp_path / "acc.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname="acc")
 
-        archive = self._make_archive(
-            run_folder,
-            {
-                "settings": {
-                    "runtime": {
-                        "min_duration_ms": 600_000,
-                        "scheduler_random_seed": 42,
-                        "dataloader_random_seed": 42,
-                    }
-                }
-            },
-            tmp_path,
-        )
         sub_dir = build_submission_folder(
             [("run-001", archive)], "standardized", "available", tmp_path / "sub"
         )
-        data = yaml.safe_load(next(sub_dir.rglob("point.yaml")).read_text())
-        # Must not raise — runtime_settings.runtime is present and well-formed.
-        rs = RuntimeSettings.model_validate(data["runtime_settings"])
-        assert rs.runtime.scheduler_random_seed == 42
-        assert rs.runtime.dataloader_random_seed == 42
+        out = yaml.safe_load(next(sub_dir.rglob("point.yaml")).read_text())
+        assert out["marker"] == "from-accuracy-run"
 
 
 @pytest.mark.unit

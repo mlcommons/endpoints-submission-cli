@@ -23,6 +23,7 @@ from submission_checker.models import (
     PercentileStats,
     PointConfig,
     PointSummary,
+    Regions,
     RuntimeSettings,
     Severity,
     SystemDescription,
@@ -54,8 +55,11 @@ _NODE_TYPE = {
     "filesystem": "ext4",
 }
 
-_M = 1024
-_REGIONS = compute_regions(_M)
+_C_MAX = 1024
+#: C_min is derived from a curve's own points (§5.4); 32 reproduces the v0.7 fixed
+#: boundaries (33–42 / 43–131 / 132–1024), so the layout-coupled fixtures stay valid.
+_C_MIN = 32
+_REGIONS = compute_regions(_C_MAX, _C_MIN)
 
 # ---------------------------------------------------------------------------
 # Builder helpers
@@ -95,10 +99,14 @@ def _system_desc(
 
 
 def _config(
-    concurrency: int = 64, stream: bool = True, lp_type: str = "concurrency"
+    concurrency: int = 64,
+    stream: bool = True,
+    lp_type: str = "concurrency",
+    region: str | None = None,
 ) -> PointConfig:
     return PointConfig(
         concurrency=concurrency,
+        region=region,
         dataset="mlperf-perf-dataset-v1",
         runtime_settings=RuntimeSettings(
             load_pattern=lp_type,
@@ -138,6 +146,7 @@ def _model_ctx(
     system_desc: SystemDescription | None = None,
     model_name: str = "llama3-70b",
     accuracy_result: AccuracyResult | None = None,
+    regions: Regions | None = _REGIONS,
 ) -> ModelContext:
     model_dir = tmp_path / model_name
     model_dir.mkdir(exist_ok=True)
@@ -147,7 +156,7 @@ def _model_ctx(
         system_id="test-sys",
         system_desc=system_desc or _system_desc(),
         model_dir=model_dir,
-        regions=_REGIONS,
+        regions=regions,
         points_dir=model_dir / "points",
         all_point_count=all_point_count,
         valid_points=valid_points or [],
