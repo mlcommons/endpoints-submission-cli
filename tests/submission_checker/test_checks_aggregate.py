@@ -13,7 +13,6 @@ from submission_checker.models import (
     PointConfig,
     PointResult,
     PointSummary,
-    RegionPlacement,
     RuntimeSettings,
     Severity,
 )
@@ -414,140 +413,32 @@ class TestRunCountValidator:
         )
 
 
-_COVERAGE_RULES = {
-    "low-concurrency-coverage",
-    "med-concurrency-coverage",
-    "high-concurrency-coverage",
-}
-
-
 @pytest.mark.unit
 class TestRegionalCoverageValidator:
     def test_no_runs_all_regions_missing(self, tmp_path):
         ctx = _model_ctx(tmp_path, valid_points=[])
+        coverage_rules = {
+            "low-latency-coverage",
+            "low-throughput-coverage",
+            "med-throughput-coverage",
+            "high-throughput-coverage",
+        }
         errors = {
             r.rule
             for r in ctx._check_results
-            if r.severity == Severity.ERROR and r.rule in _COVERAGE_RULES
+            if r.severity == Severity.ERROR and r.rule in coverage_rules
         }
-        assert errors == _COVERAGE_RULES
+        assert errors == coverage_rules
 
-    def test_no_runs_also_fails_ultra_low_coverage(self, tmp_path):
-        ctx = _model_ctx(tmp_path, valid_points=[])
-        assert any(
-            r.rule == "ultra-low-concurrency-coverage" and r.severity == Severity.ERROR
-            for r in ctx._check_results
-        )
-
-    def test_ultra_low_covered_by_point_at_or_below_32(self, tmp_path):
-        yaml_path = tmp_path / "llama3-70b" / "r16" / "point.yaml"
-        ctx = _model_ctx(tmp_path, valid_points=[(yaml_path, _config(concurrency=16))])
-        assert all(
-            r.severity != Severity.ERROR
-            for r in ctx._check_results
-            if r.rule == "ultra-low-concurrency-coverage"
-        )
-
-    def test_ultra_low_missing_when_lowest_point_exceeds_32(self, tmp_path):
-        """Checked against the fixed 1–32 band, not the derived low_latency region."""
-        yaml_path = tmp_path / "llama3-70b" / "r64" / "point.yaml"
-        ctx = _model_ctx(tmp_path, valid_points=[(yaml_path, _config(concurrency=64))])
-        assert any(
-            r.rule == "ultra-low-concurrency-coverage" and r.severity == Severity.ERROR
-            for r in ctx._check_results
-        )
-
-    def test_all_three_regions_covered(self, tmp_path):
-        """_REGIONS is (C_max=1024, C_min=32): low 33–42, med 43–131, high 132–1024."""
-        valid_points = [
-            (tmp_path / f"r{c}" / "point.yaml", _config(concurrency=c)) for c in (16, 40, 100, 512)
-        ]
+    def test_concurrency_in_low_latency(self, tmp_path):
+        yaml_path = tmp_path / "llama3-70b" / "points" / "point_16.yaml"
+        valid_points = [(yaml_path, _config(concurrency=16))]
         ctx = _model_ctx(tmp_path, valid_points=valid_points)
-        assert not [
-            r
-            for r in ctx._check_results
-            if r.severity == Severity.ERROR and r.rule in _COVERAGE_RULES
-        ]
-
-    def test_margin_point_does_not_cover_high_concurrency(self, tmp_path):
-        """§5.4: "the margin does not affect the required point distribution"."""
-        valid_points = [
-            (tmp_path / f"r{c}" / "point.yaml", _config(concurrency=c)) for c in (16, 40, 100, 1100)
-        ]
-        ctx = _model_ctx(tmp_path, valid_points=valid_points)
-        assert any(
-            r.rule == "high-concurrency-coverage" and r.severity == Severity.ERROR
-            for r in ctx._check_results
-        )
-
-    def test_coverage_skipped_without_a_c_min_basis(self, tmp_path):
-        """regions=None means no point parsed; region-basis reports that separately."""
-        ctx = _model_ctx(tmp_path, valid_points=[], regions=None)
-        assert not [r for r in ctx._check_results if r.rule in _COVERAGE_RULES]
-
-
-@pytest.mark.unit
-class TestRegionPlacement:
-    """The region-dependent point rules, which need the curve's derived C_min."""
-
-    def _placement(self, tmp_path, concurrency, region=None, regions=_REGIONS):
-        return RegionPlacement(
-            config=_config(concurrency=concurrency, region=region),
-            regions=regions,
-            yaml_path=tmp_path / f"r{concurrency}" / "point.yaml",
-        )
-
-    def test_out_of_range_errors(self, tmp_path):
-        placement = self._placement(tmp_path, 9999)
-        assert any(
-            r.rule == "concurrency-in-range" and r.severity == Severity.ERROR
-            for r in placement._check_results
-        )
-
-    def test_in_range_passes(self, tmp_path):
-        placement = self._placement(tmp_path, 64)
         assert all(
             r.severity != Severity.ERROR
-            for r in placement._check_results
-            if r.rule == "concurrency-in-range"
+            for r in ctx._check_results
+            if r.rule == "low-latency-coverage"
         )
-
-    def test_margin_point_is_in_range(self, tmp_path):
-        """The 10% margin is a valid place to measure, just not a covering one."""
-        placement = self._placement(tmp_path, 1100)
-        assert all(
-            r.severity != Severity.ERROR
-            for r in placement._check_results
-            if r.rule == "concurrency-in-range"
-        )
-        assert placement.covered_region != "high_concurrency"
-
-    def test_declared_region_matching_concurrency_passes(self, tmp_path):
-        placement = self._placement(tmp_path, 64, region="med_concurrency")
-        assert any(
-            r.rule == "region-placement" and r.severity != Severity.ERROR
-            for r in placement._check_results
-        )
-
-    def test_declared_region_mismatch_warns(self, tmp_path):
-        placement = self._placement(tmp_path, 64, region="low_latency")
-        assert any(
-            r.rule == "region-placement" and r.severity == Severity.WARNING
-            for r in placement._check_results
-        )
-
-    def test_submitters_choice_is_not_cross_checked(self, tmp_path):
-        placement = self._placement(tmp_path, 64, region="submitters_choice")
-        assert not [r for r in placement._check_results if r.rule == "region-placement"]
-
-    def test_absent_region_is_not_cross_checked(self, tmp_path):
-        placement = self._placement(tmp_path, 64)
-        assert not [r for r in placement._check_results if r.rule == "region-placement"]
-
-    def test_out_of_range_suppresses_the_placement_warning(self, tmp_path):
-        """One error per defect: a 9999-point is out of range, not mis-declared."""
-        placement = self._placement(tmp_path, 9999, region="low_latency")
-        assert not [r for r in placement._check_results if r.rule == "region-placement"]
 
 
 @pytest.mark.unit

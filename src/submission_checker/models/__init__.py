@@ -1,6 +1,6 @@
 """Data models for MLPerf Endpoints submission checking."""
 
-from .aggregate import MIN_QUERY_COUNT, ModelContext, PointResult, RegionPlacement, SeedBinding
+from .aggregate import MIN_QUERY_COUNT, ModelContext, PointResult
 from .file import (
     AccuracyResult,
     ConfigSummary,
@@ -10,13 +10,14 @@ from .file import (
     PercentileStats,
     PointConfig,
     PointSummary,
+    RunMetadata,
     RuntimeSettings,
     SystemAvailabilityStatus,
     SystemDescription,
 )
 from .regions import MIN_DURATION_MS, RegionBounds, Regions, classify_concurrency, compute_regions
 from .results import CheckResult, Report, Severity, err, ok, warn
-from .structure import ModelDir, SrcDir, SubmissionDir
+from .structure import ModelDir, SrcDir, SubmissionDir, SystemResults
 
 __all__ = [
     "AccuracyResult",
@@ -32,10 +33,9 @@ __all__ = [
     "PointConfig",
     "ConfigSummary",
     "PointResult",
-    "RegionPlacement",
-    "SeedBinding",
     "PointSummary",
     "RegionBounds",
+    "RunMetadata",
     "Regions",
     "Report",
     "RuntimeSettings",
@@ -44,6 +44,7 @@ __all__ = [
     "SubmissionDir",
     "SystemAvailabilityStatus",
     "SystemDescription",
+    "SystemResults",
     "classify_concurrency",
     "compute_regions",
     "err",

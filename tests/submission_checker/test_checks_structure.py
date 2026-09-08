@@ -11,6 +11,7 @@ from submission_checker.models import (
     Severity,
     SrcDir,
     SubmissionDir,
+    SystemResults,
 )
 
 from .conftest import _passed
@@ -35,6 +36,22 @@ class TestSubmissionDir:
         sd = SubmissionDir(root=tmp_path)
         assert sd.results_dir == tmp_path / "results"
         assert sd.docs_dir == tmp_path / "docs"
+
+
+@pytest.mark.unit
+class TestSystemResults:
+    def test_missing_system_dir(self, tmp_path):
+        sr = SystemResults(results_dir=tmp_path, system_id="sys-x")
+        assert any(r.severity == Severity.ERROR for r in sr._check_results)
+
+    def test_present(self, tmp_path):
+        (tmp_path / "sys-x").mkdir()
+        sr = SystemResults(results_dir=tmp_path, system_id="sys-x")
+        assert _passed(sr._check_results)
+
+    def test_system_dir_computed(self, tmp_path):
+        sr = SystemResults(results_dir=tmp_path, system_id="sys-x")
+        assert sr.system_dir == tmp_path / "sys-x"
 
 
 @pytest.mark.unit

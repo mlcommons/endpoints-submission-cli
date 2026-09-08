@@ -159,13 +159,16 @@ def test_node_requires_core_or_vcpu_count():
 @pytest.mark.parametrize(
     "field",
     [
-        "system_name",
+        "submitter_contact",
         "system_size",
         "system_node_ensemble_count",
-        "system_node_ensemble_total",
-        "max_supported_concurrency",
-        "division",
-        "node_types",
+        "model_id",
+        "model_precision",
+        "link_to_model",
+        "dataset_id",
+        "input_token_average",
+        "dataset_link",
+        "measured_accuracy_score",
     ],
 )
 def test_required_system_fields_rejected_when_missing(field):
@@ -177,32 +180,8 @@ def test_required_system_fields_rejected_when_missing(field):
 @pytest.mark.parametrize(
     "field",
     [
-        "submitter_org_names",
-        "submitter_contact",
-        "system_category",
-        "model_id",
-        "model_precision",
-        "link_to_model",
-        "dataset_id",
-        "dataset_name",
-        "dataset_type",
-        "dataset_link",
-        "input_token_average",
-        "output_token_average",
-        "measured_accuracy_score",
-    ],
-)
-def test_fields_moved_to_point_yaml_are_optional(field):
-    """§8.2 moved these to point.yaml (§8.3); still read here, no longer required."""
-    payload = {k: v for k, v in _BASE_FLAT.items() if k != field}
-    sd = SystemDescription(**payload)
-    assert getattr(sd, field) is None
-
-
-@pytest.mark.parametrize(
-    "field",
-    [
         "host_memory_configuration",
+        "accelerator_memory_type",
         "host_network_card_count",
         "driver",
         "filesystem",
@@ -379,10 +358,10 @@ def test_dataset_metadata_invalid_string_raises():
 # ---------------------------------------------------------------------------
 
 
-def test_accuracy_empty_string_measured_score_is_none():
-    """An empty score coerces to None — the field left §8.2 for point.yaml (§8.3)."""
-    sd = SystemDescription(**{**_BASE_FLAT, "measured_accuracy_score": ""})
-    assert sd.measured_accuracy_score is None
+def test_accuracy_empty_string_measured_score_rejected():
+    # measured_accuracy_score is required; an empty string coerces to None and is rejected.
+    with pytest.raises(ValidationError):
+        SystemDescription(**{**_BASE_FLAT, "measured_accuracy_score": ""})
 
 
 def test_accuracy_scalar_string_measured_score_accepted():
