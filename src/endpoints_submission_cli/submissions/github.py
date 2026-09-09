@@ -14,6 +14,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from submission_checker import layout
+
 from ..exceptions import GitHubError
 
 __all__ = [
@@ -190,60 +192,88 @@ def prepare_pr_branch_merge(
     repo_org_dir = repo_dir / submission_dir.name  # e.g. repo_dir / "NVIDIA"
 
     if repo_org_dir.exists():
-        fresh_pareto = submission_dir / "pareto"
-        repo_pareto = repo_org_dir / "pareto"
-
-        for fresh_model_dir in fresh_pareto.glob("*/*"):  # <system_id>/<model>
-            rel = fresh_model_dir.relative_to(fresh_pareto)
-            repo_model_dir = repo_pareto / rel
-            repo_model_dir.mkdir(parents=True, exist_ok=True)
-
-            # points/ and accuracy/ — replace entirely from fresh build
-            for subdir_name in ("points", "accuracy"):
-                dest = repo_model_dir / subdir_name
-                if dest.exists():
-                    shutil.rmtree(dest)
-                src = fresh_model_dir / subdir_name
-                if src.exists():
-                    shutil.copytree(src, dest)
-
-            # results/ — surgical per-point update
-            fresh_results = fresh_model_dir / "results"
-            repo_results = repo_model_dir / "results"
-            if fresh_results.exists():
-                repo_results.mkdir(exist_ok=True)
-                # Remove point dirs no longer present in fresh build
-                fresh_point_names = {p.name for p in fresh_results.iterdir() if p.is_dir()}
-                for repo_point in list(repo_results.iterdir()):
-                    if repo_point.is_dir() and repo_point.name not in fresh_point_names:
-                        shutil.rmtree(repo_point)
-                # Update each point: replace log files, preserve system_desc.json
-                for fresh_point in fresh_results.iterdir():
-                    if not fresh_point.is_dir():
-                        continue
-                    repo_point = repo_results / fresh_point.name
-                    is_new_point = not repo_point.exists()
-                    repo_point.mkdir(exist_ok=True)
-                    for src_file in fresh_point.iterdir():
-                        if src_file.name != "system_desc.json":
-                            shutil.copy2(src_file, repo_point / src_file.name)
-                    # system_desc.json: preserve PR version; seed only for new points
-                    repo_sysdesc = repo_point / "system_desc.json"
-                    if is_new_point or not repo_sysdesc.exists():
-                        fresh_sysdesc = fresh_point / "system_desc.json"
-                        if fresh_sysdesc.exists():
-                            shutil.copy2(fresh_sysdesc, repo_sysdesc)
-            elif repo_results.exists():
-                shutil.rmtree(repo_results)
-
-        # systems/ — preserve PR version; seed from fresh build if absent
-        if not (repo_org_dir / "systems").exists():
-            shutil.copytree(submission_dir / "systems", repo_org_dir / "systems")
+        _merge_submission_tree(submission_dir, repo_org_dir)
     else:
         # Org dir not yet on the PR branch — full copy (first push edge case).
         shutil.copytree(submission_dir, repo_org_dir)
 
     return repo_dir, repo_org_dir
+
+
+def _merge_submission_tree(fresh_dir: Path, repo_dir: Path) -> None:
+    """Apply a fresh build onto the copy already on the PR branch.
+
+    Measurement artifacts are replaced from the fresh build; anything a reviewer edits
+    on the branch is preserved. Reviewers annotate ``system_desc.json`` during review, so
+    a rebuild must not overwrite it — but a *new* point has no reviewed version yet, so
+    that one is seeded.
+
+    Walks §8.1's tree (``results/<system>/<model>/r<N>/``). It previously walked v0.7's
+    ``pareto/<system>/<model>/{points,results,accuracy}/`` and copied a top-level
+    ``systems/`` directory; against current builder output the walk silently matched
+    nothing and the ``systems/`` copy raised ``FileNotFoundError``, so every amendment
+    (``submissions update``, ``add-run``, ``remove-run``) failed once the org directory
+    existed on the branch.
+    """
+    fresh_results = fresh_dir / layout.RESULTS_DIR
+    repo_results = repo_dir / layout.RESULTS_DIR
+
+    # Shared trees are wholly builder-generated, so they are replaced outright.
+    for shared in (layout.SRC_DIR, layout.DOCS_DIR):
+        fresh_shared, repo_shared = fresh_dir / shared, repo_dir / shared
+        if repo_shared.exists():
+            shutil.rmtree(repo_shared)
+        if fresh_shared.exists():
+            shutil.copytree(fresh_shared, repo_shared)
+
+    if not fresh_results.is_dir():
+        if repo_results.exists():
+            shutil.rmtree(repo_results)
+        return
+
+    # Drop curves the fresh build no longer contains (e.g. after remove-run).
+    fresh_curves = {(s.name, m.name) for s, m in layout.iter_curves(fresh_results)}
+    for repo_system, repo_model in list(layout.iter_curves(repo_results)):
+        if (repo_system.name, repo_model.name) not in fresh_curves:
+            shutil.rmtree(repo_model)
+            if not any(repo_system.iterdir()):
+                shutil.rmtree(repo_system)
+
+    for _fresh_system, fresh_model in layout.iter_curves(fresh_results):
+        rel = fresh_model.relative_to(fresh_results)
+        repo_model = repo_results / rel
+        repo_model.mkdir(parents=True, exist_ok=True)
+        _merge_curve(fresh_model, repo_model)
+
+
+def _merge_curve(fresh_model: Path, repo_model: Path) -> None:
+    """Update one Pareto curve's point directories in place."""
+    fresh_point_names = {p.name for p in layout.iter_point_dirs(fresh_model)}
+    for repo_point in layout.iter_point_dirs(repo_model):
+        if repo_point.name not in fresh_point_names:
+            shutil.rmtree(repo_point)
+
+    for fresh_point in layout.iter_point_dirs(fresh_model):
+        repo_point = repo_model / fresh_point.name
+        is_new_point = not repo_point.exists()
+        repo_point.mkdir(parents=True, exist_ok=True)
+
+        for src_path in sorted(fresh_point.iterdir()):
+            dest = repo_point / src_path.name
+            if src_path.is_dir():
+                # e.g. server_configs/ — submitter-owned, replaced wholesale.
+                if dest.exists():
+                    shutil.rmtree(dest)
+                shutil.copytree(src_path, dest)
+            elif src_path.name != layout.SYSTEM_DESC_JSON:
+                shutil.copy2(src_path, dest)
+
+        # system_desc.json: preserve the reviewed version; seed only a new point.
+        repo_sysdesc = repo_point / layout.SYSTEM_DESC_JSON
+        if is_new_point or not repo_sysdesc.exists():
+            fresh_sysdesc = fresh_point / layout.SYSTEM_DESC_JSON
+            if fresh_sysdesc.exists():
+                shutil.copy2(fresh_sysdesc, repo_sysdesc)
 
 
 def update_pr_branch(

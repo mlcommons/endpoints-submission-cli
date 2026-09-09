@@ -138,7 +138,8 @@ CLI tool for validating MLPerf Endpoints submissions against the §9.1 automated
 submission-checker check /path/to/submission
 ```
 
-The tool expects the submission root to contain `systems/` and `pareto/` subdirectories as specified in §8.1.
+The path may be the submitting organisation's directory or a `<submission_id>/`
+directory below it; a submission root is the level holding `results/` and `docs/` (§8.1).
 
 **Options:**
 
@@ -147,80 +148,149 @@ The tool expects the submission root to contain `systems/` and `pareto/` subdire
 | `--strict` | Treat warnings as errors (exit 1 on any warning) |
 | `--quiet` / `-q` | Suppress INFO-level passing checks |
 | `--output FILE` / `-o FILE` | Write full results as JSON to *FILE* |
+| `--seed-sets FILE` | Published seed sets to check against (§4.6). Defaults to the bundled set; also settable via `$MLPERF_ENDPOINTS_SEED_SETS`. |
 
 **Exit codes:** `0` = all checks passed, `1` = one or more errors (or warnings with `--strict`).
 
 ### Show region boundaries
 
 ```bash
-submission-checker regions --max-concurrency 1024
+submission-checker regions --max-concurrency 1024 --min-concurrency 16
 ```
 
-Prints the concurrency ranges for each region given a declared Maximum Supported Concurrency *M* (§5.5).
+Prints the concurrency range for each region given a `(C_max, C_min)` pair, using the
+§5.5 reference algorithm. `--min-concurrency` defaults to 32; in a real submission
+`C_min` is derived from the lowest measurement point rather than declared (§5.4).
 
 ## Required Files in submission structure
 
+Layout as of `mlcommons/endpoints_policies` PR #119: there is no per-system file — every
+Pareto point carries its own `system_desc.json`.
+
 ```
-<org>/
-├── systems/
-│   └── <system_desc_id>.json         # §8.2 — hardware + software description
-└── pareto/
-    └── <system_desc_id>/
-        └── <benchmark_model>/
-            ├── points/
-            │   └── point_<N>.yaml    # §8.3 — one config per measurement point
-            ├── results/
-            │   └── point_<N>/
-            │       ├── mlperf_endpoints_log_summary.json
-            │       └── mlperf_endpoints_log_detail.json
-            └── accuracy/
-                ├── accuracy.txt
-                └── accuracy_result.json
+<submitting_organization>/
+└── <submission_id>/
+    ├── src/
+    │   └── <implementation>/         # §2.2.1 — README.md + endpoint interface code
+    │       └── README.md
+    ├── docs/                         # calibration, software disclosure, …
+    └── results/
+        └── <system>/
+            └── <model_name>/
+                └── r<N>/             # one directory per concurrency level
+                    ├── point.yaml            # §8.3 measurement-point disclosure
+                    ├── system_desc.json      # §8.2 — per point since PR #119
+                    ├── result_summary.json   # aggregate metrics
+                    ├── accuracy_results.json # §6.6 accuracy results
+                    ├── config.yaml           # OPTIONAL as of v1.0
+                    └── server_configs/       # OPTIONAL, submitter-defined
 ```
 
+`src/` and `docs/` are shared across the whole submission; each `point.yaml` names them
+via `shared_src` and `shared_docs`, which must resolve to a directory under the
+submission root (§9.1).
+
 ## What gets checked
+
+### Structure
 
 | Rule | Spec | Description |
 |------|------|-------------|
 | `path-exists` | §1 | Submission root directory exists |
-| `required-dir` | §1 | `systems/` and `pareto/` present |
-| `system-description-present` | §1 | At least one `*.json` file found in `systems/` |
-| `system-description-valid` | §1 | `systems/*.json` parses against schema |
-| `src-dir` | §1 | `src/` present for Standardized submissions |
-| `pareto-dir-exists` | §1 | `pareto/<system_id>/` directory exists |
-| `benchmark-model-dir` | §1 | At least one benchmark-model directory in `pareto/<system_id>/` |
-| `pareto-subdir` | §1 | `points/`, `results/`, `accuracy/` present |
-| `measurement-points-present` | §1 | At least one `point_*.yaml` found |
-| `point-config-valid` | §1 | YAML parses against `PointConfig` schema |
-| `point-filename-concurrency` | §1 | Filename concurrency matches declared value |
-| `result-file-present` | §1 | Result summary log exists for each point config |
-| `result-detail-present` | §1 | Result detail log exists for each point config |
-| `result-file-valid` | §1 | Result summary log parses against `PointSummary` schema |
+| `required-dir` | §1 | `results/` and `docs/` present |
+| `src-dir` | §2.2.1 | `src/` present with at least one implementation directory |
+| `src-readme` | §2.2.1 | Each `src/<implementation>/` has a `README.md` |
+| `system-results-dir` | §1 | At least one `results/<system>/` directory exists |
+| `benchmark-model-dir` | §1 | At least one benchmark-model directory per system |
+| `point-dirs` | §1 | At least one `r<N>/` Pareto-point directory per model |
+| `measurement-points-present` | §1 | Every `r<N>/` carries a `point.yaml` |
+| `point-dirname-concurrency` | §1 | `r<N>/` name matches the declared concurrency (warn) |
+| `result-summary-present` | §1 | `result_summary.json` exists for each point |
+| `shared-path-resolution` | §9.1 | `shared_src` / `shared_docs` resolve under the submission root |
+
+### System description (§8.2)
+
+| Rule | Spec | Description |
+|------|------|-------------|
+| `system-description-present` | §8.2 | Every point has a `system_desc.json` |
+| `system-description-valid` | §8.2 | It parses against the `SystemDescription` schema |
+| `system-description-consistency` | §8.5 | Every point of a curve describes the same system |
+| `model-name-valid` | §2 | `model_name` is one of the round's supported models |
+| `model-name-consistency` | §16 | It matches the results directory name |
+| `max-concurrency-declared` | §7 | `max_supported_concurrency` (C_max) present and > 32 |
+| `tps-utilization` | §8.2 | Equals `system_tps / max(system_tps)` over the point's own curve |
+
+### Regions (§5)
+
+`C_min` is **derived** from the submission's own points in v1.0, not declared, so the
+boundaries differ per curve. The 10 % margin above `C_max` is its own region and does
+not satisfy High Concurrency coverage.
+
+| Rule | Spec | Description |
+|------|------|-------------|
+| `region-basis` | §5.4 | Reports the derived `C_min` and how many points it came from |
+| `region-computation` | §5.5 | `(C_max, C_min)` is a valid input to the reference algorithm |
+| `concurrency-in-range` | §9.1 | Each concurrency falls in a valid region, margin included |
+| `region-declared` | §8.3 | Declared `region` is one of the spec's values |
+| `region-placement` | §8.3 | Declared region matches the computed one (warn) |
+| `ultra-low-concurrency-coverage` | §5.4 | At least one point at concurrency ≤ 32 |
+| `low-concurrency-coverage` | §9.1 | At least one point in the Low Concurrency region |
+| `med-concurrency-coverage` | §9.1 | At least one point in the Medium Concurrency region |
+| `high-concurrency-coverage` | §9.1 | At least one point in the High Concurrency region |
 | `point-count` | §2, §8 | 7–32 measurement points |
 | `point-cap` | §2, §8 | Point count does not exceed 32 |
-| `low-latency-coverage` | §3 | At least one point in Low Latency region |
-| `low-throughput-coverage` | §4 | At least one point in Low Throughput region |
-| `med-throughput-coverage` | §5 | At least one point in Medium Throughput region |
-| `high-throughput-coverage` | §6 | At least one point in High Throughput region |
-| `max-concurrency-declared` | §7 | `max_supported_concurrency` field present |
-| `region-computation` | §7 | *M* > 32 (required for region formula) |
-| `concurrency-in-range` | §9 | Concurrency within region bounds (incl. 10% margin) |
-| `load-pattern` | §10 | `load_pattern` is `concurrency` with a positive concurrency level |
-| `point-duration` | §11 | Point meets per-region minimum duration |
-| `min-query-count` | §12 | `n_samples_completed` meets dataset-specific minimum (§6.4) |
-| `streaming-config` | §13 | `stream_all_chunks` is `True` |
+
+### Measurement points (§8.3, §6)
+
+| Rule | Spec | Description |
+|------|------|-------------|
+| `point-config-valid` | §8.3 | `point.yaml` parses against the `PointConfig` schema |
+| `point-disclosure-complete` | §8.3 | Every required §8.3 disclosure field is present |
+| `load-pattern` | §6.1 | `load_pattern` is `concurrency` with a positive level |
+| `streaming-config` | §6.5 | `stream_all_chunks` is `True` |
+| `point-duration` | §6.2 | Point meets its region's minimum duration (warn) |
+| `min-query-count` | §6.4 | `n_samples_completed` meets the dataset minimum |
+| `warmup-present` | §6.3.3 | Warmup declaration present |
+| `warmup-logs-retained` | §6.3.2 | Warmup log retention declared (warn) |
+| `warmup-salt` | §6.3.3 | Warns when the warmup salt is enabled |
+| `config-consistency-dataset` | §16 | All points use the same dataset |
+
+### Seed binding (§4.6)
+
+| Rule | Spec | Description |
+|------|------|-------------|
+| `seed-set-consistency` | §9.1 | Every point records the same seed set |
+| `seed-set-membership` | §9.1 | The bound set is one MLCommons published |
+| `seed-runtime-match` | §2.1.1 | The RNG seeds equal the bound set's values |
+| `target-cohort` | §4.6 | `target_cohort` matches `YYYY-MM-C0` / `YYYY-MM-C1` |
+| `seed-set-adoption` | §4.6 | Set published for the target cohort or the three before it |
+| `seed-config-legacy` | §4.6 | v0.7 fallback: seeds == 42 when no `seed_set` is declared |
+| `seed-set-registry` | §4.6 | Warns when the seed-set file itself cannot be read |
+
+The published sets ship as data (`src/submission_checker/data/seed_sets.yaml`). Point
+`--seed-sets FILE` or `$MLPERF_ENDPOINTS_SEED_SETS` at a newer file to check against a
+set published after this release.
+
+### Metrics (§9.1, §14)
+
+| Rule | Spec | Description |
+|------|------|-------------|
+| `result-file-valid` | §8.3 | `result_summary.json` parses against `PointSummary` |
 | `metric-consistency-duration` | §14 | `duration_ns` > 0 |
 | `metric-consistency-accounting` | §14 | `completed + failed == issued` |
 | `metric-consistency-output-tokens` | §14 | `total_output_tokens` ≥ 0 |
-| `metric-consistency-system-tps` | §9.1 | Stored `system_tps` consistent with derived value |
-| `metric-consistency-tps-per-user` | §9.1 | Stored `tps_per_user` consistent with `system_tps / concurrency` |
-| `accuracy-file` | §15 | `accuracy.txt` and `accuracy_result.json` present |
-| `accuracy-valid` | §15 | `accuracy_result.json` parses correctly |
-| `accuracy-consistency` | §15 | `passed` flag consistent with `score >= quality_target` |
-| `accuracy-gate` | §15 | Score ≥ quality target |
-| `config-consistency-dataset` | §16 | All points use the same dataset |
-| `config-consistency-model` | §16 | Directory name matches `benchmark_model` |
-| `region-declared` | §8.3 | Declared `region` field (if present) is valid and matches computed region |
+| `metric-consistency-system-tps` | §9.1 | Stored `system_tps` matches the derived value |
+| `metric-consistency-tpot-p90` | §9.1 | Reported TPOT P90 present, finite, strictly positive |
+| `metric-consistency-tps-per-user` | §9.1 | Stored `tps_per_user` matches `1000 / tpot_p90_ms` |
+
+### Accuracy (§15)
+
+| Rule | Spec | Description |
+|------|------|-------------|
+| `accuracy-present` | §15 | At least one model in the submission carries accuracy results |
+| `accuracy-valid` | §15 | `accuracy_results.json` parses correctly |
+| `accuracy-sample-count` | §15 | Issued sample count meets the model's minimum |
+| `accuracy-gate` | §15 | Score meets the benchmark quality target |
 
 ## Programmatic API
 

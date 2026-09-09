@@ -15,6 +15,9 @@ from endpoints_submission_cli.exceptions import SubmissionBuildError, Truncation
 from endpoints_submission_cli.submissions.builder import (
     PENDING_SUBMISSION_ID,
     _compute_max_tps,
+    _extract_concurrency,
+    _extract_model,
+    _extract_run_type,
     _slugify,
     build_submission_folder,
     create_bundle_archive,
@@ -643,6 +646,124 @@ class TestPointYamlIsCopiedNotDerived:
 
 
 @pytest.mark.unit
+class TestDirectoryNamingPrecedence:
+    """§8.1 names the results directory ``<model_name>``, which lives in point.yaml.
+
+    config.yaml became optional in v1.0, so deriving a path from it meant the tree's
+    shape depended on a file that need not exist — and its ``model_params.name`` is a
+    HuggingFace path, not the supported-model-list name §8.2 defines.
+    """
+
+    def test_point_yaml_model_name_wins(self) -> None:
+        config = {"model_params": {"name": "meta-llama/Llama-3.1-8B-Instruct"}}
+        assert _extract_model(config, {"model_name": "llama3.1-8b"}) == "llama3_1-8b"
+
+    def test_config_is_only_a_fallback(self) -> None:
+        config = {"model_params": {"name": "meta-llama/Llama-3.1-8B-Instruct"}}
+        assert _extract_model(config, {}) == "Llama-3_1-8B-Instruct"
+
+    def test_neither_source_yields_a_placeholder(self) -> None:
+        assert _extract_model({}, {}) == "unknown_model"
+
+    def test_concurrency_uses_the_same_precedence(self) -> None:
+        """The two directory-naming helpers must not disagree about which file wins."""
+        config = {"settings": {"load_pattern": {"target_concurrency": 999}}}
+        assert _extract_concurrency(config, {"concurrency": 16}) == 16
+
+    def test_built_tree_is_named_from_the_disclosure(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
+        import shutil
+
+        folder = tmp_path / "run"
+        shutil.copytree(run_folder, folder)
+        archive = tmp_path / "run.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname="run")
+
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        # point.yaml declares model_name: llama3.1-8b; config.yaml says the HF path.
+        model_dirs = [p.parent.parent.name for p in sub_dir.rglob("point.yaml")]
+        assert model_dirs == ["llama3_1-8b"]
+
+
+@pytest.mark.unit
+class TestRunTypeResolution:
+    """A run whose type cannot be determined is refused, not assumed.
+
+    Defaulting to "performance" was silently destructive: an accuracy run shipped
+    without a config.yaml would be filed as its concurrency's performance run, colliding
+    with the real one and dropping the accuracy results from the bundle.
+    """
+
+    def test_config_dataset_type_wins(self) -> None:
+        config = {"datasets": [{"type": "accuracy"}]}
+        assert _extract_run_type(config, {"dataset_type": "Performance"}, "r1") == "accuracy"
+
+    def test_point_dataset_type_is_the_fallback(self) -> None:
+        assert _extract_run_type({}, {"dataset_type": "Accuracy"}, "r1") == "accuracy"
+        assert _extract_run_type({}, {"dataset_type": "Performance"}, "r1") == "performance"
+
+    def test_dataset_type_is_matched_case_insensitively(self) -> None:
+        assert _extract_run_type({}, {"dataset_type": "accuracy"}, "r1") == "accuracy"
+
+    def test_combined_dataset_type_is_ambiguous(self) -> None:
+        """ "Accuracy + Performance" describes the dataset, not which one this run did."""
+        with pytest.raises(SubmissionBuildError, match="covers"):
+            _extract_run_type({}, {"dataset_type": "Accuracy + Performance"}, "run-001")
+
+    def test_no_source_errors(self) -> None:
+        with pytest.raises(SubmissionBuildError, match="accuracy or a performance run"):
+            _extract_run_type({}, {}, "run-001")
+
+    def test_error_names_the_run(self) -> None:
+        with pytest.raises(SubmissionBuildError, match="run-042"):
+            _extract_run_type({}, {}, "run-042")
+
+    def test_build_succeeds_without_config_when_point_declares_the_type(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
+        import shutil
+
+        folder = tmp_path / "run"
+        shutil.copytree(run_folder, folder)
+        (folder / "config.yaml").unlink()
+        point = yaml.safe_load((folder / "point.yaml").read_text())
+        point["dataset_type"] = "Performance"
+        (folder / "point.yaml").write_text(yaml.dump(point))
+        archive = tmp_path / "run.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname="run")
+
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        assert list(sub_dir.rglob("point.yaml"))
+
+    def test_build_fails_when_neither_source_declares_the_type(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
+        import shutil
+
+        folder = tmp_path / "run"
+        shutil.copytree(run_folder, folder)
+        (folder / "config.yaml").unlink()
+        point = yaml.safe_load((folder / "point.yaml").read_text())
+        point.pop("dataset_type", None)
+        (folder / "point.yaml").write_text(yaml.dump(point))
+        archive = tmp_path / "run.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname="run")
+
+        with pytest.raises(SubmissionBuildError, match="accuracy or a performance run"):
+            build_submission_folder(
+                [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+            )
+
+
+@pytest.mark.unit
 class TestSharedPathInjection:
     """shared_src / shared_docs are the one §8.3 pair the builder may fill in.
 
@@ -880,10 +1001,10 @@ class TestBuilderCheckerContract:
 
         desc = json.loads((folder / "system_desc.json").read_text())
         desc["max_supported_concurrency"] = 1024
-        # model_name gates §2's allowed-model check; model_id must normalise to the
-        # results directory name, which the builder slugs from config.yaml.
+        # Both are the supported-model-list name (§8.2, §8.5), which is also what
+        # names the results directory (§8.1) now that point.yaml is the source.
         desc["model_name"] = "llama3.1-8b"
-        desc["model_id"] = "meta-llama/Llama-3.1-8B-Instruct"
+        desc["model_id"] = "llama3.1-8b"
         (folder / "system_desc.json").write_text(json.dumps(desc))
 
         # §6.4 requires every cnn_dailymail sample to be scored for accuracy.

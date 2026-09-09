@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -179,6 +180,119 @@ class TestPreparePrBranchMerge:
             )
 
         assert org_dir.exists()
+
+    def _fresh_build(self, root: Path, concurrencies=(16, 20)) -> Path:
+        """A current-format builder output: §8.1's results/<system>/<model>/r<N>/."""
+        for c in concurrencies:
+            point = root / "results" / "H200x8" / "llama3_1-8b" / f"r{c}"
+            point.mkdir(parents=True)
+            (point / "point.yaml").write_text(f"concurrency: {c}\n")
+            (point / "result_summary.json").write_text(json.dumps({"fresh": True}))
+            (point / "system_desc.json").write_text(json.dumps({"from": "fresh"}))
+            (point / "server_configs").mkdir()
+            (point / "server_configs" / "engine.json").write_text("{}")
+        impl = root / "src" / "trtllm"
+        impl.mkdir(parents=True)
+        (impl / "README.md").write_text("# trtllm\n")
+        (root / "docs").mkdir()
+        return root
+
+    def _merged(self, tmp_path: Path, fresh: Path, repo_org: Path) -> Path:
+        with patch("subprocess.run", return_value=_completed()):
+            _, org_dir = prepare_pr_branch_merge(
+                fresh, "org/repo", repo_org.parent.parent, branch="submission-abc"
+            )
+        return org_dir
+
+    def test_merge_does_not_crash_on_a_v1_bundle(self, tmp_path: Path) -> None:
+        """Regression: the merge walked v0.7's pareto/ tree and copied a top-level
+        systems/ directory, so every amendment raised FileNotFoundError once the org
+        directory already existed on the branch."""
+        fresh = self._fresh_build(tmp_path / "ORG")
+        repo_org = tmp_path / "work" / "repo" / "ORG"
+        repo_org.mkdir(parents=True)
+
+        org_dir = self._merged(tmp_path, fresh, repo_org)
+        assert (org_dir / "results" / "H200x8" / "llama3_1-8b" / "r16").is_dir()
+
+    def test_reviewer_edited_system_desc_is_preserved(self, tmp_path: Path) -> None:
+        """Reviewers annotate system_desc.json on the branch; a rebuild must not undo it."""
+        fresh = self._fresh_build(tmp_path / "ORG")
+        repo_org = tmp_path / "work" / "repo" / "ORG"
+        existing = repo_org / "results" / "H200x8" / "llama3_1-8b" / "r16"
+        existing.mkdir(parents=True)
+        (existing / "system_desc.json").write_text(json.dumps({"from": "reviewer"}))
+
+        org_dir = self._merged(tmp_path, fresh, repo_org)
+        merged = org_dir / "results" / "H200x8" / "llama3_1-8b" / "r16"
+        assert json.loads((merged / "system_desc.json").read_text()) == {"from": "reviewer"}
+
+    def test_measurement_files_are_replaced(self, tmp_path: Path) -> None:
+        fresh = self._fresh_build(tmp_path / "ORG")
+        repo_org = tmp_path / "work" / "repo" / "ORG"
+        existing = repo_org / "results" / "H200x8" / "llama3_1-8b" / "r16"
+        existing.mkdir(parents=True)
+        (existing / "system_desc.json").write_text(json.dumps({"from": "reviewer"}))
+        (existing / "result_summary.json").write_text(json.dumps({"fresh": False}))
+
+        org_dir = self._merged(tmp_path, fresh, repo_org)
+        merged = org_dir / "results" / "H200x8" / "llama3_1-8b" / "r16"
+        assert json.loads((merged / "result_summary.json").read_text()) == {"fresh": True}
+
+    def test_new_point_is_seeded_with_the_fresh_description(self, tmp_path: Path) -> None:
+        """A point that has never been reviewed has no version worth preserving."""
+        fresh = self._fresh_build(tmp_path / "ORG")
+        repo_org = tmp_path / "work" / "repo" / "ORG"
+        (repo_org / "results" / "H200x8" / "llama3_1-8b" / "r16").mkdir(parents=True)
+
+        org_dir = self._merged(tmp_path, fresh, repo_org)
+        seeded = org_dir / "results" / "H200x8" / "llama3_1-8b" / "r20" / "system_desc.json"
+        assert json.loads(seeded.read_text()) == {"from": "fresh"}
+
+    def test_points_dropped_from_the_build_are_removed(self, tmp_path: Path) -> None:
+        """After remove-run, the branch must not keep the withdrawn point."""
+        fresh = self._fresh_build(tmp_path / "ORG")
+        repo_org = tmp_path / "work" / "repo" / "ORG"
+        stale = repo_org / "results" / "H200x8" / "llama3_1-8b" / "r99"
+        stale.mkdir(parents=True)
+        (stale / "point.yaml").write_text("concurrency: 99\n")
+
+        org_dir = self._merged(tmp_path, fresh, repo_org)
+        assert not (org_dir / "results" / "H200x8" / "llama3_1-8b" / "r99").exists()
+
+    def test_curves_dropped_from_the_build_are_removed(self, tmp_path: Path) -> None:
+        fresh = self._fresh_build(tmp_path / "ORG")
+        repo_org = tmp_path / "work" / "repo" / "ORG"
+        stale = repo_org / "results" / "OldSystem" / "gpt-oss-120b" / "r8"
+        stale.mkdir(parents=True)
+
+        org_dir = self._merged(tmp_path, fresh, repo_org)
+        assert not (org_dir / "results" / "OldSystem").exists()
+
+    def test_shared_trees_are_replaced(self, tmp_path: Path) -> None:
+        """src/ and docs/ are wholly builder-generated, so the fresh build wins."""
+        fresh = self._fresh_build(tmp_path / "ORG")
+        repo_org = tmp_path / "work" / "repo" / "ORG"
+        old_impl = repo_org / "src" / "vllm"
+        old_impl.mkdir(parents=True)
+        (old_impl / "README.md").write_text("# stale\n")
+
+        org_dir = self._merged(tmp_path, fresh, repo_org)
+        assert (org_dir / "src" / "trtllm" / "README.md").is_file()
+        assert not (org_dir / "src" / "vllm").exists()
+
+    def test_point_subdirectories_are_replaced(self, tmp_path: Path) -> None:
+        """server_configs/ is submitter-owned and comes from the fresh build."""
+        fresh = self._fresh_build(tmp_path / "ORG")
+        repo_org = tmp_path / "work" / "repo" / "ORG"
+        old_cfg = repo_org / "results" / "H200x8" / "llama3_1-8b" / "r16" / "server_configs"
+        old_cfg.mkdir(parents=True)
+        (old_cfg / "stale.json").write_text("{}")
+
+        org_dir = self._merged(tmp_path, fresh, repo_org)
+        cfg = org_dir / "results" / "H200x8" / "llama3_1-8b" / "r16" / "server_configs"
+        assert (cfg / "engine.json").is_file()
+        assert not (cfg / "stale.json").exists()
 
     def test_clone_failure_raises(self, tmp_path: Path) -> None:
         err = subprocess.CalledProcessError(1, ["gh"], stderr="auth error")

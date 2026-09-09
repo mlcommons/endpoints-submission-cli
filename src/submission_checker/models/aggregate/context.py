@@ -175,9 +175,10 @@ class ModelContext(BaseModel):
     def _check_model_name_consistency(self) -> ModelContext:
         """§16: model name in system_desc must match the model directory name.
 
-        The model directory name is derived from config.yaml's model_params.name
-        (last path component, slugified). system_desc.model_id is the authoritative
-        source; system_desc.model_name is the fallback. Both may be in HuggingFace
+        The model directory name comes from point.yaml's §8.3 ``model_name`` (last path
+        component, slugified), which is what §8.1's ``results/<system>/<model_name>/``
+        asks for. system_desc.model_id is the authoritative source here;
+        system_desc.model_name is the fallback. Both may be in HuggingFace
         format (e.g. "meta-llama/Llama-3.1-8B-Instruct") so we take the last "/"
         component before comparing.
 

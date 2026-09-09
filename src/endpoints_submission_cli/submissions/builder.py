@@ -360,11 +360,18 @@ def _extract_system_id(system_info: dict[str, Any]) -> str:
 def _extract_model(config: dict[str, Any], point_config: dict[str, Any]) -> str:
     """Return the slugified benchmark-model name for a run's results directory.
 
-    Prefers config.yaml's ``model_params.name``, falling back to point.yaml's §8.3
-    ``model_name`` — config.yaml is optional as of v1.0.
+    point.yaml wins. §8.1 names the directory ``results/<system>/<model_name>/``, and
+    §8.2 defines ``model_name`` as the name from the round's supported-model list — so
+    the disclosure is the authoritative source and config.yaml, which is optional as of
+    v1.0, is only a fallback. Preferring the optional file put a name in the tree that
+    §8.1 does not define (config.yaml carries a HuggingFace path, giving
+    ``Llama-3_1-8B-Instruct`` where the spec asks for ``llama3.1-8b``).
+
+    Note this is the opposite precedence from :func:`_extract_run_type`, deliberately:
+    see that function for why.
     """
     model_params = config.get("model_params", {}) or {}
-    name = model_params.get("name", "") or point_config.get("model_name", "") or ""
+    name = point_config.get("model_name", "") or model_params.get("name", "") or ""
     if name:
         # Use the last path component (e.g. "meta-llama/Llama-3.1-8B" → "Llama-3.1-8B")
         return _slugify(str(name).split("/")[-1])
@@ -390,18 +397,48 @@ def _extract_concurrency(config: dict[str, Any], point_config: dict[str, Any]) -
     return int(config.get("target_concurrency", 1))
 
 
-def _extract_run_type(config: dict[str, Any]) -> str:
-    """Return 'accuracy' or 'performance' based on the first dataset type.
+def _extract_run_type(config: dict[str, Any], point_config: dict[str, Any], run_id: str) -> str:
+    """Return ``"accuracy"`` or ``"performance"`` for one run.
 
-    §8.3 has no run-type field, so a run that ships no config.yaml is treated as a
-    performance run — the accuracy/performance split exists only in the harness
-    config. Submitters pairing an accuracy run with a performance run at the same
-    concurrency must therefore ship config.yaml with the accuracy run.
+    config.yaml wins here, which is the opposite of :func:`_extract_model` and is not an
+    oversight: ``datasets[].type`` is the harness stating what *this run* did, whereas
+    §8.3's ``dataset_type`` describes what the *dataset* is used for. A dataset marked
+    "Accuracy + Performance" says nothing about which of the two this run measured, so it
+    cannot stand in for the config.
+
+    When neither source answers, the run type is **unknown and not guessed**. Defaulting
+    to "performance" was silently wrong in the one case that matters: an accuracy run
+    shipped without a config.yaml would be filed as the performance run for its
+    concurrency, so the real performance run at that concurrency would collide with it
+    and the accuracy results would never reach ``accuracy_results.json``. A submission
+    that loses a measurement is worse than one that fails to build.
+
+    Raises:
+        SubmissionBuildError: If neither config.yaml nor point.yaml identifies the run
+            type unambiguously.
     """
     datasets = config.get("datasets", []) or []
-    if datasets and isinstance(datasets[0], dict) and datasets[0].get("type") == "accuracy":
-        return "accuracy"
-    return "performance"
+    if datasets and isinstance(datasets[0], dict):
+        declared = str(datasets[0].get("type") or "").strip().lower()
+        if declared in ("accuracy", "performance"):
+            return declared
+
+    dataset_type = str(point_config.get("dataset_type") or "").strip().lower()
+    if dataset_type in ("accuracy", "performance"):
+        return dataset_type
+
+    detail = (
+        f"point.yaml declares dataset_type: {point_config['dataset_type']!r}, which covers"
+        " both and so does not identify this run"
+        if point_config.get("dataset_type")
+        else "point.yaml declares no dataset_type"
+    )
+    raise SubmissionBuildError(
+        f"Run {run_id}: cannot tell whether this is an accuracy or a performance run."
+        f" config.yaml does not declare datasets[].type and {detail}."
+        " Ship a config.yaml with the run, or set dataset_type to exactly 'Accuracy' or"
+        " 'Performance' in point.yaml."
+    )
 
 
 def _run_system_tps(run: dict[str, Any]) -> float | None:
@@ -458,7 +495,7 @@ def _write_point_dirs(
     seen: set[tuple[int, str]] = set()
     by_concurrency: dict[int, dict[str, dict[str, Any]]] = {}
     for run in runs:
-        run_type = _extract_run_type(run["config"])
+        run_type = _extract_run_type(run["config"], run["point_config"], run["run_id"])
         c = _extract_concurrency(run["config"], run["point_config"])
         key = (c, run_type)
         if key in seen:

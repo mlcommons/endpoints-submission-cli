@@ -85,9 +85,16 @@ does not fill in missing fields, so whatever the harness emits is what gets subm
 
 `config.yaml` became **optional** in v1.0. It records what the harness was told to do and
 carries no disclosure of its own; it is still copied through whenever a run supplies it.
-A run that ships no `config.yaml` is treated as a performance run, because the
-accuracy/performance split exists only in the harness config — so pair an accuracy run
-with its `config.yaml` if you register one.
+The builder needs to know whether a run is an accuracy or a performance run, and it
+will not guess. It reads `datasets[].type` from `config.yaml` first, then falls back to
+point.yaml's §8.3 `dataset_type` when that is exactly `Accuracy` or `Performance`. If
+neither answers — no `config.yaml` and no `dataset_type`, or a `dataset_type` of
+`Accuracy + Performance`, which describes the dataset rather than this run — the build
+fails with a message naming the run.
+
+That is deliberate. Defaulting to "performance" was silently destructive: an accuracy
+run shipped without a `config.yaml` would be filed as its concurrency's performance run,
+collide with the real one, and drop its accuracy results from the bundle.
 
 **Rollback behaviour:** if the archive upload fails after the run record has been created, the CLI automatically deletes the run record to leave a clean state. If that delete also fails, the orphaned run ID is printed so it can be cleaned up manually.
 
