@@ -1,6 +1,8 @@
 # Submission commands
 
-A submission groups one or more benchmark runs into a package that is compliance-checked, uploaded, and submitted as a GitHub pull request to the MLCommons review repository.
+A submission groups one or more benchmark runs into a package that is compliance-checked and
+uploaded to the MLCommons review pipeline. The CLI no longer opens the review pull request
+itself — `pr_url` and `pr_number` appear in `submissions get` once whatever does has set them.
 
 ---
 
@@ -47,15 +49,16 @@ endpoints-submission-cli submissions list -j
 
 Create a new submission from one or more registered runs. This command runs the full automated pipeline:
 
-1. Check GitHub prerequisites (`gh` installed and authenticated).
-2. Download all run archives from the API (with progress bar).
-3. Assemble the submission folder structure.
-4. Run the Submission Checker — aborts with exit code 1 on compliance errors.
-5. `POST /submissions` to register the submission.
-6. Upload the submission bundle (`POST /submissions/{id}/archive`).
-7. Clone the submission repository, create a branch, commit, push.
-8. Create a GitHub PR (`gh pr create`).
-9. Call `update_submission` internally (`PATCH /submissions/{id}`) to store `pr_url`, `pr_number`, and set `status=REVIEW_PENDING`.
+1. Download all run archives from the API (with progress bar).
+2. Assemble the submission folder structure.
+3. Run the Submission Checker — aborts with exit code 1 on compliance errors.
+4. `POST /submissions` to register the submission.
+5. Upload the submission bundle (`POST /submissions/{id}/archive`).
+6. Call `update_submission` internally (`PATCH /submissions/{id}`) to set
+   `status=REVIEW_PENDING`.
+
+The CLI does not open the review pull request. `pr_url` and `pr_number` remain on the
+submission record and are shown by `submissions get` once whatever opens it has set them.
 
 ```bash
 endpoints-submission-cli submissions create \
@@ -87,9 +90,38 @@ endpoints-submission-cli submissions create \
 | `--embargo-date DATETIME` | no | Embargo datetime in ISO 8601 format, e.g. `2025-12-01T00:00:00`. |
 | `--dry-run` | no | Assemble folder and run checker, then print the folder layout and exit without creating the submission or PR. |
 
-**Rollback behaviour:** if the GitHub PR step fails, the submission is automatically withdrawn (`DELETE /submissions/{id}`) to leave a clean state. If that rollback also fails, the orphaned submission ID is printed.
+**`cli_metadata.json`** is written inside the `<submission_id>/` directory of every bundle
+(not at the organisation level, which is shared across submissions). It records which CLI
+shaped the submission, generated from the submission record the command already received
+from the API plus the version of the CLI running now:
 
-**If only the PATCH step (step 9) fails** — the submission and PR both exist; the failure is a warning, not a fatal error. The PR URL can be linked manually.
+```json
+{
+  "command": "remove-run",
+  "cli_version": "1.0.0.0",
+  "most_recent_cli_used": "1.2.0.0",
+  "created_at": "2026-08-20T17:08:02.936070Z"
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `command` | the command that assembled this bundle |
+| `cli_version` | the CLI that **created** the submission (from the API record) |
+| `most_recent_cli_used` | the CLI that ran **this** command |
+| `created_at` | when the submission was created (from the API record) |
+
+On `create` the two versions are identical, because that command *is* the creating one.
+`remove-run`, `update` and `create-local` report the creating version from the
+API alongside their own, so a bundle built by 1.0.0.0 and later amended by 1.2.0.0 shows
+both. `created_at` is the submission's creation time, not the rebuild time.
+
+No extra API calls and no new API fields are involved — every value is already in hand by
+the time the marker is written.
+
+**Rollback behaviour:** if the bundle upload fails, the submission is automatically withdrawn (`DELETE /submissions/{id}`) to leave a clean state. If that rollback also fails, the orphaned submission ID is printed.
+
+**If only the PATCH step (step 6) fails** — the submission and its bundle both exist; the failure is a warning, not a fatal error, and the status can be set manually.
 
 **Example:**
 
@@ -129,36 +161,39 @@ endpoints-submission-cli submissions create \
 **Output:**
 
 ```
-Checking GitHub prerequisites…
 Downloading run archives…
 Assembling submission folder…
 Running Submission Checker…
 Checker report written to submission_checker_20250410_090123.log
 Uploading submission bundle…
-Creating GitHub PR…
 Submission created: a1b2c3d4-e5f6-7890-abcd-ef1234567890
-PR: https://github.com/MLCommons-Systems/test-endpoints-submission-repo/pull/42
 ```
 
 **Submission folder structure** assembled by the CLI:
 
 ```
-<org>/
-├── systems/
-│   └── <system_id>.json              # hardware + software description
-└── pareto/
-    └── <system_id>/
-        └── <model>/
-            ├── points/
-            │   └── point_<N>.yaml    # one config per concurrency level
-            ├── results/
-            │   └── point_<N>/
-            │       ├── mlperf_endpoints_log_summary.json
-            │       ├── mlperf_endpoints_log_detail.json
-            │       └── system_desc.json
-            └── accuracy/
-                ├── accuracy.txt
-                └── accuracy_result.json
+<submitting_organization>/
+└── <submission_id>/                       # assigned by MLC; one per submission
+    ├── src/                               # SHARED across the whole submission
+    │   └── <implementation>/              # e.g. trtllm/, vllm/, sglang/
+    │       ├── README.md                  # how to build/launch the SUT, reproduce a point
+    │       └── <endpoint interface code, infra/cluster setup, client harness>
+    │
+    ├── docs/                              # SHARED across the whole submission
+    │   ├── calibration.adoc               # if weight transformations applied (§3.3)
+    │   ├── software_disclosure.md         # §8.4
+    │   └── <additional documentation>
+    │
+    └── results/
+        └── <system>/                      # e.g. H200-SXM-141GBx8_TRT/
+            └── <benchmark_model>/         # e.g. deepseek-r1/, gpt-oss-120b/
+                └── r<N>/                  # one PARETO POINT per concurrency (r1, r32, …)
+                    ├── point.yaml             # §8.3
+                    ├── system_desc.json       # §8.2 — per point since policies PR #119
+                    ├── result_summary.json    # aggregate metrics (QPS, TPS, TTFT, TPOT)
+                    ├── accuracy_results.json  # §6.6
+                    ├── config.yaml            # OPTIONAL as of v1.0
+                    └── server_configs/        # OPTIONAL, point-specific backend configs
 ```
 
 ---
@@ -222,31 +257,20 @@ Providing no flags prints a warning and makes no API call.
 
 The command runs the full rebuild pipeline:
 
-1. Check GitHub prerequisites (`gh` installed and authenticated).
-2. `GET /submissions/{id}` — fetch current run list, division, and PR number.
-3. Log added/removed runs.
-4. `PATCH /submissions/{id}` with new `run_ids` (and any metadata fields) in a single call.
-5. Download all desired run archives (with progress bar).
-6. Assemble submission folder and run the Submission Checker — rollback on errors.
-7. Clone the submission repository, check out the existing PR branch, and apply the surgical merge — rollback on errors.
-8. Upload the merged bundle to blob storage (`POST /submissions/{id}/archive`) — rollback on errors.
-9. Push the merged branch to the GitHub PR.
+1. `GET /submissions/{id}` — fetch the current run list and division.
+2. **Reject the update if it would add a run** (see below); log removed runs.
+3. `PATCH /submissions/{id}` with the new `run_ids` (and any metadata fields) in a single call.
+4. Download the remaining run archives (with progress bar).
+5. Assemble the submission folder and run the Submission Checker — rollback on errors.
+6. Upload the bundle to blob storage (`POST /submissions/{id}/archive`) — rollback on errors.
 
-**Rollback:** if any step 5–8 fails after the DB PATCH, the run list is automatically restored to its original value (`PATCH /submissions/{id}` with `original_run_ids`). 
+**Rollback:** if any step 4–6 fails after the DB PATCH, the run list is automatically restored to its original value (`PATCH /submissions/{id}` with `original_run_ids`).
 
-**GitHub PR branch file update strategy:** The CLI clones the submission repository and checks out the existing PR branch. It then compares the fresh build against what is already on the branch and makes per-directory decisions — only generated content is overwritten; files that may have been manually edited by reviewers are preserved:
-
-| Path | Action |
-|---|---|
-| `points/` | Replaced entirely from the fresh build. |
-| `accuracy/` | Replaced entirely from the fresh build. |
-| `results/<point>/mlperf_endpoints_log_*.json` | Replaced from the fresh build. |
-| `results/<point>/system_desc.json` | Preserved from the PR branch. Seeded from the fresh build only for points not yet on the branch. |
-| Point dirs in `results/` removed from the fresh build | Deleted from the PR branch. |
-| `systems/` | Preserved from the PR branch. Seeded from the fresh build only if the directory does not yet exist on the branch. |
-| `src/`, `documentation/` | Preserved from the PR branch. |
-
-> **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the fresh build with reviewer-edited files (`system_desc.json`, `systems/`) preserved from the PR branch. Blob storage and the GitHub PR branch always contain identical content.
+> [!IMPORTANT]
+> **`--run-ids` may only shrink the list.** Submission Rules §8 no longer provide a
+> post-submission window for adding measurement points, so a list containing a run the
+> submission does not already have is rejected before anything is fetched or patched.
+> Removals are still permitted — see [`submissions remove-run`](#submissions-remove-run).
 
 ### When only metadata flags are provided (DB-only PATCH)
 
@@ -284,7 +308,7 @@ endpoints-submission-cli submissions update \
 
 ## submissions withdraw
 
-Withdraw a submission: marks it `WITHDRAWN`, closes its GitHub PR, and deletes the stored bundle.
+Withdraw a submission: marks it `WITHDRAWN` and deletes the stored bundle.
 
 ```bash
 endpoints-submission-cli submissions withdraw \
@@ -292,9 +316,9 @@ endpoints-submission-cli submissions withdraw \
   [--token TOKEN]
 ```
 
-**Order of operations:** DB update (`DELETE /submissions/{id}`) → close PR (`gh pr close`) → delete archive (`DELETE /submissions/{id}/archive`).
+**Order of operations:** DB update (`DELETE /submissions/{id}`) → delete archive (`DELETE /submissions/{id}/archive`).
 
-PR closure and archive deletion are best-effort — failures are reported as warnings but do not change the exit code. The submission is already `WITHDRAWN` in the database.
+Archive deletion is best-effort — a failure is reported as a warning but does not change the exit code. The submission is already `WITHDRAWN` in the database. The CLI does not close the review pull request; it no longer manages one.
 
 **Example:**
 
@@ -304,72 +328,22 @@ endpoints-submission-cli submissions withdraw \
 # → Submission withdrawn: a1b2c3d4-…
 ```
 
-If PR close fails the CLI prints the manual close command:
-
-```
-PR close failed (submission already WITHDRAWN): …
-Close manually: gh pr close 42 --repo MLCommons-Systems/test-endpoints-submission-repo
-```
-
----
-
-## submissions add-run
-
-Add a run to an existing submission, rebuild the bundle, re-run compliance checking, and push a new commit to the PR branch.
-
-```bash
-endpoints-submission-cli submissions add-run \
-  --submission-id SUB_ID \
-  --run-id RUN_ID \
-  [--token TOKEN]
-```
-
-| Flag | Required | Description |
-|---|---|---|
-| `--submission-id SUB_ID` | yes | Submission UUID. |
-| `--run-id RUN_ID` | yes | Run UUID to add. |
-| `--token TOKEN` | no | API key. |
-
-**Pipeline:**
-
-1. Check GitHub prerequisites (`gh` installed and authenticated).
-2. `POST /submissions/{id}/runs/{run_id}` — register the addition.
-3. Download all run archives (including the newly added run).
-4. Rebuild submission folder and run Submission Checker — rollback on errors.
-5. Clone the submission repository, check out the existing PR branch, and apply the surgical merge — rollback on errors.
-6. Upload the merged bundle to blob storage (`POST /submissions/{id}/archive`) — rollback on errors.
-7. Push the merged branch to the GitHub PR.
-
-**Rollback:** if any step 3–6 fails after registration, the run is automatically removed from the submission record (`DELETE /submissions/{id}/runs/{run_id}`).
-
-**GitHub PR branch file update strategy:** The CLI clones the submission repository and checks out the existing PR branch. It then compares the fresh build against what is already on the branch and makes per-directory decisions:
-
-| Path | Action |
-|---|---|
-| `points/` | Replaced entirely from the fresh build. |
-| `accuracy/` | Replaced entirely from the fresh build. |
-| `results/<point>/mlperf_endpoints_log_*.json` | Replaced from the fresh build. |
-| `results/<point>/system_desc.json` | Preserved from the PR branch. Seeded from the fresh build only for points not yet on the branch. |
-| Point dirs in `results/` removed from the fresh build | Deleted from the PR branch. |
-| `systems/` | Preserved from the PR branch. Seeded from the fresh build only if the directory does not yet exist on the branch. |
-| `src/`, `documentation/` | Preserved from the PR branch. |
-
-> **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the fresh build with reviewer-edited files (`system_desc.json`, `systems/`) preserved from the PR branch. Blob storage and the GitHub PR branch always contain identical content.
-
-**Example:**
-
-```bash
-endpoints-submission-cli submissions add-run \
-  --submission-id a1b2c3d4-… \
-  --run-id f7e6d5c4-b3a2-1098-7654-321fedcba098
-# → Run f7e6d5c4 added to submission a1b2c3d4-…
-```
-
----
-
 ## submissions remove-run
 
-Remove a run from an existing submission. If runs still remain, the bundle is rebuilt, compliance-checked, re-uploaded, and pushed to the PR branch.
+Withdraw a run from an existing submission. If runs still remain, the bundle is rebuilt,
+compliance-checked, and re-uploaded.
+
+> [!IMPORTANT]
+> **A submission's points are fixed at creation.** MLPerf Endpoints Submission Rules §8
+> no longer provide a post-submission window for adding measurement points — the §8.1
+> *Pareto Updates* section that allowed it was removed. There is no `add-run` command,
+> and `submissions update --run-ids` rejects a list that would add one.
+>
+> §8.1 *Corrections* still lets a submitter withdraw a faulty point during peer review,
+> which is what this command does. Note the consequence: withdrawn points do not count
+> toward the 7-point minimum, and that shortfall **cannot be repaired by adding another
+> point**. The Submission Checker will report it. If a submission needs a different set
+> of runs, create a new one.
 
 ```bash
 endpoints-submission-cli submissions remove-run \
@@ -386,31 +360,14 @@ endpoints-submission-cli submissions remove-run \
 
 **Pipeline:**
 
-1. Check GitHub prerequisites (`gh` installed and authenticated).
-2. `DELETE /submissions/{id}/runs/{run_id}` — register the removal.
-3. Download remaining run archives. Skipped if no runs remain.
-4. Rebuild submission folder and run Submission Checker — rollback on errors. Skipped if no runs remain.
-5. Clone the submission repository, check out the existing PR branch, and apply the surgical merge — rollback on errors. Skipped if no runs remain.
-6. Upload the merged bundle to blob storage (`POST /submissions/{id}/archive`) — rollback on errors. Skipped if no runs remain.
-7. Push the merged branch to the GitHub PR. Skipped if no runs remain.
+1. `DELETE /submissions/{id}/runs/{run_id}` — register the removal.
+2. Download the remaining run archives. Skipped if no runs remain.
+3. Rebuild the submission folder and run the Submission Checker — rollback on errors. Skipped if no runs remain.
+4. Upload the bundle to blob storage (`POST /submissions/{id}/archive`) — rollback on errors. Skipped if no runs remain.
 
-If no runs remain after removal, steps 3–7 are skipped and a warning is printed.
+If no runs remain after removal, steps 2–4 are skipped and a warning is printed.
 
-**Rollback:** if any step 3–6 fails after removal, the run is automatically re-added (`POST /submissions/{id}/runs/{run_id}`).  `submissions remove-run` to retry.
-
-**GitHub PR branch file update strategy:** The CLI clones the submission repository and checks out the existing PR branch. It then compares the fresh build against what is already on the branch and makes per-directory decisions:
-
-| Path | Action |
-|---|---|
-| `points/` | Replaced entirely from the fresh build. |
-| `accuracy/` | Replaced entirely from the fresh build. |
-| `results/<point>/mlperf_endpoints_log_*.json` | Replaced from the fresh build. |
-| `results/<point>/system_desc.json` | Preserved from the PR branch. Seeded from the fresh build only for points not yet on the branch. |
-| Point dirs in `results/` for the removed run | Deleted from the PR branch. |
-| `systems/` | Preserved from the PR branch. Seeded from the fresh build only if the directory does not yet exist on the branch. |
-| `src/`, `documentation/` | Preserved from the PR branch. |
-
-> **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the fresh build with reviewer-edited files (`system_desc.json`, `systems/`) preserved from the PR branch. Blob storage and the GitHub PR branch always contain identical content.
+**Rollback:** if any step 2–4 fails after removal, the run is automatically re-added to the submission record.
 
 **Example:**
 

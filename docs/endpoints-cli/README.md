@@ -56,6 +56,5 @@ endpoints-submission-cli
     ├── get         Fetch submission details
     ├── update      Update run list or metadata
     ├── withdraw    Withdraw a submission
-    ├── add-run     Add a run to an existing submission
     └── remove-run  Remove a run from a submission
 ```

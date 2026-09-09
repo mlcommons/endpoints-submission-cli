@@ -8,7 +8,6 @@ src/endpoints_submission_cli/
 ├── api_client.py         HTTP client wrapping every PRISM API endpoint (httpx)
 ├── run_parser.py         Parses local run folder → API payload; builds .tar.gz archive
 ├── submission_builder.py Assembles submission folder from run archives; creates bundle
-├── github_ops.py         Shells out to `gh` CLI for PR create/update/close
 ├── formatters.py         Rich table output and JSON mode for runs and submissions
 ├── exceptions.py         Custom exception hierarchy
 └── commands/
@@ -22,11 +21,10 @@ src/endpoints_submission_cli/
 |---|---|
 | `main.py` | Registers command groups. Entry point for the `endpoints-submission-cli` script. |
 | `api_client.py` | All HTTP calls to the PRISM API. Three timeout profiles. Token resolution. Error translation to `APIError`/`AuthError`. |
-| `run_parser.py` | Reads `system_info.json`, `config.yaml`, `result_summary.json` from a local folder. Derives `benchmark_version` from `git_sha` or `"unknown"`. Builds `.tar.gz` archive. |
-| `submission_builder.py` | Extracts run archives, groups by `(system_id, model)`, writes the submission folder tree (`systems/`, `pareto/`). Calls `submission_checker.models` for `compute_regions`. |
-| `github_ops.py` | Clones the submission repo, creates/updates branches, commits, pushes, creates/closes PRs. All via `gh` CLI subprocess calls. |
+| `run_parser.py` | Reads `system_desc.json`, `point.yaml`, `result_summary.json` from a local folder (`config.yaml` when present). Derives `benchmark_version` from `git_sha` or `"unknown"`. Builds `.tar.gz` archive. |
+| `submission_builder.py` | Extracts run archives, groups by `(system_id, model)`, writes the submission folder tree (`<org>/<submission_id>/{src,docs,results}`). Calls `submission_checker.models` for `compute_regions`. |
 | `formatters.py` | Rich table renderers for run and submission lists/details. JSON output with syntax highlighting. |
-| `exceptions.py` | `APIError`, `AuthError`, `ArchiveError`, `GitHubError`, `RunFolderError`, `SubmissionBuildError`, `SubmissionCheckError`. |
+| `exceptions.py` | `APIError`, `AuthError`, `ArchiveError`, `RunFolderError`, `SubmissionBuildError`, `SubmissionCheckError`. |
 | `commands/runs.py` | Click command implementations for all run operations. Delegates to `api_client` and `run_parser`. |
 | `commands/submissions.py` | Click command implementations for all submission operations. Orchestrates the full pipeline and rollback helpers. |
 
@@ -44,14 +42,12 @@ graph TD
     runs_cmd --> fmt["formatters.py"]
 
     sub_cmd --> api
-    sub_cmd --> github["github_ops.py"]
     sub_cmd --> builder["submission_builder.py"]
     sub_cmd --> fmt
 
     builder --> checker["submission_checker\n(external package)"]
 
     api --> exc["exceptions.py"]
-    github --> exc
     parser --> exc
     builder --> exc
 ```
@@ -94,10 +90,8 @@ sequenceDiagram
     participant A as api_client
     participant B as submission_builder
     participant Ch as SubmissionChecker
-    participant GH as github_ops
 
     U->>CLI: submissions create --division ... --run-ids ...
-    CLI->>GH: check_prerequisites(target_repo)
     loop for each run_id
         CLI->>A: GET /runs/{run_id}/archive  →  archive file
     end
@@ -136,7 +130,6 @@ sequenceDiagram
     participant A as api_client
     participant B as submission_builder
     participant Ch as SubmissionChecker
-    participant GH as github_ops
 
     U->>CLI: submissions update --submission-id ... --run-ids ...
     CLI->>A: GET /submissions/{id}  →  current state
@@ -156,32 +149,17 @@ sequenceDiagram
         CLI->>A: PATCH /submissions/{id}  {run_ids: original}  (rollback)
         CLI-->>U: error + exit 1
     end
-    CLI->>GH: update_pr_branch(pr_number, submission_dir, ...)
     CLI-->>U: Submission {id} updated.
 ```
 
 ---
 
-### PR branch update strategy (`update_pr_branch`)
+### GitHub PR handling
 
-Used by `submissions update`, `submissions add-run`, and `submissions remove-run`:
-
-```
-For each <system_id>/<model> in the fresh build:
-│
-├── points/      → replace entirely from fresh build
-├── accuracy/    → replace entirely from fresh build
-└── results/
-    ├── Remove point dirs no longer in fresh build
-    └── For each point dir in fresh build:
-        ├── Copy log files (mlperf_endpoints_log_*.json)
-        └── system_desc.json:
-            ├── Preserve from PR branch (manual edits survive)
-            └── Seed from fresh build only for new points
-
-systems/   → preserve from PR branch (seed if absent)
-src/       → preserve from PR branch
-```
+The CLI no longer opens, updates, or closes submission pull requests. That was removed
+in `e722875` (2026-05-29) and the module implementing it was deleted once it had been
+unreachable for three months; `pr_url` and `pr_number` remain on the submission record
+and are still displayed by `submissions get`, but the CLI does not set them.
 
 ---
 
@@ -192,7 +170,6 @@ Exception
 ├── APIError          — any PRISM API call failure (4xx/5xx or network)
 │   └── AuthError     — 401/403 or missing token
 ├── ArchiveError      — archive file open/upload/download/extract failure
-├── GitHubError       — gh CLI subprocess failure
 ├── RunFolderError    — missing or malformed files in run folder
 ├── SubmissionBuildError — failure assembling submission folder tree
 └── SubmissionCheckError — Submission Checker found compliance errors
