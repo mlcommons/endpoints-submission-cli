@@ -73,7 +73,13 @@ def withdraw_submission(token: str, submission_id: str) -> dict[str, Any]:
 
 
 def add_run_to_submission(token: str, submission_id: str, run_id: str) -> dict[str, Any]:
-    """POST /submissions/{submission_id}/runs/{run_id} — add a run to a submission."""
+    """POST /submissions/{submission_id}/runs/{run_id} — add a run to a submission.
+
+    Kept only to undo a failed ``remove-run``: it restores a run the CLI has just
+    removed. It is not a way to grow a submission — Submission Rules §8 no longer
+    provide a post-submission window for adding measurement points, and the
+    ``add-run`` command that used this was removed with it.
+    """
     return cast(dict[str, Any], _post(f"/submissions/{submission_id}/runs/{run_id}", token))
 
 

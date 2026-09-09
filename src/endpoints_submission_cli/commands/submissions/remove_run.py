@@ -26,6 +26,11 @@ __all__ = ["submissions_remove_run"]
 
 
 def _rollback_remove_run(token: str, submission_id: str, run_id: str) -> None:
+    """Restore a run this command just removed, after a later step failed.
+
+    This re-adds a run the submission already had, so it is not a §8 post-submission
+    addition — it is the undo half of an operation that did not complete.
+    """
     _console.print(f"[yellow]Rolling back: re-adding run {run_id} to record…[/yellow]")
     try:
         subs_api.add_run_to_submission(token, submission_id, run_id)
@@ -43,17 +48,20 @@ def _rollback_remove_run(token: str, submission_id: str, run_id: str) -> None:
     help="PRISM API key (mlc_...).",
 )
 def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -> None:
-    """Remove a run from an existing submission and update the GitHub PR.
+    """Withdraw a run from an existing submission.
+
+    Submission Rules §8.1 lets a submitter withdraw a faulty measurement point during
+    peer review. Withdrawn points do not count toward the 7-point minimum, so removing
+    one can leave the submission non-compliant — and since §8 no longer provides a
+    window for adding points, that cannot be repaired by adding another. The Submission
+    Checker runs below and will say so.
 
     Workflow:
-      1. Check GitHub prerequisites (gh installed and authenticated)
-      2. DELETE /submissions/{id}/runs/{run_id}
-      3. Download remaining run archives (with progress) — skipped if no runs remain
-      4. Rebuild submission folder — skipped if no runs remain
-      5. Run Submission Checker — rollback and abort on errors; skipped if no runs remain
-      6. Upload updated bundle to blob storage — skipped if no runs remain
-      7. Clone repo, check out existing PR branch, surgically update files, push
-         — skipped if no runs remain
+      1. DELETE /submissions/{id}/runs/{run_id}
+      2. Download remaining run archives (with progress) — skipped if no runs remain
+      3. Rebuild submission folder — skipped if no runs remain
+      4. Run Submission Checker — rollback and abort on errors; skipped if no runs remain
+      5. Upload updated bundle to blob storage — skipped if no runs remain
     """
     resolved_token = _get_token(token)
 

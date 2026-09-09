@@ -24,11 +24,11 @@ __all__ = ["submissions_withdraw"]
     help="PRISM API key (mlc_...).",
 )
 def submissions_withdraw(submission_id: str, token: str | None) -> None:
-    """Withdraw a submission: mark WITHDRAWN, close its PR, delete its archive.
+    """Withdraw a submission: mark WITHDRAWN and delete its archive.
 
-    Order of operations: DB update → close PR → delete archive.
-    If PR close fails the submission is already WITHDRAWN; retry PR close manually.
+    Order of operations: DB update → delete archive.
     If archive deletion fails the orphaned URI is logged for garbage collection.
+    The CLI does not close the review pull request; it no longer manages one.
     """
     resolved_token = _get_token(token)
     try:

@@ -63,8 +63,12 @@ def submissions_update(
 ) -> None:
     """Update fields on an existing submission.
 
-    Providing --run-ids triggers a full rebuild (download → build → checker → upload → PR update).
+    Providing --run-ids triggers a full rebuild (download → build → checker → upload).
     All other flags are DB-only PATCHes with no rebuild.
+
+    Runs may only be *removed* this way. Submission Rules §8 no longer provide a
+    post-submission window for adding measurement points, so a --run-ids list that
+    would add one is rejected.
     """
     resolved_token = _get_token(token)
 
@@ -108,9 +112,18 @@ def submissions_update(
     added = [r for r in desired_run_ids if r not in original_run_ids]
     removed = [r for r in original_run_ids if r not in desired_run_ids]
     if added:
+        # Submission Rules §8 removed the post-submission update window that allowed
+        # this (endpoints_policies 7fd3e89). Withdrawing a faulty point is still
+        # permitted, so a --run-ids list that only drops runs still goes through.
         _console.print(
-            f"[cyan]Adding {len(added)} run(s): {', '.join(r[:8] for r in added)}…[/cyan]"
+            "[bold red]Cannot add runs to an existing submission.[/bold red]\n"
+            f"  Would add: {', '.join(r[:8] for r in added)}\n"
+            "  MLPerf Endpoints Submission Rules §8 no longer provide a post-submission\n"
+            "  window for adding measurement points. A submission's points are fixed at\n"
+            "  creation; faulty points may be withdrawn, but none may be added.\n"
+            "  To submit a different set of runs, create a new submission."
         )
+        sys.exit(1)
     if removed:
         _console.print(
             f"[cyan]Removing {len(removed)} run(s): {', '.join(r[:8] for r in removed)}…[/cyan]"
