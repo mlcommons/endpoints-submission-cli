@@ -96,17 +96,6 @@ def submissions_update(
 
     # Run-IDs path: full rebuild
     desired_run_ids = list(run_ids)
-    """
-    target_repo = github_ops.get_target_repo()
-    _console.print("[cyan]Checking GitHub prerequisites…[/cyan]")
-    try:
-        repo_ok, repo_warning = github_ops.check_prerequisites(target_repo)
-    except GitHubError as exc:
-        _console.print(f"[bold red]GitHub prerequisite check failed:[/bold red] {exc}")
-        sys.exit(1)
-    if not repo_ok:
-        _console.print(f"[yellow]Warning:[/yellow] {repo_warning}")
-    """
     try:
         current_sub = subs_api.get_submission(resolved_token, submission_id)
     except APIError as exc:
@@ -211,31 +200,6 @@ def submissions_update(
             sys.exit(1)
 
         upload_source = submission_dir
-        """
-        # Build commit message before merge (needed by commit_and_push)
-        _parts = []
-        if added:
-            _parts.append(f"add {', '.join(r[:8] for r in added)}")
-        if removed:
-            _parts.append(f"remove {', '.join(r[:8] for r in removed)}")
-        _commit_msg = f"update: {'; '.join(_parts)} ({len(desired_run_ids)} runs total)"
-
-        # Merge fresh build with existing PR branch content (fatal — rollback on failure)
-        if pr_number:
-            _console.print("[cyan]Preparing PR branch merge…[/cyan]")
-            try:
-                repo_dir, merged_org_dir = github_ops.prepare_pr_branch_merge(
-                    submission_dir,
-                    target_repo,
-                    tmp_path / "gh",
-                    branch=f"submission-{submission_id}",
-                )
-                upload_source = merged_org_dir
-            except GitHubError as exc:
-                _console.print(f"[bold red]PR branch merge failed:[/bold red] {exc}")
-                _rollback_update(resolved_token, submission_id, original_run_ids)
-                sys.exit(1)
-        """
         # Upload merged bundle to blob storage
         _console.print("[cyan]Uploading submission bundle…[/cyan]")
         _write_cli_metadata(submission_dir / submission_id, "update", current_sub)
@@ -248,15 +212,4 @@ def submissions_update(
             sys.exit(1)
 
         # Push merged branch to GitHub (non-fatal)
-        """
-        if pr_number and repo_dir:
-            _console.print("[cyan]Updating GitHub PR…[/cyan]")
-            try:
-                github_ops.commit_and_push(repo_dir, _commit_msg)
-            except GitHubError as exc:
-                _console.print(
-                    f"[yellow]GitHub push failed (blob updated, DB updated):[/yellow] {exc}\n"
-                    f"Re-run [bold]submissions update[/bold] to retry."
-                )
-        """
     _console.print(f"[bold green]Submission {submission_id} updated.[/bold green]")

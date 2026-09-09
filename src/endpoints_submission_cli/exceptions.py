@@ -6,7 +6,6 @@ __all__ = [
     "APIError",
     "AuthError",
     "ArchiveError",
-    "GitHubError",
     "RunFolderError",
     "SubmissionBuildError",
     "SubmissionCheckError",
@@ -23,10 +22,6 @@ class AuthError(APIError):
 
 class ArchiveError(Exception):
     """Raised when archive upload, download, or extraction fails."""
-
-
-class GitHubError(Exception):
-    """Raised when a gh CLI operation fails."""
 
 
 class RunFolderError(Exception):

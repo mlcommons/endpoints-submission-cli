@@ -15,8 +15,6 @@ from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn
 from ...exceptions import APIError, SubmissionBuildError, SubmissionCheckError
 from ...runs import api as runs_api
 from ...submissions import api as subs_api
-
-# from ...submissions import github as github_ops
 from ...submissions.builder import (
     build_submission_folder,
     create_bundle_archive,
@@ -244,7 +242,8 @@ def submissions_create(
                 _console.print(f"[bold red]Rollback failed:[/bold red] {rb_exc}")
             sys.exit(1)
 
-        # 7. PATCH with pr_url, pr_number, status
+        # 6. Hand the submission to review. The CLI no longer opens the GitHub PR;
+        #    pr_url / pr_number on the record are set by whatever does.
         try:
             subs_api.update_submission(
                 resolved_token,
@@ -252,9 +251,6 @@ def submissions_create(
                 {"status": "REVIEW_PENDING"},
             )
         except APIError as exc:
-            _console.print(f"[yellow]Warning: PATCH pr_url failed (retryable):[/yellow] {exc}")
+            _console.print(f"[yellow]Warning: status update failed (retryable):[/yellow] {exc}")
 
-    _console.print(
-        f"[bold green]Submission created:[/bold green] {submission_id}"
-        # f"[bold green]PR:[/bold green] {pr_url}"
-    )
+    _console.print(f"[bold green]Submission created:[/bold green] {submission_id}")
