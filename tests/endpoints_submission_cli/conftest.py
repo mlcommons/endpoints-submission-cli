@@ -185,6 +185,7 @@ _RESULT_SUMMARY = {
         "total": 161_800_000_000.0,
         "percentiles": {
             "50": 80_500_000.0,
+            "90": 135_000_000.0,
             "95": 150_000_000.0,
             "99": 200_000_000.0,
         },
@@ -194,7 +195,69 @@ _RESULT_SUMMARY = {
         "total": 100_000.0,
         "percentiles": {"50": 48.0, "95": 90.0},
     },
-    "tpot": {"avg": 8_700_000.0, "total": 17_400_000_000.0, "percentiles": {}},
+    "tpot": {
+        "avg": 8_700_000.0,
+        "total": 17_400_000_000.0,
+        "percentiles": {"50": 8_500_000.0, "90": 10_000_000.0, "95": 11_000_000.0},
+    },
+}
+
+
+# §8.3 Pareto-point disclosure. Supplied by the harness, not derived from _CONFIG:
+# a config carries runtime knobs, while point.yaml carries the disclosure the checker
+# validates (seeds, warmup counts, data source). Validated against the checker's
+# PointConfig, so the fixture represents a bundle that actually passes.
+#: Seed set A (§4.6), mirrored from policies PR #117 into data/seed_sets.yaml.
+_SEED_SET_ID = "A"
+_SEEDS = {
+    "scheduler_rng_seed": 10487924139932647040,
+    "sample_index_rng_seed": 586478644936801402,
+    "model_seed": 9315206023656308754,
+}
+
+#: A §8.3-complete measurement-point disclosure, so a builder or checker test sees
+#: only the defect it introduced rather than a wall of missing-field errors.
+_POINT = {
+    "concurrency": 4,
+    "region": "low_latency",
+    "dataset": "cnn_dailymail",
+    "division": "Standardized",
+    "max_supported_concurrency": 1024,
+    "model_name": "llama3.1-8b",
+    "model_precision": "FP16",
+    "link_to_model": "https://example.com/model",
+    "link_to_model_transformation": "https://example.com/quantization",
+    "model_notes": "",
+    "dataset_name": "CNN/DailyMail",
+    "dataset_type": "Performance",
+    "dataset_link": "https://example.com/dataset",
+    "shared_src": "src",
+    "shared_docs": "docs",
+    "seed_set": _SEED_SET_ID,
+    "target_cohort": "2026-09-C0",
+    "runtime_settings": {
+        "load_pattern": "concurrency",
+        "stream_all_chunks": True,
+        "min_duration_ms": 600000,
+        "min_sample_count": 2000,
+        "runtime": {
+            "min_duration_ms": 600000,
+            "max_duration_ms": 3600000,
+            "n_samples_to_issue": 2000,
+            **_SEEDS,
+        },
+        "warmup": {"enabled": False, "salt": False},
+    },
+    "warmup": {
+        "enabled": False,
+        "duration_s": 0,
+        "requests_issued": 0,
+        "requests_completed": 0,
+        "data_source": "n/a",
+        "concurrency": 1,
+        "initialization_steps": [],
+        "logs_retained": True,
+    },
 }
 
 
@@ -207,6 +270,7 @@ def run_folder(tmp_path: Path) -> Path:
     (folder / "mlperf-system-info-single-node-0.json").write_text(json.dumps(_HW_INFO))
     (folder / "serving_config.json").write_text(json.dumps(_SERVING_CONFIG))
     (folder / "config.yaml").write_text(yaml.dump(_CONFIG))
+    (folder / "point.yaml").write_text(yaml.dump(_POINT))
     (folder / "result_summary.json").write_text(json.dumps(_RESULT_SUMMARY))
     (folder / "results.json").write_text(json.dumps(_RESULTS))
     # Standardized submissions must ship src/<implementation>/ with a README.
@@ -214,6 +278,10 @@ def run_folder(tmp_path: Path) -> Path:
     impl.mkdir(parents=True)
     (impl / "README.md").write_text("# trtllm\n\nBuild the SUT, then reproduce a point.\n")
     (impl / "launch_sut.sh").write_text("#!/bin/sh\necho launching\n")
+    # point.yaml's shared_docs must resolve in the assembled bundle (§9.1).
+    docs = folder / "documentation"
+    docs.mkdir()
+    (docs / "calibration.adoc").write_text("= Calibration\n")
     return folder
 
 
@@ -243,8 +311,8 @@ def endpoints_run_folder(tmp_path: Path) -> Path:
 
     Performance metrics under ``performance/``, accuracy under ``accuracy/``; see
     docs/endpoints-cli/reference/run-folder-layout.md. This is the only layout
-    ``runs create`` accepts. ``system_desc.json`` is submitter-authored, not an
-    endpoints artifact.
+    ``runs create`` accepts. ``system_desc.json`` and ``point.yaml`` are
+    submitter-authored, not endpoints artifacts.
     """
     folder = tmp_path / "test_run"
     (folder / "performance").mkdir(parents=True)
@@ -252,6 +320,7 @@ def endpoints_run_folder(tmp_path: Path) -> Path:
     (folder / "metrics").mkdir()
 
     (folder / "system_desc.json").write_text(json.dumps(_SYSTEM_DESC))
+    (folder / "point.yaml").write_text(yaml.dump(_POINT))
     (folder / "config.yaml").write_text(yaml.dump(_CONFIG))
     (folder / "performance" / "result_summary.json").write_text(json.dumps(_RESULT_SUMMARY))
     (folder / "accuracy" / "accuracy_results.json").write_text(json.dumps(_ACCURACY_RESULTS))
@@ -261,6 +330,26 @@ def endpoints_run_folder(tmp_path: Path) -> Path:
     (folder / "sample_idx_map.json").write_text(json.dumps({"0": 0}))
     (folder / "events.jsonl").write_text('{"event_type":"start","timestamp_ns":1}\n')
     return folder
+
+
+#: Accuracy artifact as endpoints writes it: accuracy/accuracy_results.json, whose
+#: accuracy_scores is a LIST of per-dataset entries (not a dict).
+_ACCURACY_RESULTS = {
+    "osl_tokenization_s": 0.012,
+    "accuracy_scores": [
+        {
+            "dataset_name": "cnn_dailymail_validation",
+            "extractor": "IdentityExtractor",
+            "ground_truth_column": "highlights",
+            "score": {"rouge1": "38.7287", "rouge2": "16.0968"},
+            "unit_samples": 500,
+            "num_repeats": 1,
+            "total_samples": 500,
+            "complete": True,
+            "dataset_type": "accuracy",
+        }
+    ],
+}
 
 
 @pytest.fixture

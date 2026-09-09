@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-import re
 import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -16,6 +15,8 @@ from typing import Any, cast
 import click
 import yaml
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
+
+from submission_checker import layout
 
 from ...exceptions import APIError, ArchiveError, RunFolderError, SubmissionCheckError
 from ...runs import api as runs_api
@@ -33,7 +34,6 @@ from ..common import (
 __all__ = ["submissions_create_local"]
 
 #: A Pareto-point directory: "r" followed by the concurrency level (r1, r32, r256).
-_POINT_DIR_RE = re.compile(r"r(\d+)")
 
 
 @click.command("create-local")
@@ -292,59 +292,47 @@ def submissions_create_local(
 def _find_result_dirs(submission_path: Path) -> list[Path]:
     """Return all r<N>/ point directories under results/<system>/<model>/.
 
-    The system description now lives once per system as
-    ``results/<system>/system_desc_id.json`` rather than in every point directory,
-    so a point is identified by its ``result_summary.json``.
+    A point is identified by its ``result_summary.json``.
     """
     result_dirs: list[Path] = []
-    results_dir = submission_path / "results"
+    results_dir = submission_path / layout.RESULTS_DIR
     if not results_dir.is_dir():
         return result_dirs
-    for system_dir in sorted(results_dir.iterdir()):
-        if not system_dir.is_dir():
-            continue
-        for model_dir in sorted(system_dir.iterdir()):
-            if not model_dir.is_dir():
-                continue
-            for point_dir in sorted(model_dir.iterdir()):
-                if not point_dir.is_dir() or not _POINT_DIR_RE.fullmatch(point_dir.name):
-                    continue
-                if (point_dir / "result_summary.json").exists():
-                    result_dirs.append(point_dir)
+    for _system_dir, model_dir in layout.iter_curves(results_dir):
+        for point_dir in layout.iter_point_dirs(model_dir):
+            if (point_dir / layout.RESULT_SUMMARY_JSON).exists():
+                result_dirs.append(point_dir)
     return result_dirs
-
-
-def _system_desc_for_point(point_dir: Path) -> Path:
-    """Path to the system description covering *point_dir* (results/<system>/…)."""
-    return point_dir.parent.parent / "system_desc_id.json"
 
 
 def _parse_result_dir(path: Path) -> dict[str, Any]:
     """Parse a submission point directory into a RunCreate payload.
 
-    Like parse_run_folder, but the system description is shared per system rather
-    than stored in the point directory.
+    Like parse_run_folder, but reading from an assembled bundle: since policies
+    PR #119 the system description sits in the point directory itself, so the two
+    layouts now differ only in which supplementary files are present.
     """
-    for fname in ("config.yaml", "result_summary.json"):
+    for fname in (layout.SYSTEM_DESC_JSON, layout.RESULT_SUMMARY_JSON):
         if not (path / fname).exists():
             raise RunFolderError(f"Point directory {path} is missing {fname}")
 
-    sd_path = _system_desc_for_point(path)
-    if not sd_path.exists():
-        raise RunFolderError(f"Point directory {path} has no {sd_path.name} for its system")
-
+    sd_path = path / layout.SYSTEM_DESC_JSON
     try:
         system_info = cast(dict[str, Any], json.loads(sd_path.read_text()))
     except json.JSONDecodeError as exc:
         raise RunFolderError(f"Invalid JSON in {sd_path.name}: {exc}") from exc
 
-    try:
-        raw_cfg = yaml.safe_load((path / "config.yaml").read_text())
+    # config.yaml is optional as of v1.0; an absent one is an empty mapping.
+    config: dict[str, Any] = {}
+    config_path = path / layout.CONFIG_YAML
+    if config_path.exists():
+        try:
+            raw_cfg = yaml.safe_load(config_path.read_text())
+        except yaml.YAMLError as exc:
+            raise RunFolderError(f"Invalid YAML in {layout.CONFIG_YAML}: {exc}") from exc
         if not isinstance(raw_cfg, dict):
-            raise RunFolderError("config.yaml must be a YAML mapping")
-        config: dict[str, Any] = raw_cfg
-    except yaml.YAMLError as exc:
-        raise RunFolderError(f"Invalid YAML in config.yaml: {exc}") from exc
+            raise RunFolderError(f"{layout.CONFIG_YAML} must be a YAML mapping")
+        config = raw_cfg
 
     try:
         result_summary = cast(

@@ -10,7 +10,6 @@ __all__ = [
     "load_accuracy_scores",
     "load_point_config",
     "load_result_summary",
-    "load_run_metadata",
     "load_system_description",
 ]
 
@@ -19,7 +18,7 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
-from .file import AccuracyResult, PointConfig, PointSummary, RunMetadata, SystemDescription
+from .file import AccuracyResult, PointConfig, PointSummary, SystemDescription
 from .results import CheckResult, Severity
 
 
@@ -63,7 +62,7 @@ def _validation_errors(exc: ValidationError, rule: str, path: Path) -> list[Chec
 def load_system_description(
     path: Path,
 ) -> tuple[SystemDescription | None, list[CheckResult]]:
-    """Load and validate ``system_desc_id.json``.
+    """Load and validate a point's ``system_desc.json`` (§8.2).
 
     Returns:
         A ``(model, check_results)`` pair.  On success the model is not None and
@@ -130,27 +129,6 @@ def load_result_summary(path: Path) -> tuple[PointSummary | None, list[CheckResu
         return PointSummary.model_validate(data), []
     except ValidationError as exc:
         return None, _validation_errors(exc, "result-file-valid", path)
-
-
-def load_run_metadata(path: Path) -> tuple[RunMetadata | None, list[CheckResult]]:
-    """Load and validate ``run_metadata.json``.
-
-    Returns:
-        A ``(model, check_results)`` pair.  On success the model is not None and
-        check_results is empty.  On failure the model is None and check_results
-        contains one entry per validation error.
-    """
-    data, load_err = _load_json(path)
-    if load_err:
-        return None, [
-            CheckResult(
-                rule="run-metadata-valid", message=load_err, severity=Severity.ERROR, path=path
-            )
-        ]
-    try:
-        return RunMetadata.model_validate(data), []
-    except ValidationError as exc:
-        return None, _validation_errors(exc, "run-metadata-valid", path)
 
 
 def load_accuracy_result(

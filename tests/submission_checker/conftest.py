@@ -23,6 +23,7 @@ from submission_checker.models import (
     PercentileStats,
     PointConfig,
     PointSummary,
+    Regions,
     RuntimeSettings,
     Severity,
     SystemDescription,
@@ -54,8 +55,11 @@ _NODE_TYPE = {
     "filesystem": "ext4",
 }
 
-_M = 1024
-_REGIONS = compute_regions(_M)
+_C_MAX = 1024
+#: C_min is derived from a curve's own points (§5.4); 32 reproduces the v0.7 fixed
+#: boundaries (33–42 / 43–131 / 132–1024), so the layout-coupled fixtures stay valid.
+_C_MIN = 32
+_REGIONS = compute_regions(_C_MAX, _C_MIN)
 
 # ---------------------------------------------------------------------------
 # Builder helpers
@@ -95,10 +99,14 @@ def _system_desc(
 
 
 def _config(
-    concurrency: int = 64, stream: bool = True, lp_type: str = "concurrency"
+    concurrency: int = 64,
+    stream: bool = True,
+    lp_type: str = "concurrency",
+    region: str | None = None,
 ) -> PointConfig:
     return PointConfig(
         concurrency=concurrency,
+        region=region,
         dataset="mlperf-perf-dataset-v1",
         runtime_settings=RuntimeSettings(
             load_pattern=lp_type,
@@ -109,19 +117,30 @@ def _config(
     )
 
 
+#: TPOT P90 in nanoseconds. 5 ms → tps_per_user = 1000 / 5 = 200 tok/s/user (§9.1).
+_TPOT_P90_NS = 5_000_000.0
+
+
 def _summary(
     n_completed: int = 1000,
     n_issued: int = 1000,
     n_failed: int = 0,
     duration_ns: float = 1_200_000_000_000.0,
     total_tokens: float = 500_000.0,
+    tpot_p90_ns: float | None = _TPOT_P90_NS,
 ) -> PointSummary:
     return PointSummary(
         n_samples_completed=n_completed,
         n_samples_issued=n_issued,
         n_samples_failed=n_failed,
         duration_ns=duration_ns,
-        ttft=PercentileStats(total=0.0, percentiles={"50": 150_000_000.0, "95": 300_000_000.0}),
+        ttft=PercentileStats(
+            total=0.0,
+            percentiles={"50": 150_000_000.0, "90": 270_000_000.0, "95": 300_000_000.0},
+        ),
+        tpot=PercentileStats(
+            total=0.0, percentiles={} if tpot_p90_ns is None else {"90": tpot_p90_ns}
+        ),
         output_sequence_lengths=PercentileStats(total=total_tokens),
     )
 
@@ -138,6 +157,7 @@ def _model_ctx(
     system_desc: SystemDescription | None = None,
     model_name: str = "llama3-70b",
     accuracy_result: AccuracyResult | None = None,
+    regions: Regions | None = _REGIONS,
 ) -> ModelContext:
     model_dir = tmp_path / model_name
     model_dir.mkdir(exist_ok=True)
@@ -147,7 +167,7 @@ def _model_ctx(
         system_id="test-sys",
         system_desc=system_desc or _system_desc(),
         model_dir=model_dir,
-        regions=_REGIONS,
+        regions=regions,
         points_dir=model_dir / "points",
         all_point_count=all_point_count,
         valid_points=valid_points or [],

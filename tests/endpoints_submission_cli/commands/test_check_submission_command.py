@@ -15,7 +15,9 @@ from endpoints_submission_cli.main import app
 _REPO_ROOT = Path(__file__).parent.parent.parent.parent
 _TEST_SUBMISSIONS = _REPO_ROOT / "test_submissions"
 _VALID = _TEST_SUBMISSIONS / "valid_standardized"
-_SUB_E = _TEST_SUBMISSIONS / "sub_e"  # missing low-throughput coverage -> error
+# sub_g's points start at 64, so under v1.0's derived boundaries (C_min clamps to
+# 32, Low Concurrency 33–45) it covers neither Ultra Low nor Low Concurrency.
+_FAILING = _TEST_SUBMISSIONS / "sub_g"
 
 _runner = CliRunner()
 
@@ -32,9 +34,9 @@ class TestCheckSubmission:
         assert "PASSED" in result.output
 
     def test_invalid_submission_fails(self) -> None:
-        result = _runner.invoke(app, ["check-submission", str(_SUB_E)], env=_NO_CI)
+        result = _runner.invoke(app, ["check-submission", str(_FAILING)], env=_NO_CI)
         assert result.exit_code == 1
-        assert "low-throughput-coverage" in result.output
+        assert "low-concurrency-coverage" in result.output
         assert "FAILED" in result.output
 
     def test_missing_path_exits_one(self, tmp_path: Path) -> None:
@@ -42,7 +44,7 @@ class TestCheckSubmission:
         assert result.exit_code == 1
 
     def test_quiet_hides_info(self) -> None:
-        result = _runner.invoke(app, ["check-submission", "--quiet", str(_SUB_E)], env=_NO_CI)
+        result = _runner.invoke(app, ["check-submission", "--quiet", str(_FAILING)], env=_NO_CI)
         # The verdict line still reports counts, but no INFO rows should appear.
         assert "info" not in result.output.lower()
 
@@ -58,7 +60,7 @@ class TestCheckSubmission:
         """Annotations go to stderr, so --json stdout stays parseable inside CI."""
         result = _runner.invoke(
             app,
-            ["check-submission", "--json", "--annotate", str(_SUB_E)],
+            ["check-submission", "--json", "--annotate", str(_FAILING)],
             env=_NO_CI,
         )
         assert result.exit_code == 1
@@ -76,20 +78,20 @@ class TestCheckSubmission:
         assert data["passed"] is True
 
     def test_annotate_emits_github_commands_on_stderr(self) -> None:
-        result = _runner.invoke(app, ["check-submission", "--annotate", str(_SUB_E)], env=_NO_CI)
+        result = _runner.invoke(app, ["check-submission", "--annotate", str(_FAILING)], env=_NO_CI)
         assert result.exit_code == 1
         assert "::error " in result.stderr
         assert "title=submission-checker:" in result.stderr
 
     def test_no_annotate_by_default_outside_ci(self) -> None:
-        result = _runner.invoke(app, ["check-submission", str(_SUB_E)], env=_NO_CI)
+        result = _runner.invoke(app, ["check-submission", str(_FAILING)], env=_NO_CI)
         assert "::error " not in result.stderr
         assert "::error " not in result.stdout
 
     def test_github_env_enables_annotations(self) -> None:
         result = _runner.invoke(
             app,
-            ["check-submission", str(_SUB_E)],
+            ["check-submission", str(_FAILING)],
             env={"GITHUB_ACTIONS": "true"},
         )
         assert "::error " in result.stderr
@@ -98,7 +100,7 @@ class TestCheckSubmission:
         summary = tmp_path / "summary.md"
         result = _runner.invoke(
             app,
-            ["check-submission", str(_SUB_E)],
+            ["check-submission", str(_FAILING)],
             env={"GITHUB_ACTIONS": "true", "GITHUB_STEP_SUMMARY": str(summary)},
         )
         assert result.exit_code == 1

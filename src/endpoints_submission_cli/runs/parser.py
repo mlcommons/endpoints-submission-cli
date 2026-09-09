@@ -7,10 +7,11 @@ Run folder layout, as written by ``mlcommons/endpoints`` to its ``report_dir``
 
     <run_folder>/
         system_desc.json                    — org/system/model/dataset metadata   [required]
-                                              NOT an endpoints artifact: the
-                                              submitter authors it and drops it in
-        config.yaml                         — resolved benchmark configuration    [required]
+        point.yaml                          — §8.3 Pareto-point disclosure        [required]
+                                              Neither is an endpoints artifact: the
+                                              submitter authors both and drops them in
         performance/result_summary.json     — performance metrics                 [required]
+        config.yaml                         — resolved benchmark configuration    [optional]
         accuracy/accuracy_results.json      — per-dataset accuracy scores
         events.jsonl                        — per-event log (largest file by far)
         report.txt                          — human-readable report
@@ -39,24 +40,37 @@ from ..truncation import truncate_responses
 
 __all__ = ["parse_run_folder", "build_archive"]
 
-#: Files a run folder must contain, relative to its root. ``system_desc.json`` is
-#: authored by the submitter; the other two are written by endpoints.
+#: Files a run folder must contain, relative to its root. ``system_desc.json`` and
+#: ``point.yaml`` are authored by the submitter; ``performance/result_summary.json`` is
+#: written by endpoints.
+#:
+#: point.yaml is required rather than derived from config.yaml: the §8.3 disclosure it
+#: carries (warmup counts, data source, stream_all_chunks) is not always present in a
+#: config, and inventing nulls for it produced bundles the checker then rejected.
+#:
+#: config.yaml is *not* required as of v1.0. It records what the harness was told to do,
+#: which is useful context but carries no disclosure of its own — point.yaml is the
+#: normative artifact. It is still copied through whenever a run supplies it.
 _REQUIRED_FILES = (
     "system_desc.json",
-    "config.yaml",
+    "point.yaml",
     "performance/result_summary.json",
 )
 
 #: Accuracy artifact whose ``responses`` list is truncated before archiving.
 _ACCURACY_RESULTS_FILENAME = "accuracy_results.json"
 
+#: Performance metrics, relative to the run folder root.
+_RESULT_SUMMARY_REL = Path("performance") / "result_summary.json"
+
 
 def parse_run_folder(path: Path) -> dict[str, Any]:
     """Parse *path* and return a dict suitable for ``POST /runs``.
 
     Args:
-        path: Directory containing ``system_desc.json``, ``config.yaml``, and
-              ``performance/result_summary.json``.
+        path: Directory containing ``system_desc.json``, ``point.yaml``, and
+              ``performance/result_summary.json``. ``config.yaml`` is optional and
+              passed through as an empty mapping when absent.
 
     Returns:
         Dict with keys matching ``RunCreate`` schema fields.
@@ -71,8 +85,9 @@ def parse_run_folder(path: Path) -> dict[str, Any]:
     _validate_required_files(path)
 
     system_info = _load_json(path / "system_desc.json")
-    config = _load_yaml(path / "config.yaml")
-    result_summary = _load_json(path / "performance" / "result_summary.json")
+    config_path = path / "config.yaml"
+    config = _load_yaml(config_path) if config_path.exists() else {}
+    result_summary = _load_json(path / _RESULT_SUMMARY_REL)
 
     started_at, finished_at = _extract_timestamps(result_summary)
     benchmark_version = result_summary.get("git_sha") or "unknown"
@@ -171,7 +186,10 @@ def build_archive(folder: Path, dest: Path | None = None, run_date: str | None =
         dest: Destination file path. Defaults to ``<folder.name>.tar.gz`` beside *folder*.
         run_date: When provided and the folder contains a ``run_metadata.json``, the
             archived copy of that file has its ``run_date`` field set to this value.
-            The source folder on disk is left untouched.
+            The source folder on disk is left untouched. ``run_metadata.json`` is no
+            longer part of the submission format (policies PR #119) and is not copied
+            into a built bundle; this stamps only the uploaded run archive, for
+            harnesses that still emit it.
 
     The archived copy of every ``accuracy_results.json`` (written by endpoints under
     ``accuracy/``; matched at any depth) has its verbose ``responses`` list truncated

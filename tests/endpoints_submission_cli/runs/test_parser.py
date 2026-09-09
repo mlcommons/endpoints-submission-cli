@@ -70,24 +70,39 @@ class TestParseRunFolder:
         folder = tmp_path / "bad_run"
         folder.mkdir()
         (folder / "config.yaml").write_text("name: test")
+        (folder / "point.yaml").write_text("concurrency: 4\n")
         _write_summary(folder, "{}")
         with pytest.raises(RunFolderError, match="system_desc.json"):
             parse_run_folder(folder)
 
-    def test_missing_config_raises(self, tmp_path: Path) -> None:
-        folder = tmp_path / "bad_run"
-        folder.mkdir()
-        (folder / "system_desc.json").write_text("{}")
-        _write_summary(folder, "{}")
-        with pytest.raises(RunFolderError, match="config.yaml"):
-            parse_run_folder(folder)
+    def test_missing_config_yaml_is_accepted(self, endpoints_run_folder: Path) -> None:
+        """config.yaml is optional as of v1.0; an absent one parses as an empty mapping.
+
+        It used to be required — the run-folder half of an asymmetry where config.yaml
+        was mandatory for a run while point.yaml was mandatory for a submission. v1.0
+        makes point.yaml the normative artifact in both places.
+        """
+        (endpoints_run_folder / "config.yaml").unlink()
+        payload = parse_run_folder(endpoints_run_folder)
+        assert payload["config"] == {}
 
     def test_missing_result_summary_raises(self, tmp_path: Path) -> None:
         folder = tmp_path / "bad_run"
         folder.mkdir()
         (folder / "system_desc.json").write_text("{}")
         (folder / "config.yaml").write_text("name: test")
+        (folder / "point.yaml").write_text("concurrency: 4\n")
         with pytest.raises(RunFolderError, match="result_summary.json"):
+            parse_run_folder(folder)
+
+    def test_missing_point_yaml_raises(self, tmp_path: Path) -> None:
+        """point.yaml is required, not derived — see issue #72."""
+        folder = tmp_path / "no_point"
+        folder.mkdir()
+        (folder / "system_desc.json").write_text("{}")
+        (folder / "config.yaml").write_text("name: test")
+        (folder / "result_summary.json").write_text("{}")
+        with pytest.raises(RunFolderError, match="point.yaml"):
             parse_run_folder(folder)
 
     def test_not_a_directory_raises(self, tmp_path: Path) -> None:
@@ -99,6 +114,7 @@ class TestParseRunFolder:
         folder.mkdir()
         (folder / "system_desc.json").write_text("{bad json")
         (folder / "config.yaml").write_text("name: test")
+        (folder / "point.yaml").write_text("concurrency: 4\n")
         _write_summary(folder, "{}")
         with pytest.raises(RunFolderError, match="Invalid JSON"):
             parse_run_folder(folder)
@@ -108,6 +124,7 @@ class TestParseRunFolder:
         folder.mkdir()
         (folder / "system_desc.json").write_text("{}")
         (folder / "config.yaml").write_text(": invalid: yaml: [")
+        (folder / "point.yaml").write_text("concurrency: 4\n")
         _write_summary(folder, "{}")
         with pytest.raises(RunFolderError, match="Invalid YAML"):
             parse_run_folder(folder)
@@ -117,6 +134,7 @@ class TestParseRunFolder:
         folder.mkdir()
         (folder / "system_desc.json").write_text("{}")
         (folder / "config.yaml").write_text("- item1\n- item2\n")
+        (folder / "point.yaml").write_text("concurrency: 4\n")
         _write_summary(folder, "{}")
         with pytest.raises(RunFolderError, match="must be a YAML mapping"):
             parse_run_folder(folder)
@@ -127,6 +145,7 @@ class TestParseRunFolder:
         folder.mkdir()
         (folder / "system_desc.json").write_text("{}")
         (folder / "config.yaml").write_text(yaml.dump({"name": "x"}))
+        (folder / "point.yaml").write_text("concurrency: 4\n")
         _write_summary(folder, json.dumps({"duration_ns": 0}))
         payload = parse_run_folder(folder)
         assert payload["started_at"] == payload["finished_at"]
@@ -136,6 +155,7 @@ class TestParseRunFolder:
         folder.mkdir()
         (folder / "system_desc.json").write_text("{}")
         (folder / "config.yaml").write_text(yaml.dump({"name": "x"}))
+        (folder / "point.yaml").write_text("concurrency: 4\n")
         _write_summary(folder, json.dumps({"git_sha": "abc123"}))
         payload = parse_run_folder(folder)
         assert payload["benchmark_version"] == "abc123"
@@ -145,6 +165,7 @@ class TestParseRunFolder:
         folder.mkdir()
         (folder / "system_desc.json").write_text("{}")
         (folder / "config.yaml").write_text(yaml.dump({"name": "x"}))
+        (folder / "point.yaml").write_text("concurrency: 4\n")
         _write_summary(folder, "{}")
         payload = parse_run_folder(folder)
         assert payload["benchmark_version"] == "unknown"

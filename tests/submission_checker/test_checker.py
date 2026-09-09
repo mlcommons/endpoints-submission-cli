@@ -6,10 +6,33 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 import yaml
 
+from submission_checker import layout
 from submission_checker.checker import SubmissionChecker
 from submission_checker.models import CheckResult, Report, Severity
+
+#: The three §9.1 per-region coverage rules. Ultra Low Concurrency is checked
+#: separately against the fixed 1–32 band, so it is not one of these.
+_COVERAGE_RULES = (
+    "low-concurrency-coverage",
+    "med-concurrency-coverage",
+    "high-concurrency-coverage",
+)
+
+_ALL_SUB_FIXTURES = (
+    "sub_a",
+    "sub_b",
+    "sub_c",
+    "sub_d",
+    "sub_e",
+    "sub_f",
+    "sub_g",
+    "sub_h",
+    "sub_i",
+    "sub_j",
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -34,29 +57,36 @@ def _check(path: Path) -> Report:
 
 
 class TestValidStandardized:
+    """The corpus's must-pass tree. C_max=1000 with a derived C_min=16."""
+
     def test_passes_overall(self, valid_standardized):
-        assert _check(valid_standardized).passed
+        report = _check(valid_standardized)
+        assert report.passed, [f"{r.rule}: {r.message}" for r in report.errors]
 
     def test_all_regions_covered(self, valid_standardized):
         report = _check(valid_standardized)
-        for rule in [
-            "low-latency-coverage",
-            "low-throughput-coverage",
-            "med-throughput-coverage",
-            "high-throughput-coverage",
-        ]:
+        for rule in _COVERAGE_RULES:
             assert not _errors(report, rule), f"{rule} should pass"
 
     def test_metric_consistency(self, valid_standardized):
         report = _check(valid_standardized)
         assert not _errors(report, "metric-consistency-duration")
         assert not _errors(report, "metric-consistency-accounting")
+        assert not _errors(report, "metric-consistency-tpot-p90")
 
     def test_accuracy_gate(self, valid_standardized):
         assert not _errors(_check(valid_standardized), "accuracy-gate")
 
     def test_point_count(self, valid_standardized):
         assert not _errors(_check(valid_standardized), "point-count")
+
+    def test_seed_binding(self, valid_standardized):
+        report = _check(valid_standardized)
+        for rule in ("seed-set-consistency", "seed-set-membership", "seed-runtime-match"):
+            assert not _errors(report, rule), f"{rule} should pass"
+
+    def test_shared_paths_resolve(self, valid_standardized):
+        assert not _errors(_check(valid_standardized), "shared-path-resolution")
 
 
 # ---------------------------------------------------------------------------
@@ -74,186 +104,76 @@ class TestInvalidSubmission:
     def test_accuracy_gate_error(self, invalid_submission):
         assert _errors(_check(invalid_submission), "accuracy-gate")
 
-    def test_missing_throughput_regions(self, invalid_submission):
+    def test_missing_concurrency_regions(self, invalid_submission):
+        """C_max=88, C_min=16 → low 17–20, med 21–33; points are 16/38/88."""
         report = _check(invalid_submission)
-        # Only 3 points (c16, c38, c88); max_supported_concurrency=88 → LT region is 33–36, not covered
-        assert _errors(report, "low-throughput-coverage")
+        assert _errors(report, "low-concurrency-coverage")
+        assert _errors(report, "med-concurrency-coverage")
 
 
 # ---------------------------------------------------------------------------
-# sub_a / sub_b — MI355X 8/16-GPU, gpt-oss-120b, M=2048, 7 points
-# Concurrencies: 4,16,64,128,512,1024,2048 — jumps 16→64, skipping LT (33–44)
+# Fixture coverage expectations, re-derived under v1.0's per-submission regions.
+#
+# v0.7 fixed Low Concurrency at 33–42 regardless of the submission, so most of the
+# corpus skipped it. v1.0 derives the boundaries from each curve's own C_min, which
+# moves the window down to wherever the submitter's points actually start — and eight
+# of these ten trees now cover it. The three that still miss it are the ones whose
+# points start high relative to C_max.
 # ---------------------------------------------------------------------------
 
+#: Fixtures whose points cover all three concurrency regions under v1.0.
+_FULLY_COVERING = ("sub_a", "sub_b", "sub_c", "sub_d", "sub_e", "sub_f", "sub_i")
 
-class TestSubA:
-    def test_point_count_passes(self, sub_a):
-        assert not _errors(_check(sub_a), "point-count")
-
-    def test_low_latency_covered(self, sub_a):
-        assert not _errors(_check(sub_a), "low-latency-coverage")
-
-    def test_low_throughput_missing(self, sub_a):
-        assert _errors(_check(sub_a), "low-throughput-coverage")
-
-    def test_metric_consistency(self, sub_a):
-        report = _check(sub_a)
-        assert not _errors(report, "metric-consistency-duration")
-        assert not _errors(report, "metric-consistency-accounting")
-
-    def test_accuracy_passes(self, sub_a):
-        assert not _errors(_check(sub_a), "accuracy-gate")
+#: (fixture, rules that must error) for the trees with a genuine coverage gap.
+_COVERAGE_GAPS = (
+    # C_max=2048, points start at 64 → C_min clamps to 32, low is 33–45.
+    ("sub_g", ("low-concurrency-coverage", "ultra-low-concurrency-coverage")),
+    ("sub_h", ("low-concurrency-coverage", "ultra-low-concurrency-coverage")),
+    # C_max=16384, points start at 32 → low is 33–57, and 64 is already Medium.
+    ("sub_j", ("low-concurrency-coverage",)),
+)
 
 
-class TestSubB:
-    def test_low_throughput_missing(self, sub_b):
-        assert _errors(_check(sub_b), "low-throughput-coverage")
-
-    def test_metric_consistency(self, sub_b):
-        report = _check(sub_b)
-        assert not _errors(report, "metric-consistency-duration")
-        assert not _errors(report, "metric-consistency-accounting")
+@pytest.mark.parametrize("fixture_name", _FULLY_COVERING)
+def test_fixture_covers_every_region(request, fixture_name):
+    report = _check(request.getfixturevalue(fixture_name))
+    for rule in _COVERAGE_RULES:
+        assert not _errors(report, rule), f"{fixture_name}: {rule} should pass"
+    assert not _errors(report, "ultra-low-concurrency-coverage")
 
 
-# ---------------------------------------------------------------------------
-# sub_c / sub_d — TPU 4/8-chip, qwen3-coder-480b, M=512/1024, 7/8 points
-# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("fixture_name, failing_rules", _COVERAGE_GAPS)
+def test_fixture_coverage_gaps(request, fixture_name, failing_rules):
+    report = _check(request.getfixturevalue(fixture_name))
+    for rule in failing_rules:
+        assert _errors(report, rule), f"{fixture_name}: {rule} should fail"
+    for rule in set(_COVERAGE_RULES) - set(failing_rules):
+        assert not _errors(report, rule), f"{fixture_name}: {rule} should pass"
 
 
-class TestSubC:
-    def test_point_count_passes(self, sub_c):
-        assert not _errors(_check(sub_c), "point-count")
-
-    def test_low_latency_covered(self, sub_c):
-        assert not _errors(_check(sub_c), "low-latency-coverage")
-
-    def test_low_throughput_missing(self, sub_c):
-        assert _errors(_check(sub_c), "low-throughput-coverage")
-
-    def test_metric_consistency(self, sub_c):
-        report = _check(sub_c)
-        assert not _errors(report, "metric-consistency-duration")
-        assert not _errors(report, "metric-consistency-accounting")
+@pytest.mark.parametrize("fixture_name", _ALL_SUB_FIXTURES)
+def test_fixture_point_count_passes(request, fixture_name):
+    assert not _errors(_check(request.getfixturevalue(fixture_name)), "point-count")
 
 
-class TestSubD:
-    def test_low_throughput_missing(self, sub_d):
-        assert _errors(_check(sub_d), "low-throughput-coverage")
-
-    def test_metric_consistency(self, sub_d):
-        report = _check(sub_d)
-        assert not _errors(report, "metric-consistency-duration")
-        assert not _errors(report, "metric-consistency-accounting")
+@pytest.mark.parametrize("fixture_name", _ALL_SUB_FIXTURES)
+def test_fixture_metric_consistency(request, fixture_name):
+    report = _check(request.getfixturevalue(fixture_name))
+    assert not _errors(report, "metric-consistency-duration")
+    assert not _errors(report, "metric-consistency-accounting")
 
 
-# ---------------------------------------------------------------------------
-# sub_e / sub_f — Gaudi, llama3-8b, M=1024, 11 points (1–1024)
-# Concurrencies include 32 (LL) and 64 (MT) — LT (33–42) still skipped
-# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("fixture_name", ("sub_a", "sub_c", "sub_e", "sub_j"))
+def test_fixture_accuracy_passes(request, fixture_name):
+    assert not _errors(_check(request.getfixturevalue(fixture_name)), "accuracy-gate")
 
 
-class TestSubE:
-    def test_point_count_passes(self, sub_e):
-        assert not _errors(_check(sub_e), "point-count")
-
-    def test_low_latency_covered(self, sub_e):
-        assert not _errors(_check(sub_e), "low-latency-coverage")
-
-    def test_low_throughput_missing(self, sub_e):
-        assert _errors(_check(sub_e), "low-throughput-coverage")
-
-    def test_high_throughput_covered(self, sub_e):
-        assert not _errors(_check(sub_e), "high-throughput-coverage")
-
-    def test_metric_consistency(self, sub_e):
-        report = _check(sub_e)
-        assert not _errors(report, "metric-consistency-duration")
-        assert not _errors(report, "metric-consistency-accounting")
-
-
-class TestSubF:
-    def test_metric_consistency(self, sub_f):
-        report = _check(sub_f)
-        assert not _errors(report, "metric-consistency-duration")
-        assert not _errors(report, "metric-consistency-accounting")
-
-
-# ---------------------------------------------------------------------------
-# sub_g / sub_h — 8-GPU vLLM/SGLang, llama3-70b, M=2048, 10 points
-# Minimum concurrency is 64 — both LL (1–32) and LT (33–44) missing
-# ---------------------------------------------------------------------------
-
-
-class TestSubG:
-    def test_low_latency_missing(self, sub_g):
-        assert _errors(_check(sub_g), "low-latency-coverage")
-
-    def test_low_throughput_missing(self, sub_g):
-        assert _errors(_check(sub_g), "low-throughput-coverage")
-
-    def test_point_count_passes(self, sub_g):
-        assert not _errors(_check(sub_g), "point-count")
-
-    def test_metric_consistency(self, sub_g):
-        report = _check(sub_g)
-        assert not _errors(report, "metric-consistency-duration")
-        assert not _errors(report, "metric-consistency-accounting")
-
-
-class TestSubH:
-    def test_low_latency_missing(self, sub_h):
-        assert _errors(_check(sub_h), "low-latency-coverage")
-
-    def test_metric_consistency(self, sub_h):
-        report = _check(sub_h)
-        assert not _errors(report, "metric-consistency-duration")
-        assert not _errors(report, "metric-consistency-accounting")
-
-
-# ---------------------------------------------------------------------------
-# sub_i — H200 8-GPU, deepseek-r1, M=512, 10 points (1–512)
-# LT region is 33–40; 32 is LL, 64 is MT — LT skipped
-# Short durations → run-duration WARNINGs (not errors) on some points
-# ---------------------------------------------------------------------------
-
-
-class TestSubI:
-    def test_low_latency_covered(self, sub_i):
-        assert not _errors(_check(sub_i), "low-latency-coverage")
-
-    def test_low_throughput_missing(self, sub_i):
-        assert _errors(_check(sub_i), "low-throughput-coverage")
-
-    def test_metric_consistency(self, sub_i):
-        report = _check(sub_i)
-        assert not _errors(report, "metric-consistency-duration")
-        assert not _errors(report, "metric-consistency-accounting")
-
-    def test_point_duration_warnings_not_errors(self, sub_i):
-        report = _check(sub_i)
-        assert not _errors(report, "point-duration"), "point-duration fires as WARNING, not ERROR"
-
-
-# ---------------------------------------------------------------------------
-# sub_j — GB300 72-GPU, deepseek-r1, M=16384, 10 points (32–16384)
-# LT region is 33–57; 32 is LL, 64 is MT — LT skipped
-# ---------------------------------------------------------------------------
-
-
-class TestSubJ:
-    def test_low_latency_covered(self, sub_j):
-        assert not _errors(_check(sub_j), "low-latency-coverage")
-
-    def test_low_throughput_missing(self, sub_j):
-        assert _errors(_check(sub_j), "low-throughput-coverage")
-
-    def test_high_throughput_covered(self, sub_j):
-        assert not _errors(_check(sub_j), "high-throughput-coverage")
-
-    def test_metric_consistency(self, sub_j):
-        report = _check(sub_j)
-        assert not _errors(report, "metric-consistency-duration")
-        assert not _errors(report, "metric-consistency-accounting")
+@pytest.mark.parametrize("fixture_name", _ALL_SUB_FIXTURES)
+def test_run_duration_is_flagged_not_rejected(request, fixture_name):
+    """§9.1's failure action for run duration is "Flag", never "Reject"."""
+    report = _check(request.getfixturevalue(fixture_name))
+    assert [r for r in report.results if r.rule == "point-duration"], "rule did not run"
+    assert not _errors(report, "point-duration")
 
 
 # ---------------------------------------------------------------------------
@@ -265,7 +185,7 @@ _SYSTEM_DESC = {
     "submitter_contact": "contact@example.com",
     "system_name": "test-sys",
     "system_category": "datacenter",
-    "system_availability_status": "Available",
+    "publication_status": "Available",
     "max_supported_concurrency": 1024,
     "serving_framework": "vLLM",
     "node_types": [
@@ -276,18 +196,22 @@ _SYSTEM_DESC = {
             "host_processors_per_node": 2,
             "host_processor_core_count": 64,
             "host_memory_capacity": "512 GB",
-            "accelerator_model_name": "H100",
-            "accelerators_per_node": 8,
-            "accelerator_memory_capacity": "80 GB",
             "host_networking": "InfiniBand",
             "host_network_card_count": "4x NIC",
             "host_storage_type": "NVMe",
             "host_storage_capacity": "10 TB",
             "operating_system": "Ubuntu 22.04",
             "host_memory_configuration": "8x 64GB DDR5",
-            "accelerator_memory_type": "HBM3",
             "driver": "550.54",
             "filesystem": "ext4",
+            "accelerator_info": [
+                {
+                    "accelerator_model_name": "H100",
+                    "accelerators_per_node": 8,
+                    "accelerator_memory_capacity": "80 GB",
+                    "accelerator_memory_type": "HBM3",
+                }
+            ],
         }
     ],
     "division": "Serviced",
@@ -295,15 +219,9 @@ _SYSTEM_DESC = {
     "system_node_ensemble_count": 1,
     "system_node_ensemble_total": 1,
     "model_id": "test-model",
-    "model_precision": "FP16",
-    "link_to_model": "https://example.com/model",
-    "dataset_id": "cnn_dailymail",
-    "dataset_name": "CNN/DailyMail",
-    "input_token_average": 870.0,
-    "output_token_average": 128.0,
-    "dataset_type": "performance",
-    "dataset_link": "https://example.com/dataset",
-    "measured_accuracy_score": "38.7",
+    "node_config": "8x H100 test node",
+    "config_summary": "TP 1, PP 1, DP 1",
+    "tps_utilization": 1.0,
 }
 
 _SUMMARY = {
@@ -311,7 +229,11 @@ _SUMMARY = {
     "n_samples_completed": 1000,
     "n_samples_failed": 0,
     "duration_ns": 1_200_000_000_000.0,
-    "ttft": {"total": 0.0, "percentiles": {"50": 150_000_000.0, "95": 300_000_000.0}},
+    "ttft": {
+        "total": 0.0,
+        "percentiles": {"50": 150_000_000.0, "90": 270_000_000.0, "95": 300_000_000.0},
+    },
+    "tpot": {"total": 0.0, "percentiles": {"50": 4_000_000.0, "90": 5_500_000.0}},
     "output_sequence_lengths": {"total": 500_000.0, "percentiles": {}},
 }
 
@@ -324,59 +246,53 @@ _ACCURACY = {
     }
 }
 
-# Concurrencies that cover all four regions for M=1024
-# LT: 33–42 → 38; MT: 43–175 → 88; HT: 176–1126 → 256, 512, 768, 1000
-_CONCURRENCIES = [16, 38, 88, 256, 512, 768, 1000]
+#: Concurrencies covering every region for C_max=1024 with a derived C_min=16:
+#: low 17–26 → 20; med 27–117 → 88; high 118–1024 → 256, 512, 768, 1000.
+_CONCURRENCIES = [16, 20, 88, 256, 512, 768, 1000]
+
+#: Seed set A from data/seed_sets.yaml, mirrored from policies PR #117.
+_SEEDS = {
+    "scheduler_rng_seed": 10487924139932647040,
+    "sample_index_rng_seed": 586478644936801402,
+    "model_seed": 9315206023656308754,
+}
 
 
 def _make_run_yaml(concurrency: int) -> dict:
+    """A §8.3-complete point.yaml, so a test sees only the defect it introduced."""
     return {
         "concurrency": concurrency,
         "dataset": "llm-perf-dataset-v1",
+        "division": "Serviced",
+        "max_supported_concurrency": 1024,
+        "model_name": "llama3.1-8b",
+        "model_precision": "FP16",
+        "link_to_model": "https://example.com/model",
+        "link_to_model_transformation": "https://example.com/quantization",
+        "model_notes": "",
+        "dataset_name": "CNN/DailyMail",
+        "dataset_type": "Performance",
+        "dataset_link": "https://example.com/dataset",
+        "shared_src": "src",
+        "shared_docs": "docs",
+        "seed_set": "A",
+        "target_cohort": "2026-09-C0",
+        "warmup": {
+            "duration_s": 60.0,
+            "requests_issued": concurrency * 10,
+            "requests_completed": concurrency * 10,
+            "data_source": "llm-perf-dataset-v1 validation split",
+            "concurrency": concurrency,
+            "initialization_steps": ["model loaded"],
+            "logs_retained": True,
+        },
         "runtime_settings": {
             "load_pattern": "concurrency",
             "min_duration_ms": 1_200_000,
             "stream_all_chunks": True,
-            "runtime": {
-                "scheduler_random_seed": 42,
-                "dataloader_random_seed": 42,
-            },
+            "runtime": dict(_SEEDS),
         },
     }
-
-
-def _make_run_metadata(concurrency: int) -> dict:
-    """A fully-populated, valid run_metadata.json payload."""
-    md = {
-        "run_date": "2026-01-26",
-        "node_config": "8x H100 test node",
-        "config_summary": "TP 1, PP 1, DP 1",
-        "config_summary_notes": None,
-        "concurrency": concurrency,
-        "system_tps": 306.94,
-        "tps_per_user": 2.40,
-        "ttft": 312.5,
-        "qps": 5.07,
-        "tps_utilization": 1.0,
-        "measured_total_output_tokens": 60557,
-        "measured_run_duration": 197.29,
-        "measured_total_requests": 1000,
-        "link_config": None,
-        "link_logs": None,
-    }
-    for group in ("ttft", "tpot", "request"):
-        for stat, val in (
-            ("min", 1.0),
-            ("average", 2.0),
-            ("p50", 2.0),
-            ("p90", 3.0),
-            ("p95", 3.5),
-            ("p99", 4.0),
-            ("p999", 4.5),
-            ("max", 5.0),
-        ):
-            md[f"measured_latency_{group}_{stat}"] = val
-    return md
 
 
 def _build_submission(
@@ -387,35 +303,40 @@ def _build_submission(
     write_runs: bool = True,
     write_results: bool = True,
     write_accuracy_json: bool = True,
-    write_run_metadata: bool = True,
+    write_system_desc: bool = True,
+    write_config_yaml: bool = True,
     accuracy_data: dict | None = None,
     model: str = "llama3-70b",
 ) -> Path:
-    """Build a minimal valid (or deliberately broken) submission directory."""
+    """Build a minimal valid (or deliberately broken) submission directory.
+
+    Since policies PR #119 there is no per-system file: the system description is
+    written into every ``r<N>/`` alongside the point's own artifacts.
+    """
     desc = system_desc if system_desc is not None else _SYSTEM_DESC.copy()
     concs = concurrencies if concurrencies is not None else _CONCURRENCIES
 
     results_dir = root / "results" / system_id
-    results_dir.mkdir(parents=True)
-    (results_dir / "system_desc_id.json").write_text(json.dumps(desc))
+    results_dir.mkdir(parents=True, exist_ok=True)
     (root / "docs").mkdir(parents=True, exist_ok=True)
     impl_dir = root / "src" / "trtllm"
     impl_dir.mkdir(parents=True, exist_ok=True)
     (impl_dir / "README.md").write_text("# trtllm\n")
 
     model_dir = results_dir / model
-    model_dir.mkdir(parents=True)
+    model_dir.mkdir(parents=True, exist_ok=True)
 
     for c in concs:
         point_dir = model_dir / f"r{c}"
-        point_dir.mkdir(parents=True)
+        point_dir.mkdir(parents=True, exist_ok=True)
+        if write_system_desc:
+            (point_dir / "system_desc.json").write_text(json.dumps(desc))
         if write_runs:
             (point_dir / "point.yaml").write_text(yaml.dump(_make_run_yaml(c)))
         if write_results:
             (point_dir / "result_summary.json").write_text(json.dumps(_SUMMARY))
-            (point_dir / "config.yaml").write_text(yaml.dump({"concurrency": c}))
-            if write_run_metadata:
-                (point_dir / "run_metadata.json").write_text(json.dumps(_make_run_metadata(c)))
+            if write_config_yaml:
+                (point_dir / "config.yaml").write_text(yaml.dump({"concurrency": c}))
             # Write accuracy into the first point only; checker scans all points
             if c == concs[0] and write_accuracy_json:
                 data = accuracy_data if accuracy_data is not None else _ACCURACY
@@ -441,28 +362,47 @@ class TestCheckerEdgeCases:
         # Should not have processed any systems
         assert not any(r.rule == "system-description-present" for r in report.results)
 
-    def test_no_system_json_files(self, tmp_path):
-        """system-description-present error when no system_desc_id.json exists."""
+    def test_no_system_directories(self, tmp_path):
+        """system-results-dir error when results/ holds no system directories."""
         (tmp_path / "results").mkdir()
         (tmp_path / "docs").mkdir()
         report = _check(tmp_path)
+        assert _errors(report, "system-results-dir")
+
+    def test_missing_point_system_desc(self, tmp_path):
+        """system-description-present error when a point has no system_desc.json."""
+        root = _build_submission(tmp_path, write_system_desc=False)
+        report = _check(root)
         assert _errors(report, "system-description-present")
 
     def test_invalid_system_json(self, tmp_path):
-        """system-description-valid error when system JSON is malformed."""
-        (tmp_path / "results" / "bad-sys").mkdir(parents=True)
-        (tmp_path / "docs").mkdir()
-        (tmp_path / "results" / "bad-sys" / "system_desc_id.json").write_text("{bad json")
-        report = _check(tmp_path)
+        """system-description-valid error when a point's system_desc.json is malformed."""
+        root = _build_submission(tmp_path)
+        for path in root.rglob("system_desc.json"):
+            path.write_text("{bad json")
+        report = _check(root)
         assert _errors(report, "system-description-valid")
+
+    def test_system_desc_inconsistent_across_curve(self, tmp_path):
+        """§8.5: every point of a curve must describe the same system."""
+        root = _build_submission(tmp_path)
+        changed = root / "results" / "test-sys" / "llama3-70b" / "r88" / "system_desc.json"
+        changed.write_text(json.dumps({**_SYSTEM_DESC, "system_name": "a-different-system"}))
+        report = _check(root)
+        assert _errors(report, "system-description-consistency")
+
+    def test_tps_utilization_may_differ_across_a_curve(self, tmp_path):
+        """tps_utilization is per point, so it is exempt from the consistency check."""
+        root = _build_submission(tmp_path)
+        changed = root / "results" / "test-sys" / "llama3-70b" / "r88" / "system_desc.json"
+        changed.write_text(json.dumps({**_SYSTEM_DESC, "tps_utilization": 0.42}))
+        report = _check(root)
+        assert not _errors(report, "system-description-consistency")
 
     def test_empty_system_results_dir(self, tmp_path):
         """benchmark-model-dir error when results/<system>/ has no subdirectories."""
         (tmp_path / "results" / "test-sys").mkdir(parents=True)
         (tmp_path / "docs").mkdir()
-        (tmp_path / "results" / "test-sys" / "system_desc_id.json").write_text(
-            json.dumps(_SYSTEM_DESC)
-        )
         report = _check(tmp_path)
         assert _errors(report, "benchmark-model-dir")
 
@@ -471,7 +411,6 @@ class TestCheckerEdgeCases:
         (tmp_path / "docs").mkdir()
         sys_dir = tmp_path / "results" / "test-sys"
         sys_dir.mkdir(parents=True)
-        (sys_dir / "system_desc_id.json").write_text(json.dumps(_SYSTEM_DESC))
         (sys_dir / "llama3-70b").mkdir(parents=True)
         report = _check(tmp_path)
         assert _errors(report, "point-dirs")
@@ -485,85 +424,81 @@ class TestCheckerEdgeCases:
         assert _errors(report, "measurement-points-present")
 
     def test_missing_result_log(self, tmp_path):
-        """result-file-present error when r<N>/result_summary.json is absent."""
+        """result-summary-present error when r<N>/result_summary.json is absent."""
         root = _build_submission(tmp_path, write_results=False)
         report = _check(root)
-        assert _errors(report, "result-file-present")
-
-    def test_missing_run_metadata_errors(self, tmp_path):
-        """run-metadata-present error when run_metadata.json is absent from a point."""
-        root = _build_submission(tmp_path, write_run_metadata=False)
-        report = _check(root)
-        assert _errors(report, "run-metadata-present")
-
-    def test_valid_run_metadata_ok(self, tmp_path):
-        """A fully-populated run_metadata.json produces a run-metadata-valid ok and no errors."""
-        root = _build_submission(tmp_path)
-        report = _check(root)
-        assert not _errors(report, "run-metadata-present")
-        assert not _errors(report, "run-metadata-valid")
-        assert any(r.rule == "run-metadata-valid" for r in report.results)
-
-    def test_invalid_run_metadata_errors(self, tmp_path):
-        """A null measurement in run_metadata.json produces a run-metadata-valid error."""
-        root = _build_submission(tmp_path)
-        # Null out a measurement that must be non-null in every point's metadata.
-        for md in root.rglob("run_metadata.json"):
-            data = json.loads(md.read_text())
-            data["measured_latency_ttft_p99"] = None
-            md.write_text(json.dumps(data))
-        report = _check(root)
-        assert _errors(report, "run-metadata-valid")
+        assert _errors(report, "result-summary-present")
 
     def _set_tps(self, root, values: dict[int, tuple[float, float]]) -> None:
-        """Set (system_tps, tps_utilization) per concurrency in each run_metadata.json."""
-        for md in root.rglob("run_metadata.json"):
-            data = json.loads(md.read_text())
-            tps, util = values[data["concurrency"]]
-            data["system_tps"], data["tps_utilization"] = tps, util
-            md.write_text(json.dumps(data))
+        """Set each point's measured throughput and its declared tps_utilization.
+
+        ``system_tps`` is not stored any more — the checker derives it from the
+        measurement — so the throughput is set by choosing the output-token total that
+        produces it over the summary's fixed duration.
+        """
+        duration_s = _SUMMARY["duration_ns"] / 1e9
+        for _system, model_dir in layout.iter_curves(root / "results"):
+            for point_dir in layout.iter_point_dirs(model_dir):
+                concurrency = layout.parse_point_dir(point_dir.name)
+                if concurrency not in values:
+                    continue
+                tps, util = values[concurrency]
+                summary = json.loads((point_dir / "result_summary.json").read_text())
+                summary["output_sequence_lengths"] = {
+                    "total": tps * duration_s,
+                    "percentiles": {},
+                }
+                summary["system_tps"] = tps
+                (point_dir / "result_summary.json").write_text(json.dumps(summary))
+                desc_path = point_dir / "system_desc.json"
+                desc = json.loads(desc_path.read_text())
+                desc["tps_utilization"] = util
+                desc_path.write_text(json.dumps(desc))
 
     def test_tps_utilization_consistent_passes(self, tmp_path):
         """Correctly normalised tps_utilization yields no tps-utilization error."""
-        root = _build_submission(tmp_path, concurrencies=[16, 38])
+        root = _build_submission(tmp_path, concurrencies=[16, 20])
         # max system_tps = 200 → expected utils 0.5 and 1.0
-        self._set_tps(root, {16: (100.0, 0.5), 38: (200.0, 1.0)})
+        self._set_tps(root, {16: (100.0, 0.5), 20: (200.0, 1.0)})
         report = _check(root)
         assert not _errors(report, "tps-utilization")
         assert any(r.rule == "tps-utilization" for r in report.results)
 
     def test_tps_utilization_within_tolerance_passes(self, tmp_path):
         """A value off by < 0.1 from expected is accepted."""
-        root = _build_submission(tmp_path, concurrencies=[16, 38])
+        root = _build_submission(tmp_path, concurrencies=[16, 20])
         # expected for 16 is 0.5; 0.55 is within abs tol 0.1
-        self._set_tps(root, {16: (100.0, 0.55), 38: (200.0, 1.0)})
+        self._set_tps(root, {16: (100.0, 0.55), 20: (200.0, 1.0)})
         report = _check(root)
         assert not _errors(report, "tps-utilization")
 
     def test_tps_utilization_out_of_tolerance_errors(self, tmp_path):
         """A value off by > 0.1 from expected produces a tps-utilization error."""
-        root = _build_submission(tmp_path, concurrencies=[16, 38])
+        root = _build_submission(tmp_path, concurrencies=[16, 20])
         # expected for 16 is 0.5; 0.8 is off by 0.3 > 0.1
-        self._set_tps(root, {16: (100.0, 0.8), 38: (200.0, 1.0)})
+        self._set_tps(root, {16: (100.0, 0.8), 20: (200.0, 1.0)})
         report = _check(root)
         assert _errors(report, "tps-utilization")
 
     def _add_curve(self, root, system_id, model, values: dict[int, tuple[float, float]]):
         """Add a second <system_id>/<model> pareto curve with per-point (tps, util)."""
-        sys_dir = root / "results" / system_id
-        sys_dir.mkdir(parents=True, exist_ok=True)
-        (sys_dir / "system_desc_id.json").write_text(json.dumps(_SYSTEM_DESC))
-        model_dir = sys_dir / model
+        model_dir = root / "results" / system_id / model
         model_dir.mkdir(parents=True, exist_ok=True)
+        duration_s = _SUMMARY["duration_ns"] / 1e9
         for c, (tps, util) in values.items():
             rd = model_dir / f"r{c}"
-            rd.mkdir()
+            rd.mkdir(exist_ok=True)
             (rd / "point.yaml").write_text(yaml.dump(_make_run_yaml(c)))
-            (rd / "result_summary.json").write_text(json.dumps(_SUMMARY))
+            summary = {
+                **_SUMMARY,
+                "output_sequence_lengths": {"total": tps * duration_s, "percentiles": {}},
+                "system_tps": tps,
+            }
+            (rd / "result_summary.json").write_text(json.dumps(summary))
             (rd / "config.yaml").write_text(yaml.dump({"concurrency": c}))
-            md = _make_run_metadata(c)
-            md["system_tps"], md["tps_utilization"] = tps, util
-            (rd / "run_metadata.json").write_text(json.dumps(md))
+            (rd / "system_desc.json").write_text(
+                json.dumps({**_SYSTEM_DESC, "tps_utilization": util})
+            )
             (rd / "accuracy_results.json").write_text(json.dumps(_ACCURACY))
 
     def test_tps_utilization_normalized_per_curve(self, tmp_path):
@@ -573,29 +508,28 @@ class TestCheckerEdgeCases:
         must not be forced to divide by the large system's peak. With the old
         submission-wide max this errored on every small-system point.
         """
-        root = _build_submission(tmp_path, system_id="sys-small", concurrencies=[16, 38])
-        self._set_tps(root, {16: (100.0, 0.5), 38: (200.0, 1.0)})  # own peak 200
-        self._add_curve(root, "sys-big", "llama3-70b", {16: (1000.0, 0.5), 38: (2000.0, 1.0)})
+        root = _build_submission(tmp_path, system_id="sys-small", concurrencies=[16, 20])
+        self._set_tps(root, {16: (100.0, 0.5), 20: (200.0, 1.0)})  # own peak 200
+        self._add_curve(root, "sys-big", "llama3-70b", {16: (1000.0, 0.5), 20: (2000.0, 1.0)})
         report = _check(root)
         assert not _errors(report, "tps-utilization")
         assert any(r.rule == "tps-utilization" for r in report.results)
 
     def test_tps_utilization_per_curve_detects_error(self, tmp_path):
         """A wrongly-normalized value is still caught within its own curve."""
-        root = _build_submission(tmp_path, system_id="sys-small", concurrencies=[16, 38])
-        self._set_tps(root, {16: (100.0, 0.5), 38: (200.0, 1.0)})  # correct
+        root = _build_submission(tmp_path, system_id="sys-small", concurrencies=[16, 20])
+        self._set_tps(root, {16: (100.0, 0.5), 20: (200.0, 1.0)})  # correct
         # sys-big point 16 expects 0.5 but stores 0.9 (off by 0.4 > tol)
-        self._add_curve(root, "sys-big", "llama3-70b", {16: (1000.0, 0.9), 38: (2000.0, 1.0)})
+        self._add_curve(root, "sys-big", "llama3-70b", {16: (1000.0, 0.9), 20: (2000.0, 1.0)})
         report = _check(root)
         assert _errors(report, "tps-utilization")
 
-    def test_missing_config_yaml(self, tmp_path):
-        """result-file-present error when config.yaml is absent from a result dir."""
-        root = _build_submission(tmp_path)
-        config_yaml = root / "results" / "test-sys" / "llama3-70b" / "r16" / "config.yaml"
-        config_yaml.unlink()
+    def test_missing_config_yaml_is_not_an_error(self, tmp_path):
+        """config.yaml is optional as of v1.0 — point.yaml carries the disclosure."""
+        root = _build_submission(tmp_path, write_config_yaml=False)
         report = _check(root)
-        assert _errors(report, "result-file-present")
+        assert not [r for r in report.errors if "config.yaml" in r.message]
+        assert not _errors(report, "result-summary-present")
 
     def test_invalid_result_log(self, tmp_path):
         """result-file-valid error when the result log JSON is malformed."""
@@ -672,16 +606,12 @@ class TestCheckerEdgeCases:
         """region-computation error when compute_regions raises ValueError."""
         # compute_regions only raises if M <= 32, but SystemDescription enforces M > 32.
         # Patch compute_regions to simulate an unexpected ValueError.
-        (tmp_path / "docs").mkdir()
-        sys_dir = tmp_path / "results" / "test-sys"
-        sys_dir.mkdir(parents=True)
-        (sys_dir / "system_desc_id.json").write_text(json.dumps(_SYSTEM_DESC))
-        (sys_dir / "llama3-70b").mkdir()
+        root = _build_submission(tmp_path)
         with patch(
             "submission_checker.checker.compute_regions",
-            side_effect=ValueError("M must be > 32"),
+            side_effect=ValueError("C_max must be > 32"),
         ):
-            report = _check(tmp_path)
+            report = _check(root)
         assert _errors(report, "region-computation")
 
     def test_model_name_matches_dir(self, tmp_path):
