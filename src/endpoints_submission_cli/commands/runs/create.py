@@ -70,9 +70,9 @@ def runs_create(
 ) -> None:
     """Create a run from a local benchmark result folder.
 
-    Parses system_info.json, config.yaml, and result_summary.json from PATH,
-    registers the run with the Submission API, and uploads the run folder as
-    an archive.  If the archive upload fails the run record is deleted
+    Parses system_desc.json, config.yaml, and performance/result_summary.json
+    from PATH, registers the run with the Submission API, and uploads the run
+    folder as an archive.  If the archive upload fails the run record is deleted
     (rollback to clean state).
 
     Pass ``--test`` to flag the run as a test entry so it is excluded from

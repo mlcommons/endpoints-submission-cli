@@ -55,16 +55,16 @@ class TestRunsList:
 
 @pytest.mark.unit
 class TestRunsCreate:
-    def test_create_success(self, run_folder: Path) -> None:
+    def test_create_success(self, endpoints_run_folder: Path) -> None:
         with patch(
             "endpoints_submission_cli.runs.api.create_run", return_value=RUN_OUT
         ) as mock_create:
             with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
                 with patch("endpoints_submission_cli.runs.api.upload_run_archive"):
-                    _run_app("runs", "create", "--path", str(run_folder), *_TOKEN_ARGS)
+                    _run_app("runs", "create", "--path", str(endpoints_run_folder), *_TOKEN_ARGS)
         mock_create.assert_called_once()
 
-    def test_create_rollback_on_upload_failure(self, run_folder: Path) -> None:
+    def test_create_rollback_on_upload_failure(self, endpoints_run_folder: Path) -> None:
         with patch("endpoints_submission_cli.runs.api.create_run", return_value=RUN_OUT):
             with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
                 with patch(
@@ -73,7 +73,8 @@ class TestRunsCreate:
                 ):
                     with patch("endpoints_submission_cli.runs.api.delete_run") as mock_delete:
                         result = _runner.invoke(
-                            app, ["runs", "create", "--path", str(run_folder), *_TOKEN_ARGS]
+                            app,
+                            ["runs", "create", "--path", str(endpoints_run_folder), *_TOKEN_ARGS],
                         )
         assert result.exit_code == 1
         mock_delete.assert_called_once_with(TOKEN, RUN_ID)
@@ -86,36 +87,43 @@ class TestRunsCreate:
             )
         assert result.exit_code == 1
 
-    def test_create_api_error_exits_1(self, run_folder: Path) -> None:
+    def test_create_api_error_exits_1(self, endpoints_run_folder: Path) -> None:
         with patch("endpoints_submission_cli.runs.api.create_run", side_effect=APIError("500")):
             with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
                 result = _runner.invoke(
-                    app, ["runs", "create", "--path", str(run_folder), *_TOKEN_ARGS]
+                    app, ["runs", "create", "--path", str(endpoints_run_folder), *_TOKEN_ARGS]
                 )
         assert result.exit_code == 1
 
-    def test_create_test_flag_sets_is_test(self, run_folder: Path) -> None:
+    def test_create_test_flag_sets_is_test(self, endpoints_run_folder: Path) -> None:
         with patch(
             "endpoints_submission_cli.runs.api.create_run", return_value=RUN_OUT
         ) as mock_create:
             with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
                 with patch("endpoints_submission_cli.runs.api.upload_run_archive"):
-                    _run_app("runs", "create", "--path", str(run_folder), "--test", *_TOKEN_ARGS)
+                    _run_app(
+                        "runs",
+                        "create",
+                        "--path",
+                        str(endpoints_run_folder),
+                        "--test",
+                        *_TOKEN_ARGS,
+                    )
         assert mock_create.call_args[0][1]["is_test"] is True
 
-    def test_create_without_test_flag_omits_is_test(self, run_folder: Path) -> None:
+    def test_create_without_test_flag_omits_is_test(self, endpoints_run_folder: Path) -> None:
         """Absent flag sends nothing, leaving the API's own default to apply."""
         with patch(
             "endpoints_submission_cli.runs.api.create_run", return_value=RUN_OUT
         ) as mock_create:
             with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
                 with patch("endpoints_submission_cli.runs.api.upload_run_archive"):
-                    _run_app("runs", "create", "--path", str(run_folder), *_TOKEN_ARGS)
+                    _run_app("runs", "create", "--path", str(endpoints_run_folder), *_TOKEN_ARGS)
         assert "is_test" not in mock_create.call_args[0][1]
 
-    def test_create_test_flag_visible_in_dry_run(self, run_folder: Path) -> None:
+    def test_create_test_flag_visible_in_dry_run(self, endpoints_run_folder: Path) -> None:
         result = _runner.invoke(
-            app, ["runs", "create", "--path", str(run_folder), "--test", "--dry-run"]
+            app, ["runs", "create", "--path", str(endpoints_run_folder), "--test", "--dry-run"]
         )
         assert result.exit_code == 0
         assert json.loads(result.output)["is_test"] is True
