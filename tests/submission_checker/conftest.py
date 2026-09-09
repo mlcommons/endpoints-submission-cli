@@ -117,19 +117,30 @@ def _config(
     )
 
 
+#: TPOT P90 in nanoseconds. 5 ms → tps_per_user = 1000 / 5 = 200 tok/s/user (§9.1).
+_TPOT_P90_NS = 5_000_000.0
+
+
 def _summary(
     n_completed: int = 1000,
     n_issued: int = 1000,
     n_failed: int = 0,
     duration_ns: float = 1_200_000_000_000.0,
     total_tokens: float = 500_000.0,
+    tpot_p90_ns: float | None = _TPOT_P90_NS,
 ) -> PointSummary:
     return PointSummary(
         n_samples_completed=n_completed,
         n_samples_issued=n_issued,
         n_samples_failed=n_failed,
         duration_ns=duration_ns,
-        ttft=PercentileStats(total=0.0, percentiles={"50": 150_000_000.0, "95": 300_000_000.0}),
+        ttft=PercentileStats(
+            total=0.0,
+            percentiles={"50": 150_000_000.0, "90": 270_000_000.0, "95": 300_000_000.0},
+        ),
+        tpot=PercentileStats(
+            total=0.0, percentiles={} if tpot_p90_ns is None else {"90": tpot_p90_ns}
+        ),
         output_sequence_lengths=PercentileStats(total=total_tokens),
     )
 

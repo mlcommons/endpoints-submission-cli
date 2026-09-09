@@ -68,13 +68,11 @@ class TestParseRunFolder:
         with pytest.raises(RunFolderError, match="system_desc.json"):
             parse_run_folder(folder)
 
-    def test_missing_config_raises(self, tmp_path: Path) -> None:
-        folder = tmp_path / "bad_run"
-        folder.mkdir()
-        (folder / "system_desc.json").write_text("{}")
-        (folder / "result_summary.json").write_text("{}")
-        with pytest.raises(RunFolderError, match="config.yaml"):
-            parse_run_folder(folder)
+    def test_missing_config_yaml_is_accepted(self, run_folder: Path) -> None:
+        """config.yaml is optional as of v1.0; an absent one parses as an empty mapping."""
+        (run_folder / "config.yaml").unlink()
+        payload = parse_run_folder(run_folder)
+        assert payload["config"] == {}
 
     def test_missing_result_summary_raises(self, tmp_path: Path) -> None:
         folder = tmp_path / "bad_run"

@@ -185,6 +185,7 @@ _RESULT_SUMMARY = {
         "total": 161_800_000_000.0,
         "percentiles": {
             "50": 80_500_000.0,
+            "90": 135_000_000.0,
             "95": 150_000_000.0,
             "99": 200_000_000.0,
         },
@@ -194,7 +195,11 @@ _RESULT_SUMMARY = {
         "total": 100_000.0,
         "percentiles": {"50": 48.0, "95": 90.0},
     },
-    "tpot": {"avg": 8_700_000.0, "total": 17_400_000_000.0, "percentiles": {}},
+    "tpot": {
+        "avg": 8_700_000.0,
+        "total": 17_400_000_000.0,
+        "percentiles": {"50": 8_500_000.0, "90": 10_000_000.0, "95": 11_000_000.0},
+    },
 }
 
 
@@ -202,10 +207,34 @@ _RESULT_SUMMARY = {
 # a config carries runtime knobs, while point.yaml carries the disclosure the checker
 # validates (seeds, warmup counts, data source). Validated against the checker's
 # PointConfig, so the fixture represents a bundle that actually passes.
+#: Seed set A (§4.6), mirrored from policies PR #117 into data/seed_sets.yaml.
+_SEED_SET_ID = "A"
+_SEEDS = {
+    "scheduler_rng_seed": 10487924139932647040,
+    "sample_index_rng_seed": 586478644936801402,
+    "model_seed": 9315206023656308754,
+}
+
+#: A §8.3-complete measurement-point disclosure, so a builder or checker test sees
+#: only the defect it introduced rather than a wall of missing-field errors.
 _POINT = {
     "concurrency": 4,
     "region": "low_latency",
     "dataset": "cnn_dailymail",
+    "division": "Standardized",
+    "max_supported_concurrency": 1024,
+    "model_name": "llama3.1-8b",
+    "model_precision": "FP16",
+    "link_to_model": "https://example.com/model",
+    "link_to_model_transformation": "https://example.com/quantization",
+    "model_notes": "",
+    "dataset_name": "CNN/DailyMail",
+    "dataset_type": "Performance",
+    "dataset_link": "https://example.com/dataset",
+    "shared_src": "src",
+    "shared_docs": "docs",
+    "seed_set": _SEED_SET_ID,
+    "target_cohort": "2026-09-C0",
     "runtime_settings": {
         "load_pattern": "concurrency",
         "stream_all_chunks": True,
@@ -215,8 +244,7 @@ _POINT = {
             "min_duration_ms": 600000,
             "max_duration_ms": 3600000,
             "n_samples_to_issue": 2000,
-            "scheduler_random_seed": 42,
-            "dataloader_random_seed": 42,
+            **_SEEDS,
         },
         "warmup": {"enabled": False, "salt": False},
     },
@@ -228,6 +256,7 @@ _POINT = {
         "data_source": "n/a",
         "concurrency": 1,
         "initialization_steps": [],
+        "logs_retained": True,
     },
 }
 
@@ -249,6 +278,10 @@ def run_folder(tmp_path: Path) -> Path:
     impl.mkdir(parents=True)
     (impl / "README.md").write_text("# trtllm\n\nBuild the SUT, then reproduce a point.\n")
     (impl / "launch_sut.sh").write_text("#!/bin/sh\necho launching\n")
+    # point.yaml's shared_docs must resolve in the assembled bundle (§9.1).
+    docs = folder / "documentation"
+    docs.mkdir()
+    (docs / "calibration.adoc").write_text("= Calibration\n")
     return folder
 
 

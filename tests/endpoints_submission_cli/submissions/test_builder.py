@@ -97,14 +97,17 @@ class TestBuildSubmissionFolder:
         assert (impl / "README.md").exists()
         assert (impl / "launch_sut.sh").exists()
 
-    def test_system_json_created(self, run_archive: Path, tmp_path: Path) -> None:
+    def test_system_desc_written_per_point(self, run_archive: Path, tmp_path: Path) -> None:
+        """Policies PR #119 moved the §8.2 description into every r<N>/ directory."""
         sub_dir = _submission_root(
             build_submission_folder(
                 [("run-001", run_archive)], "standardized", "available", tmp_path
             )
         )
-        jsons = list((sub_dir / "results").glob("*/system_desc_id.json"))
+        assert not list((sub_dir / "results").glob("*/system_desc_id.json"))
+        jsons = list(sub_dir.rglob("system_desc.json"))
         assert len(jsons) == 1
+        assert jsons[0].parent.name.startswith("r")
         data = json.loads(jsons[0].read_text())
         assert data["division"] == "Standardized"
         assert "node_types" in data
@@ -224,7 +227,7 @@ class TestBuildSubmissionFolder:
         sub_dir = build_submission_folder(
             [("run-001", run_archive)], "serviced", "available", tmp_path
         )
-        jsons = list((_submission_root(sub_dir) / "results").glob("*/system_desc_id.json"))
+        jsons = list(_submission_root(sub_dir).rglob("system_desc.json"))
         data = json.loads(jsons[0].read_text())
         assert data["division"] == "Serviced"
 
@@ -417,73 +420,113 @@ class TestCreateBundleArchive:
 
 @pytest.mark.unit
 class TestComputeMaxTps:
+    """The denominator of tps_utilization, derived from the measurement itself.
+
+    v0.7 read a submitter-declared ``system_tps`` out of ``run_metadata.json``; policies
+    PR #119 deleted that file, so the builder now computes throughput the same way the
+    checker does — output tokens over elapsed seconds from ``result_summary.json``.
+    """
+
+    _DURATION_NS = 1_200_000_000_000.0  # 1200 s
+
     def _make_run(self, system_tps: float | None) -> dict:
-        meta: dict = {"system_tps": system_tps} if system_tps is not None else {}
-        return {"_extra_files": {"run_metadata.json": json.dumps(meta).encode()}}
+        if system_tps is None:
+            return {"result_summary": {}}
+        return {
+            "result_summary": {
+                "duration_ns": self._DURATION_NS,
+                "output_sequence_lengths": {
+                    "total": system_tps * (self._DURATION_NS / 1e9),
+                },
+            }
+        }
 
     def test_single_run(self) -> None:
-        run_data = [self._make_run(1000.0)]
-        assert _compute_max_tps(run_data) == 1000.0
+        assert _compute_max_tps([self._make_run(1000.0)]) == pytest.approx(1000.0)
 
     def test_multiple_runs_returns_max(self) -> None:
         run_data = [self._make_run(500.0), self._make_run(1500.0), self._make_run(1000.0)]
-        assert _compute_max_tps(run_data) == 1500.0
+        assert _compute_max_tps(run_data) == pytest.approx(1500.0)
 
-    def test_missing_run_metadata_returns_none(self) -> None:
-        run_data = [{"_extra_files": {}}]
-        assert _compute_max_tps(run_data) is None
+    def test_missing_result_summary_returns_none(self) -> None:
+        assert _compute_max_tps([{"result_summary": {}}]) is None
 
-    def test_null_system_tps_skipped(self) -> None:
+    def test_underivable_run_skipped(self) -> None:
         run_data = [self._make_run(None), self._make_run(800.0)]
-        assert _compute_max_tps(run_data) == 800.0
+        assert _compute_max_tps(run_data) == pytest.approx(800.0)
+
+    def test_zero_duration_is_not_a_division_error(self) -> None:
+        run_data = [
+            {
+                "result_summary": {
+                    "duration_ns": 0.0,
+                    "output_sequence_lengths": {"total": 1000.0},
+                }
+            }
+        ]
+        assert _compute_max_tps(run_data) is None
 
 
 @pytest.mark.unit
 class TestTpsUtilizationInjection:
-    def _make_archive_with_metadata(
+    _DURATION_NS = 1_200_000_000_000.0  # 1200 s
+
+    def _make_archive(
         self, run_folder: Path, system_tps: float, concurrency: int, tmp_path: Path, name: str
     ) -> Path:
+        """An archive whose measured throughput is *system_tps* at *concurrency*.
+
+        The throughput is set through ``result_summary.json`` because that is where the
+        builder now reads it from: §8.2 has no ``system_tps`` field, so a submitter
+        cannot declare a throughput that disagrees with what they measured.
+        """
         import shutil
 
         folder = tmp_path / name
         shutil.copytree(run_folder, folder)
-        cfg = yaml.safe_load((folder / "config.yaml").read_text())
-        cfg["settings"]["load_pattern"]["target_concurrency"] = concurrency
-        (folder / "config.yaml").write_text(yaml.dump(cfg))
-        (folder / "run_metadata.json").write_text(
-            json.dumps({"system_tps": system_tps, "tps_utilization": None})
-        )
+
+        point = yaml.safe_load((folder / "point.yaml").read_text())
+        point["concurrency"] = concurrency
+        (folder / "point.yaml").write_text(yaml.dump(point))
+
+        summary = json.loads((folder / "result_summary.json").read_text())
+        summary["duration_ns"] = self._DURATION_NS
+        summary["output_sequence_lengths"] = {
+            "total": system_tps * (self._DURATION_NS / 1e9),
+            "percentiles": {},
+        }
+        (folder / "result_summary.json").write_text(json.dumps(summary))
+
         archive = tmp_path / f"{name}.tar.gz"
         with tarfile.open(archive, "w:gz") as tar:
             tar.add(folder, arcname=name)
         return archive
 
     def test_tps_utilization_written_for_single_run(self, run_folder: Path, tmp_path: Path) -> None:
-        archive = self._make_archive_with_metadata(run_folder, 1000.0, 4, tmp_path, "run1")
+        archive = self._make_archive(run_folder, 1000.0, 4, tmp_path, "run1")
         sub_dir = build_submission_folder(
             [("run-001", archive)], "standardized", "available", tmp_path / "sub"
         )
-        meta_files = list(sub_dir.rglob("run_metadata.json"))
-        assert len(meta_files) == 1
-        data = json.loads(meta_files[0].read_text())
-        assert data["tps_utilization"] == pytest.approx(1.0)
+        descs = list(sub_dir.rglob("system_desc.json"))
+        assert len(descs) == 1
+        assert json.loads(descs[0].read_text())["tps_utilization"] == pytest.approx(1.0)
 
     def test_tps_utilization_normalized_across_runs(self, run_folder: Path, tmp_path: Path) -> None:
-        a1 = self._make_archive_with_metadata(run_folder, 1000.0, 4, tmp_path, "run1")
-        a2 = self._make_archive_with_metadata(run_folder, 2000.0, 8, tmp_path, "run2")
+        a1 = self._make_archive(run_folder, 1000.0, 4, tmp_path, "run1")
+        a2 = self._make_archive(run_folder, 2000.0, 8, tmp_path, "run2")
         sub_dir = build_submission_folder(
             [("run-001", a1), ("run-002", a2)],
             "standardized",
             "available",
             tmp_path / "sub",
         )
-        meta_files = sorted(sub_dir.rglob("run_metadata.json"))
-        assert len(meta_files) == 2
-        utilizations = sorted(json.loads(p.read_text())["tps_utilization"] for p in meta_files)
+        descs = sorted(sub_dir.rglob("system_desc.json"))
+        assert len(descs) == 2
+        utilizations = sorted(json.loads(p.read_text())["tps_utilization"] for p in descs)
         assert utilizations == pytest.approx([0.5, 1.0])
 
-    def test_no_run_metadata_no_crash(self, run_archive: Path, tmp_path: Path) -> None:
-        # run_archive fixture has no run_metadata.json — should build without error
+    def test_underivable_throughput_no_crash(self, run_archive: Path, tmp_path: Path) -> None:
+        """A run whose summary yields no throughput builds without tps_utilization."""
         sub_dir = build_submission_folder(
             [("run-001", run_archive)], "standardized", "available", tmp_path
         )
@@ -569,7 +612,7 @@ class TestPointYamlIsCopiedNotDerived:
         with tarfile.open(archive, "w:gz") as tar:
             tar.add(folder, arcname="nopoint")
 
-        with pytest.raises(SubmissionBuildError, match="missing point.yaml"):
+        with pytest.raises(SubmissionBuildError, match="does not contain point.yaml"):
             build_submission_folder(
                 [("run-001", archive)], "standardized", "available", tmp_path / "sub"
             )
@@ -600,6 +643,150 @@ class TestPointYamlIsCopiedNotDerived:
 
 
 @pytest.mark.unit
+class TestSharedPathInjection:
+    """shared_src / shared_docs are the one §8.3 pair the builder may fill in.
+
+    Issue #72's rule is that the builder does not derive disclosure. These two keys are
+    exempt because their referent — ``src/<impl>/``, the union of every run's ``src/``
+    folder — does not exist until the builder assembles it, so no run archive can name
+    it. Validate if present, inject if absent, never overwrite.
+    """
+
+    def _archive_with_point(self, run_folder: Path, tmp_path: Path, point_text: str) -> Path:
+        import shutil
+
+        folder = tmp_path / "run"
+        shutil.copytree(run_folder, folder)
+        (folder / "point.yaml").write_text(point_text)
+        archive = tmp_path / "run.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname="run")
+        return archive
+
+    def _point_without_pointers(self, run_folder: Path) -> dict:
+        point = yaml.safe_load((run_folder / "point.yaml").read_text())
+        point.pop("shared_src", None)
+        point.pop("shared_docs", None)
+        return point
+
+    def test_injected_when_absent(self, run_folder: Path, tmp_path: Path) -> None:
+        point = self._point_without_pointers(run_folder)
+        archive = self._archive_with_point(run_folder, tmp_path, yaml.dump(point))
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        built = yaml.safe_load(next(sub_dir.rglob("point.yaml")).read_text())
+        assert built["shared_src"] == "src/trtllm"
+        assert built["shared_docs"] == "docs"
+
+    def test_injection_preserves_comments_and_key_order(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
+        """The original bytes survive as a prefix, so comments and order are intact."""
+        point = self._point_without_pointers(run_folder)
+        original = (
+            "# submitter's own header comment\n"
+            + yaml.dump(point, sort_keys=False)
+            + "# trailing note\n"
+        )
+        archive = self._archive_with_point(run_folder, tmp_path, original)
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        built_text = next(sub_dir.rglob("point.yaml")).read_text()
+
+        assert built_text.startswith(original)
+        assert "# submitter's own header comment" in built_text
+        assert "# trailing note" in built_text
+        assert yaml.safe_load(built_text) == {
+            **point,
+            "shared_src": "src/trtllm",
+            "shared_docs": "docs",
+        }
+
+    def test_declared_pointer_is_not_overwritten(self, run_folder: Path, tmp_path: Path) -> None:
+        """A submitter naming a resolvable directory is making a claim, not a mistake."""
+        import shutil
+
+        folder = tmp_path / "run"
+        shutil.copytree(run_folder, folder)
+        # A second implementation the submitter deliberately points at.
+        other = folder / "src" / "vllm"
+        other.mkdir(parents=True)
+        (other / "README.md").write_text("# vllm\n")
+        point = yaml.safe_load((folder / "point.yaml").read_text())
+        point["shared_src"] = "src/vllm"
+        (folder / "point.yaml").write_text(yaml.dump(point))
+        archive = tmp_path / "run.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname="run")
+
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        built = yaml.safe_load(next(sub_dir.rglob("point.yaml")).read_text())
+        assert built["shared_src"] == "src/vllm"
+
+    def test_unresolvable_pointer_fails_the_build(self, run_folder: Path, tmp_path: Path) -> None:
+        point = yaml.safe_load((run_folder / "point.yaml").read_text())
+        point["shared_src"] = "src/does-not-exist"
+        archive = self._archive_with_point(run_folder, tmp_path, yaml.dump(point))
+        with pytest.raises(SubmissionBuildError, match="does not resolve"):
+            build_submission_folder(
+                [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+            )
+
+    def test_traversal_pointer_fails_the_build(self, run_folder: Path, tmp_path: Path) -> None:
+        """A pointer escaping the bundle cannot be reviewed from the bundle."""
+        point = yaml.safe_load((run_folder / "point.yaml").read_text())
+        point["shared_docs"] = "../../etc"
+        archive = self._archive_with_point(run_folder, tmp_path, yaml.dump(point))
+        with pytest.raises(SubmissionBuildError, match="does not resolve"):
+            build_submission_folder(
+                [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+            )
+
+    def test_ambiguous_implementation_is_not_guessed(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
+        """Two implementations and no declared shared_src is an error, not a coin flip."""
+        import shutil
+
+        folder = tmp_path / "run"
+        shutil.copytree(run_folder, folder)
+        second = folder / "src" / "vllm"
+        second.mkdir(parents=True)
+        (second / "README.md").write_text("# vllm\n")
+        point = self._point_without_pointers(run_folder)
+        (folder / "point.yaml").write_text(yaml.dump(point))
+        archive = tmp_path / "run.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname="run")
+
+        with pytest.raises(SubmissionBuildError, match="more than one implementation"):
+            build_submission_folder(
+                [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+            )
+
+    def test_injected_pointers_satisfy_the_checker(self, run_folder: Path, tmp_path: Path) -> None:
+        """End to end: what the builder injects is what §9.1 accepts."""
+        from submission_checker.checker import SubmissionChecker
+        from submission_checker.models import Severity
+
+        point = self._point_without_pointers(run_folder)
+        archive = self._archive_with_point(run_folder, tmp_path, yaml.dump(point))
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        report = SubmissionChecker(sub_dir).run()
+        assert not [
+            r
+            for r in report.results
+            if r.rule == "shared-path-resolution" and r.severity == Severity.ERROR
+        ]
+
+
+@pytest.mark.unit
 class TestBuilderCheckerContract:
     """End-to-end: the builder's output must be consumable by the real checker.
 
@@ -616,13 +803,7 @@ class TestBuilderCheckerContract:
         folder = tmp_path / name
         shutil.copytree(run_folder, folder)
         cfg = yaml.safe_load((folder / "config.yaml").read_text())
-        cfg["settings"]["runtime"].update(
-            {
-                "min_duration_ms": 600_000,
-                "scheduler_random_seed": 42,
-                "dataloader_random_seed": 42,
-            }
-        )
+        cfg["settings"]["runtime"].update({"min_duration_ms": 600_000})
         cfg["settings"]["client"] = {"stream_all_chunks": True}
         cfg["settings"]["warmup"] = {
             "enabled": True,
@@ -655,12 +836,128 @@ class TestBuilderCheckerContract:
             data = yaml.safe_load(py.read_text())
             # Must not raise — this is exactly what failed before the runtime fix.
             cfg = PointConfig.model_validate(data, context={"yaml_path": py})
-            assert cfg.runtime_settings.runtime.scheduler_random_seed == 42
-            assert cfg.runtime_settings.runtime.dataloader_random_seed == 42
+            # §4.6 binds the seeds to a published set; the fixture uses set A.
+            assert cfg.seed_set == "A"
+            assert cfg.runtime_settings.runtime.scheduler_rng_seed == 10487924139932647040
+            assert cfg.runtime_settings.runtime.sample_index_rng_seed == 586478644936801402
+            assert cfg.runtime_settings.runtime.model_seed == 9315206023656308754
             # No per-point structural/seed errors for a compliant input.
             errors = [r for r in cfg._check_results if r.severity == Severity.ERROR]
             assert not errors, (
                 f"{py.name} unexpected errors: {[(r.rule, r.message) for r in errors]}"
+            )
+
+    #: A curve covering every §9.1 region for C_max=1024 with a derived C_min=16:
+    #: low 17–26 → 20, med 27–117 → 88, high 118–1024 → 256, 512, 768, 1000.
+    _COMPLIANT_CURVE = (16, 20, 88, 256, 512, 768, 1000)
+
+    def _curve_archive(
+        self, run_folder: Path, tmp_path: Path, concurrency: int, system_tps: float
+    ) -> Path:
+        """One point of a compliant curve, as a run archive."""
+        import shutil
+
+        name = f"run{concurrency}"
+        folder = tmp_path / name
+        shutil.copytree(run_folder, folder)
+
+        duration_ns = 1_200_000_000_000.0  # §6.2's 1200 s concurrency-region minimum
+        point = yaml.safe_load((folder / "point.yaml").read_text())
+        point["concurrency"] = concurrency
+        point["max_supported_concurrency"] = 1024
+        point.pop("region", None)  # let the checker place it
+        point["runtime_settings"]["min_duration_ms"] = 1_200_000
+        point["warmup"] = {
+            "duration_s": 60.0,
+            "requests_issued": concurrency * 10,
+            "requests_completed": concurrency * 10,
+            "data_source": "cnn_dailymail validation split",
+            "concurrency": concurrency,
+            "initialization_steps": ["model loaded", "kv-cache warmed"],
+            "logs_retained": True,
+        }
+        (folder / "point.yaml").write_text(yaml.dump(point))
+
+        desc = json.loads((folder / "system_desc.json").read_text())
+        desc["max_supported_concurrency"] = 1024
+        # model_name gates §2's allowed-model check; model_id must normalise to the
+        # results directory name, which the builder slugs from config.yaml.
+        desc["model_name"] = "llama3.1-8b"
+        desc["model_id"] = "meta-llama/Llama-3.1-8B-Instruct"
+        (folder / "system_desc.json").write_text(json.dumps(desc))
+
+        # §6.4 requires every cnn_dailymail sample to be scored for accuracy.
+        results = json.loads((folder / "results.json").read_text())
+        for entry in results["accuracy_scores"].values():
+            entry["num_samples"] = 13368
+        (folder / "results.json").write_text(json.dumps(results))
+
+        summary = json.loads((folder / "result_summary.json").read_text())
+        summary["duration_ns"] = duration_ns
+        summary["n_samples_issued"] = 13368  # §6.4 minimum for cnn_dailymail
+        summary["n_samples_completed"] = 13368
+        summary["n_samples_failed"] = 0
+        summary["output_sequence_lengths"] = {
+            "total": system_tps * (duration_ns / 1e9),
+            "percentiles": {},
+        }
+        summary.pop("system_tps", None)
+        summary.pop("tps_per_user", None)
+        (folder / "result_summary.json").write_text(json.dumps(summary))
+
+        archive = tmp_path / f"{name}.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname=name)
+        return archive
+
+    def test_built_curve_passes_the_real_checker(self, run_folder: Path, tmp_path: Path) -> None:
+        """The closing loop: a compliant curve built by the builder must pass §9.1.
+
+        Every other test here checks one field or one rule. This one asserts the two
+        halves of the pipeline actually agree — the failure mode that motivated issue
+        #72 was precisely a builder writing a bundle its own checker rejected.
+        """
+        from submission_checker.checker import SubmissionChecker
+
+        archives = [
+            (f"run-{i:03d}", self._curve_archive(run_folder, tmp_path, c, 100.0 * (i + 1)))
+            for i, c in enumerate(self._COMPLIANT_CURVE)
+        ]
+        sub_dir = build_submission_folder(archives, "standardized", "available", tmp_path / "sub")
+        report = SubmissionChecker(sub_dir).run()
+        assert report.passed, [f"{r.rule}: {r.message}" for r in report.errors]
+
+    def test_built_curve_satisfies_the_new_v1_rules(self, run_folder: Path, tmp_path: Path) -> None:
+        """Named explicitly, so a regression says which v1.0 rule broke."""
+        from submission_checker.checker import SubmissionChecker
+
+        archives = [
+            (f"run-{i:03d}", self._curve_archive(run_folder, tmp_path, c, 100.0 * (i + 1)))
+            for i, c in enumerate(self._COMPLIANT_CURVE)
+        ]
+        sub_dir = build_submission_folder(archives, "standardized", "available", tmp_path / "sub")
+        report = SubmissionChecker(sub_dir).run()
+        for rule in (
+            "shared-path-resolution",
+            "seed-set-consistency",
+            "seed-set-membership",
+            "seed-runtime-match",
+            "target-cohort",
+            "point-disclosure-complete",
+            "metric-consistency-tpot-p90",
+            "metric-consistency-tps-per-user",
+            "tps-utilization",
+            "system-description-consistency",
+            "ultra-low-concurrency-coverage",
+            "low-concurrency-coverage",
+            "med-concurrency-coverage",
+            "high-concurrency-coverage",
+            "region-basis",
+        ):
+            ran = [r for r in report.results if r.rule == rule]
+            assert ran, f"{rule} did not run"
+            assert not [r for r in ran if r.severity == Severity.ERROR], (
+                f"{rule}: {[r.message for r in ran if r.severity == Severity.ERROR]}"
             )
 
     def test_full_checker_runs_without_parse_failures(

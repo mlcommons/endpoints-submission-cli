@@ -151,6 +151,8 @@ class SeedBinding(BaseModel):
         cohort attached to any set, every submission would either pass vacuously or
         fail universally, and neither says anything true about the submission.
         """
+        if not self.points:
+            return self
         cohorts = {
             config.target_cohort for _, config in self.points if config.target_cohort is not None
         }

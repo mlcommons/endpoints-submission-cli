@@ -186,13 +186,13 @@ PR: https://github.com/MLCommons-Systems/test-endpoints-submission-repo/pull/42
     │
     └── results/
         └── <system>/                      # e.g. H200-SXM-141GBx8_TRT/
-            ├── system_desc_id.json        # §8.2 — one per system, not per point
             └── <benchmark_model>/         # e.g. deepseek-r1/, gpt-oss-120b/
                 └── r<N>/                  # one PARETO POINT per concurrency (r1, r32, …)
                     ├── point.yaml             # §8.3
+                    ├── system_desc.json       # §8.2 — per point since policies PR #119
                     ├── result_summary.json    # aggregate metrics (QPS, TPS, TTFT, TPOT)
                     ├── accuracy_results.json  # §6.6
-                    ├── run_metadata.json      # framework/parallelism/precision
+                    ├── config.yaml            # OPTIONAL as of v1.0
                     └── server_configs/        # OPTIONAL, point-specific backend configs
 ```
 
@@ -278,10 +278,10 @@ The command runs the full rebuild pipeline:
 | `results/<point>/mlperf_endpoints_log_*.json` | Replaced from the fresh build. |
 | `results/<point>/system_desc.json` | Preserved from the PR branch. Seeded from the fresh build only for points not yet on the branch. |
 | Point dirs in `results/` removed from the fresh build | Deleted from the PR branch. |
-| `results/<system>/system_desc_id.json` | Preserved from the PR branch. Seeded from the fresh build only if it does not yet exist on the branch. |
+| each point's `system_desc.json` | Preserved from the PR branch. Seeded from the fresh build only if it does not yet exist on the branch. |
 | `src/`, `docs/` | Preserved from the PR branch. |
 
-> **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the fresh build with reviewer-edited files (`system_desc_id.json`) preserved from the PR branch. Blob storage and the GitHub PR branch always contain identical content.
+> **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the fresh build with reviewer-edited files (`system_desc.json`) preserved from the PR branch. Blob storage and the GitHub PR branch always contain identical content.
 
 ### When only metadata flags are provided (DB-only PATCH)
 
@@ -386,10 +386,10 @@ endpoints-submission-cli submissions add-run \
 | `results/<point>/mlperf_endpoints_log_*.json` | Replaced from the fresh build. |
 | `results/<point>/system_desc.json` | Preserved from the PR branch. Seeded from the fresh build only for points not yet on the branch. |
 | Point dirs in `results/` removed from the fresh build | Deleted from the PR branch. |
-| `results/<system>/system_desc_id.json` | Preserved from the PR branch. Seeded from the fresh build only if it does not yet exist on the branch. |
+| each point's `system_desc.json` | Preserved from the PR branch. Seeded from the fresh build only if it does not yet exist on the branch. |
 | `src/`, `docs/` | Preserved from the PR branch. |
 
-> **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the fresh build with reviewer-edited files (`system_desc_id.json`) preserved from the PR branch. Blob storage and the GitHub PR branch always contain identical content.
+> **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the fresh build with reviewer-edited files (`system_desc.json`) preserved from the PR branch. Blob storage and the GitHub PR branch always contain identical content.
 
 **Example:**
 
@@ -442,10 +442,10 @@ If no runs remain after removal, steps 3–7 are skipped and a warning is printe
 | `results/<point>/mlperf_endpoints_log_*.json` | Replaced from the fresh build. |
 | `results/<point>/system_desc.json` | Preserved from the PR branch. Seeded from the fresh build only for points not yet on the branch. |
 | Point dirs in `results/` for the removed run | Deleted from the PR branch. |
-| `results/<system>/system_desc_id.json` | Preserved from the PR branch. Seeded from the fresh build only if it does not yet exist on the branch. |
+| each point's `system_desc.json` | Preserved from the PR branch. Seeded from the fresh build only if it does not yet exist on the branch. |
 | `src/`, `docs/` | Preserved from the PR branch. |
 
-> **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the fresh build with reviewer-edited files (`system_desc_id.json`) preserved from the PR branch. Blob storage and the GitHub PR branch always contain identical content.
+> **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the fresh build with reviewer-edited files (`system_desc.json`) preserved from the PR branch. Blob storage and the GitHub PR branch always contain identical content.
 
 **Example:**
 

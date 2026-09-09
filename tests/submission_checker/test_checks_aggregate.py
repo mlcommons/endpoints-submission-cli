@@ -20,6 +20,7 @@ from submission_checker.models import (
 
 from .conftest import (
     _REGIONS,
+    _TPOT_P90_NS,
     _config,
     _model_ctx,
     _summary,
@@ -42,7 +43,11 @@ def _summary_with(**extras) -> PointSummary:
         n_samples_issued=1000,
         n_samples_failed=0,
         duration_ns=1_200_000_000_000.0,
-        ttft=PercentileStats(total=0.0, percentiles={"50": 150_000_000.0, "95": 300_000_000.0}),
+        ttft=PercentileStats(
+            total=0.0,
+            percentiles={"50": 150_000_000.0, "90": 270_000_000.0, "95": 300_000_000.0},
+        ),
+        tpot=PercentileStats(total=0.0, percentiles={"90": _TPOT_P90_NS}),
         output_sequence_lengths=PercentileStats(total=500_000.0),
         **extras,
     )
@@ -243,11 +248,11 @@ class TestTpsConsistencyValidator:
         )
 
     def test_tps_per_user_stored_match_ok(self, tmp_path):
-        """Stored tps_per_user matching system_tps/concurrency within 1% passes."""
+        """Stored tps_per_user matching 1000 / tpot_p90_ms within 1% passes."""
         run_result = PointResult.model_validate(
             {
                 "config": _config(concurrency=64),
-                "summary": _summary_with(tps_per_user=6.51),  # derived ≈ 6.5104
+                "summary": _summary_with(tps_per_user=200.0),  # 1000 / 5 ms
                 "yaml_path": tmp_path / "run_64.yaml",
             },
             context={"summary_path": tmp_path / "summary.json"},
@@ -258,11 +263,11 @@ class TestTpsConsistencyValidator:
         )
 
     def test_tps_per_user_stored_mismatch_errors(self, tmp_path):
-        """Stored tps_per_user differing from system_tps/concurrency by >1% is an error."""
+        """Stored tps_per_user differing from 1000 / tpot_p90_ms by >1% is an error."""
         run_result = PointResult.model_validate(
             {
                 "config": _config(concurrency=64),
-                "summary": _summary_with(tps_per_user=999.0),  # derived ≈ 6.5104
+                "summary": _summary_with(tps_per_user=999.0),  # derived = 200.0
                 "yaml_path": tmp_path / "run_64.yaml",
             },
             context={"summary_path": tmp_path / "summary.json"},
@@ -272,26 +277,73 @@ class TestTpsConsistencyValidator:
             for r in run_result._check_results
         )
 
-    def test_tps_per_user_zero_concurrency_errors(self, tmp_path):
-        """concurrency=0 must error rather than divide by zero."""
-        config = PointConfig(
-            concurrency=0,
-            dataset="mlperf-perf-dataset-v1",
-            runtime_settings=RuntimeSettings(
-                min_duration_ms=1_200_000,
-                runtime=RuntimeSettings.Runtime(
-                    scheduler_random_seed=42, dataloader_random_seed=42
-                ),
-            ),
-        )
+    def test_tps_per_user_is_independent_of_concurrency(self, tmp_path):
+        """v1.0 derives the metric from TPOT P90, so concurrency no longer divides.
+
+        This is why the old ``concurrency=0`` divide-by-zero case is gone: nothing in
+        the formula reads concurrency any more.
+        """
+        results = [
+            PointResult.model_validate(
+                {
+                    "config": _config(concurrency=c),
+                    "summary": _summary_with(tps_per_user=200.0),
+                    "yaml_path": tmp_path / f"run_{c}.yaml",
+                },
+                context={"summary_path": tmp_path / "summary.json"},
+            )
+            for c in (1, 64, 1024)
+        ]
+        for run_result in results:
+            assert not [
+                r
+                for r in run_result._check_results
+                if r.rule == "metric-consistency-tps-per-user" and r.severity == Severity.ERROR
+            ]
+
+    def test_missing_tpot_p90_errors(self, tmp_path):
+        """§9.1: the reported TPOT P90 is the metric's only source, so it must exist."""
         run_result = PointResult.model_validate(
-            {"config": config, "summary": _summary(), "yaml_path": tmp_path / "run_64.yaml"},
+            {
+                "config": _config(concurrency=64),
+                "summary": _summary(tpot_p90_ns=None),
+                "yaml_path": tmp_path / "run_64.yaml",
+            },
             context={"summary_path": tmp_path / "summary.json"},
         )
         assert any(
-            r.rule == "metric-consistency-tps-per-user" and r.severity == Severity.ERROR
+            r.rule == "metric-consistency-tpot-p90" and r.severity == Severity.ERROR
             for r in run_result._check_results
         )
+
+    def test_non_positive_tpot_p90_errors(self, tmp_path):
+        """§9.1 requires the P90 to be finite and strictly positive."""
+        run_result = PointResult.model_validate(
+            {
+                "config": _config(concurrency=64),
+                "summary": _summary(tpot_p90_ns=0.0),
+                "yaml_path": tmp_path / "run_64.yaml",
+            },
+            context={"summary_path": tmp_path / "summary.json"},
+        )
+        assert any(
+            r.rule == "metric-consistency-tpot-p90" and r.severity == Severity.ERROR
+            for r in run_result._check_results
+        )
+
+    def test_tps_per_user_skipped_when_tpot_p90_missing(self, tmp_path):
+        """One error per defect: an absent P90 is reported once, not twice."""
+        run_result = PointResult.model_validate(
+            {
+                "config": _config(concurrency=64),
+                "summary": _summary(tpot_p90_ns=None),
+                "yaml_path": tmp_path / "run_64.yaml",
+            },
+            context={"summary_path": tmp_path / "summary.json"},
+        )
+        assert not [
+            r for r in run_result._check_results if r.rule == "metric-consistency-tps-per-user"
+        ]
 
 
 @pytest.mark.unit

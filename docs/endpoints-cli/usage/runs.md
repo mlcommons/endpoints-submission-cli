@@ -69,18 +69,25 @@ runs, so flag those at `runs create` time.
 
 ```
 <run-folder>/
-├── system_info.json        # Hardware and software description (required)
-├── config.yaml             # Benchmark configuration (required)
+├── system_desc.json        # §8.2 hardware and software description (required)
 ├── point.yaml              # §8.3 Pareto-point disclosure (required)
 ├── result_summary.json     # Aggregated performance metrics (required)
-└── runtime_settings.json   # Inference server settings (optional)
+├── config.yaml             # Benchmark configuration (optional as of v1.0)
+├── results.json            # Per-request log / accuracy scores (optional)
+├── src/<implementation>/   # Merged into the bundle's shared src/ (README.md required)
+└── documentation/          # Merged into the bundle's shared docs/
 ```
 
-`config.yaml` and `point.yaml` are **both required** and serve different purposes:
-`config.yaml` is what the harness was told to do, `point.yaml` is the §8.3 disclosure the
-Submission Checker validates (seeds, warmup counts, data source, region). `point.yaml` is
-copied into the bundle verbatim — the CLI does not derive it from `config.yaml` and does
-not fill in missing fields, so whatever the harness emits is what gets submitted.
+`point.yaml` is the required one: it is the §8.3 disclosure the Submission Checker
+validates (seeds, warmup counts, data source, region, model and dataset metadata), and it
+is copied into the bundle verbatim — the CLI does not derive it from `config.yaml` and
+does not fill in missing fields, so whatever the harness emits is what gets submitted.
+
+`config.yaml` became **optional** in v1.0. It records what the harness was told to do and
+carries no disclosure of its own; it is still copied through whenever a run supplies it.
+A run that ships no `config.yaml` is treated as a performance run, because the
+accuracy/performance split exists only in the harness config — so pair an accuracy run
+with its `config.yaml` if you register one.
 
 **Rollback behaviour:** if the archive upload fails after the run record has been created, the CLI automatically deletes the run record to leave a clean state. If that delete also fails, the orphaned run ID is printed so it can be cleaned up manually.
 

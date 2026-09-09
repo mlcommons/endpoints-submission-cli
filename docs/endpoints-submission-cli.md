@@ -180,11 +180,11 @@ endpoints-submission-cli runs create --path PATH [--token TOKEN] [--expires-at D
 | `--test` | Mark the run as a test run (excluded from published reporting; fixed at creation). |
 | `--dry-run` | Print the parsed API payload as JSON and exit without calling the API. |
 
-The folder must contain exactly these three files (see [Run folder layout](#run-folder-layout)):
+The folder must contain these three files (see [Run folder layout](#run-folder-layout)):
 
 ```
-system_info.json
-config.yaml
+system_desc.json
+point.yaml
 result_summary.json
 ```
 
@@ -354,12 +354,12 @@ are already consistent; re-run `submissions update` to retry.
 the existing PR branch. It then compares the fresh build against what is already on the branch —
 only generated content is overwritten; files that may have been manually edited by reviewers are
 preserved. `points/` and `accuracy/` are replaced entirely; log files are replaced per-point;
-`system_desc_id.json` is preserved from the PR branch (seeded for new systems); `src/` and
+`system_desc.json` is preserved from the PR branch (seeded for new systems); `src/` and
 `docs/` are preserved from the PR branch. Commit message format:
 `update: add <ids>; remove <ids> (<N> runs total)`.
 
 > **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the
-> fresh build with reviewer-edited files (`system_desc_id.json`) preserved from the PR
+> fresh build with reviewer-edited files (`system_desc.json`) preserved from the PR
 > branch. Blob storage and the GitHub PR branch always contain identical content.
 
 **When only metadata flags are provided** (no `--run-ids`) the command is a DB-only PATCH —
@@ -418,10 +418,10 @@ branch — only generated content is overwritten; files that may have been manua
 reviewers are preserved. `points/` and `accuracy/` are replaced entirely; log files
 (`mlperf_endpoints_log_*.json`) are replaced per-point; `system_desc.json` is preserved from
 the PR branch (seeded for new points); `src/` and `docs/` are preserved from the PR branch;
-`system_desc_id.json` is seeded from the fresh build only if absent.
+`system_desc.json` is seeded from the fresh build only if absent.
 
 > **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the
-> fresh build with reviewer-edited files (`system_desc_id.json`) preserved from the PR
+> fresh build with reviewer-edited files (`system_desc.json`) preserved from the PR
 > branch. Blob storage and the GitHub PR branch always contain identical content.
 
 ---
@@ -460,11 +460,11 @@ out the existing PR branch. It then compares the fresh build against what is alr
 branch — only generated content is overwritten; files that may have been manually edited by
 reviewers are preserved. `points/` and `accuracy/` are replaced entirely; log files are
 replaced per-point; `system_desc.json` is preserved from the PR branch; point dirs for the
-removed run are deleted; `system_desc_id.json`, `src/`, and `docs/` are preserved from the PR
+removed run are deleted; `system_desc.json`, `src/`, and `docs/` are preserved from the PR
 branch.
 
 > **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the
-> fresh build with reviewer-edited files (`system_desc_id.json`) preserved from the PR
+> fresh build with reviewer-edited files (`system_desc.json`) preserved from the PR
 > branch. Blob storage and the GitHub PR branch always contain identical content.
 
 ---
@@ -496,14 +496,16 @@ branch.
 
 ```
 <run-folder>/
-├── system_info.json        # Hardware and software description (required)
-├── config.yaml             # Benchmark configuration (model, concurrency, endpoints, …) (required)
+├── system_desc.json        # §8.2 hardware and software description (required)
 ├── point.yaml              # §8.3 Pareto-point disclosure (required)
 ├── result_summary.json     # Aggregated performance metrics (required)
-└── runtime_settings.json   # Inference server runtime settings (optional)
+├── config.yaml             # Benchmark configuration (optional as of v1.0)
+├── results.json            # Per-request log / accuracy scores (optional)
+├── src/<implementation>/   # Merged into the bundle's shared src/ (README.md required)
+└── documentation/          # Merged into the bundle's shared docs/
 ```
 
-**`system_info.json`** — hardware description:
+**`system_desc.json`** — §8.2 system description:
 
 ```json
 {
@@ -550,28 +552,60 @@ Submission Checker and copied into the bundle **verbatim**:
 concurrency: 4
 region: low_latency
 dataset: cnn_dailymail
+
+# §8.3 disclosure
+division: Standardized
+max_supported_concurrency: 1024
+model_name: llama3.1-8b
+model_precision: FP16
+link_to_model: https://example.com/model
+link_to_model_transformation: https://example.com/quantization
+dataset_name: CNN/DailyMail
+dataset_type: Performance
+dataset_link: https://example.com/dataset
+
+# §4.6 seed binding — the set is named here and its values used below
+seed_set: A
+target_cohort: 2026-09-C0
+
+# §8.1 bundle-internal pointers; injected by the builder when absent
+shared_src: src/trtllm
+shared_docs: docs
+
 runtime_settings:
   load_pattern: concurrency
   stream_all_chunks: true
-  min_duration_ms: 600000
+  min_duration_ms: 1200000
   min_sample_count: 2000
   runtime:
-    scheduler_random_seed: 42
-    dataloader_random_seed: 42
+    scheduler_rng_seed: 10487924139932647040
+    sample_index_rng_seed: 586478644936801402
+    model_seed: 9315206023656308754
 warmup:
-  enabled: false
-  duration_s: 0
-  requests_issued: 0
-  requests_completed: 0
-  data_source: n/a
-  concurrency: 1
-  initialization_steps: []
+  duration_s: 60.0
+  requests_issued: 40
+  requests_completed: 40
+  data_source: cnn_dailymail validation split
+  concurrency: 4
+  initialization_steps: [model loaded, kv-cache warmed]
+  logs_retained: true
 ```
 
 The CLI does **not** derive this from `config.yaml`. It used to, which silently produced
 nulls for any disclosure field a harness did not happen to put in its config — and the
-checker then rejected the bundle. Both files are now required and `point.yaml` is passed
-through untouched, so the harness owns the disclosure.
+checker then rejected the bundle. `point.yaml` is now required and passed through
+untouched, so the harness owns the disclosure. `config.yaml` became **optional** in
+v1.0: it records what the harness was told to do and carries no disclosure of its own.
+
+The one exception is `shared_src` / `shared_docs`. The builder fills these in when a
+run does not declare them, because their referent — `src/<implementation>/`, the union
+of every run's `src/` folder — does not exist until the builder assembles the bundle, so
+no single run archive can name it. A value the run *does* declare is validated and never
+overwritten; one that does not resolve fails the build.
+
+v1.0 also rotates the RNG seeds (§4.6). v0.7 fixed every seed at 42; a v1.0 point names
+a published seed set and seeds `scheduler_rng_seed`, `sample_index_rng_seed` and
+`model_seed` from it.
 
 **`runtime_settings.json`** *(optional)* — inference server runtime settings recorded
 alongside the run:
@@ -606,13 +640,13 @@ registered:
     │
     └── results/
         └── <system>/                      # e.g. H200-SXM-141GBx8_TRT/
-            ├── system_desc_id.json        # §8.2 — one per system, not per point
             └── <benchmark_model>/         # e.g. deepseek-r1/, gpt-oss-120b/
                 └── r<N>/                  # one PARETO POINT per concurrency (r1, r32, …)
                     ├── point.yaml             # §8.3
+                    ├── system_desc.json       # §8.2 — per point since policies PR #119
                     ├── result_summary.json    # aggregate metrics (QPS, TPS, TTFT, TPOT)
                     ├── accuracy_results.json  # §6.6
-                    ├── run_metadata.json      # framework/parallelism/precision
+                    ├── config.yaml            # OPTIONAL as of v1.0
                     └── server_configs/        # OPTIONAL, point-specific backend configs
 ```
 

@@ -137,6 +137,13 @@ def build_submission_folder(
                 f" values: {sorted(values)}"
             )
 
+    # The shared trees are written first: a point's shared_src / shared_docs must
+    # resolve to a directory that exists (§9.1), and _write_point_dirs validates or
+    # fills in those pointers as it copies each disclosure.
+    _write_src(submission_dir, run_data)
+    _write_documentation(submission_dir, run_data)
+    shared_src = _sole_implementation_path(submission_dir)
+
     # tps_utilization normalises each point against the peak of its own Pareto curve —
     # one system, one model (§8.5) — which is also how the checker recomputes it.
     # Normalising per model across systems would divide a small system's points by a
@@ -148,11 +155,8 @@ def build_submission_folder(
             model,
             runs,
             _compute_max_tps(runs),
+            shared_src,
         )
-
-    _write_src(submission_dir, run_data)
-
-    _write_documentation(submission_dir, run_data)
 
     return org_dir
 
@@ -436,6 +440,7 @@ def _write_point_dirs(
     model: str,
     runs: list[dict[str, Any]],
     max_tps: float | None = None,
+    shared_src: str | None = None,
 ) -> None:
     """Write one ``r<N>/`` Pareto-point directory per concurrency level.
 
@@ -471,7 +476,9 @@ def _write_point_dirs(
         primary = runs_by_type.get("performance") or runs_by_type["accuracy"]
         accuracy_run = runs_by_type.get("accuracy")
 
-        (point_dir / layout.POINT_YAML).write_bytes(primary["point_yaml"])
+        (point_dir / layout.POINT_YAML).write_bytes(
+            _with_shared_pointers(primary["point_yaml"], submission_dir, shared_src)
+        )
 
         (point_dir / layout.RESULT_SUMMARY_JSON).write_text(
             json.dumps(primary["result_summary"], indent=2), encoding="utf-8"
@@ -482,6 +489,106 @@ def _write_point_dirs(
         _write_point_extra_files(point_dir, primary, max_tps)
         if accuracy_run is not None:
             _write_accuracy_results(point_dir, accuracy_run)
+
+
+#: Marker delimiting the block the builder appends to a copied point.yaml.
+_INJECTION_HEADER = "# --- added by endpoints-submission-cli: bundle-internal paths ---"
+
+
+def _sole_implementation_path(submission_dir: Path) -> str | None:
+    """The ``src/<impl>`` path to inject, or None when the submission is ambiguous.
+
+    Returns None when ``src/`` holds more than one implementation: which one a given
+    point was produced with is a fact only the submitter knows, so guessing would put a
+    false claim in the disclosure. Such a submission must name ``shared_src`` itself.
+    """
+    src_dir = submission_dir / layout.SRC_DIR
+    impl_dirs = [d for d in sorted(src_dir.iterdir()) if d.is_dir()] if src_dir.is_dir() else []
+    if len(impl_dirs) != 1:
+        return None
+    return f"{layout.SRC_DIR}/{impl_dirs[0].name}"
+
+
+def _with_shared_pointers(point_yaml: bytes, submission_dir: Path, shared_src: str | None) -> bytes:
+    """Return *point_yaml* with ``shared_src`` / ``shared_docs`` present and resolvable.
+
+    Issue #72 established that the builder does not derive §8.3 disclosure — a value the
+    submitter measured must come from the submitter. These two keys are the exception,
+    and deliberately so: they carry no measurement claim, and their referent does not
+    exist until the builder creates it. ``src/<impl>/`` is the union of every run's
+    ``src/`` folder, so no single run archive can name it. The same principle already
+    governs ``tps_utilization``, which :func:`_write_point_system_desc` fills in because
+    it is a function of the assembled curve. The rule is *the builder owns fields whose
+    value is a function of the assembled bundle* — nothing more.
+
+    Behaviour per key: validate if present, inject if absent, never overwrite. A
+    submitter pointing at a different implementation is making a claim the builder has
+    no standing to correct; a value that does not resolve is a build failure, because
+    the checker would reject it (§9.1 "Shared path resolution") and failing here says so
+    with the run in hand.
+
+    The block is *appended* rather than round-tripped through ``safe_load``/``safe_dump``:
+    a round trip discards comments and key order from a disclosure document. If the
+    original does not survive being extended (flow style, multi-document), the function
+    falls back to a full dump and warns.
+
+    Raises:
+        SubmissionBuildError: If a declared pointer does not resolve under the
+            submission root, or if ``shared_src`` is absent and the submission ships
+            more than one implementation directory.
+    """
+    try:
+        current = yaml.safe_load(point_yaml) or {}
+    except yaml.YAMLError as exc:
+        raise SubmissionBuildError(f"Invalid YAML in {layout.POINT_YAML}: {exc}") from exc
+    if not isinstance(current, dict):
+        raise SubmissionBuildError(
+            f"{layout.POINT_YAML} must be a YAML mapping, got {type(current).__name__}"
+        )
+
+    wanted = {"shared_src": shared_src, "shared_docs": layout.DOCS_DIR}
+    additions: dict[str, str] = {}
+    for key, default in wanted.items():
+        declared = current.get(key)
+        if declared not in (None, ""):
+            if layout.resolve_shared_path(submission_dir, str(declared)) is None:
+                raise SubmissionBuildError(
+                    f"{layout.POINT_YAML} declares {key}: {declared!r}, which does not resolve"
+                    " to a directory under the submission root. Paths must be relative to"
+                    " the submission root and must not contain '..'."
+                )
+            continue
+        if default is None:
+            raise SubmissionBuildError(
+                f"{layout.POINT_YAML} does not declare shared_src, and this submission ships"
+                " more than one implementation directory under src/, so the builder cannot"
+                " tell which one produced this point. Add shared_src: src/<implementation>"
+                " to each point.yaml."
+            )
+        additions[key] = default
+
+    if not additions:
+        return point_yaml
+
+    block = _INJECTION_HEADER + "\n" + yaml.safe_dump(additions, sort_keys=True)
+    prefix = point_yaml if point_yaml.endswith(b"\n") else point_yaml + b"\n"
+    extended = prefix + block.encode("utf-8")
+
+    expected = {**current, **additions}
+    try:
+        round_tripped = yaml.safe_load(extended)
+    except yaml.YAMLError:
+        round_tripped = None
+    if round_tripped != expected:
+        # Flow style or a multi-document file cannot simply be extended. Dumping loses
+        # the submitter's comments, so say so rather than doing it silently.
+        warnings.warn(
+            f"{layout.POINT_YAML} could not be extended in place (flow style or multiple"
+            " documents); rewriting it, which drops comments and key order.",
+            stacklevel=2,
+        )
+        return yaml.safe_dump(expected, sort_keys=False).encode("utf-8")
+    return extended
 
 
 def _write_point_system_desc(
