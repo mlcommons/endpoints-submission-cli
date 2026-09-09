@@ -185,7 +185,7 @@ The folder must contain these three files (see [Run folder layout](#run-folder-l
 ```
 system_desc.json
 point.yaml
-result_summary.json
+performance/result_summary.json
 ```
 
 If the archive upload fails the run record is automatically deleted (rollback
@@ -496,14 +496,26 @@ branch.
 
 ```
 <run-folder>/
-├── system_desc.json        # §8.2 hardware and software description (required)
-├── point.yaml              # §8.3 Pareto-point disclosure (required)
-├── result_summary.json     # Aggregated performance metrics (required)
-├── config.yaml             # Benchmark configuration (optional as of v1.0)
-├── results.json            # Per-request log / accuracy scores (optional)
-├── src/<implementation>/   # Merged into the bundle's shared src/ (README.md required)
-└── documentation/          # Merged into the bundle's shared docs/
+├── system_desc.json                  # §8.2 hardware/software description (required)
+├── point.yaml                        # §8.3 Pareto-point disclosure (required)
+│                                     #   ^ both authored by the submitter, not by endpoints
+├── performance/result_summary.json   # Performance metrics (required)
+├── accuracy/accuracy_results.json    # Per-dataset accuracy scores
+├── config.yaml                       # Resolved benchmark configuration (optional as of v1.0)
+├── events.jsonl                      # Per-event log (largest file by far)
+├── report.txt                        # Human-readable report
+├── sample_idx_map.json               # Sample index mapping
+├── metrics/final_snapshot.json       # Metrics snapshot
+├── src/<implementation>/             # Merged into the bundle's shared src/ (README.md required)
+└── documentation/                    # Merged into the bundle's shared docs/
 ```
+
+This is the layout `mlcommons/endpoints` writes to its `report_dir` — `performance/`
+exists when the performance phase ran, `accuracy/` when the accuracy phase ran, and
+`--mode both` produces both. See
+[run-folder layout](endpoints-cli/reference/run-folder-layout.md) for a captured example. Flat
+layouts that put `result_summary.json` at the top level are not accepted by
+`runs create`.
 
 **`system_desc.json`** — §8.2 system description:
 

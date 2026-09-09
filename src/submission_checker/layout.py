@@ -37,6 +37,7 @@ __all__ = [
     "DOCS_DIR",
     "DOCUMENTATION_SUBDIR",
     "POINT_DIR_RE",
+    "PERFORMANCE_SUBDIR",
     "POINT_YAML",
     "README_MD",
     "REQUIRED_RUN_FILES",
@@ -77,7 +78,10 @@ SRC_DIR = "src"
 #: Optional, point-specific, submitter-defined layout.
 SERVER_CONFIGS_DIR = "server_configs"
 
-# Subdirectory names as they appear inside a *run* folder, before assembly.
+# Phase subdirectory names as they appear inside a *run* folder, before assembly.
+# mlcommons/endpoints writes one per phase that ran; see
+# docs/endpoints-cli/reference/run-folder-layout.md.
+PERFORMANCE_SUBDIR = "performance"
 ACCURACY_SUBDIR = "accuracy"
 DOCUMENTATION_SUBDIR = "documentation"
 

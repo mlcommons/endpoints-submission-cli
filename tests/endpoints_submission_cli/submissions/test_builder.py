@@ -646,6 +646,95 @@ class TestPointYamlIsCopiedNotDerived:
 
 
 @pytest.mark.unit
+class TestRunArchiveLayouts:
+    """The builder consumes archives `runs create` uploaded, in either phase layout.
+
+    PR #78 moved the summary `runs create` reads to ``performance/result_summary.json``,
+    the path mlcommons/endpoints actually writes. That left the builder — which reads
+    the *uploaded archive* — still looking flat, so `submissions create` failed on every
+    real run. The two changes touched different files, so git merged them cleanly and
+    nothing caught it.
+
+    The builder stays permissive where `runs create` is strict: it consumes archives the
+    API already holds, including ones uploaded before the layout settled.
+    """
+
+    def _archive(self, run_folder: Path, tmp_path: Path, *, phase_dirs: bool) -> Path:
+        import shutil
+
+        folder = tmp_path / "run"
+        shutil.copytree(run_folder, folder)
+        if phase_dirs:
+            summary = (folder / "result_summary.json").read_bytes()
+            (folder / "result_summary.json").unlink()
+            (folder / "performance").mkdir()
+            (folder / "performance" / "result_summary.json").write_bytes(summary)
+        archive = tmp_path / "run.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname="run")
+        return archive
+
+    @pytest.mark.parametrize("phase_dirs", [True, False], ids=["endpoints", "flat"])
+    def test_both_layouts_build(self, run_folder: Path, tmp_path: Path, phase_dirs: bool) -> None:
+        archive = self._archive(run_folder, tmp_path, phase_dirs=phase_dirs)
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        assert list(sub_dir.rglob("point.yaml"))
+
+    def test_bundle_is_always_flat(self, run_folder: Path, tmp_path: Path) -> None:
+        """§8.1 puts result_summary.json in r<N>/ — the phase directories are input-only."""
+        archive = self._archive(run_folder, tmp_path, phase_dirs=True)
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        summary = next(sub_dir.rglob("result_summary.json"))
+        assert summary.parent.name.startswith("r")
+        assert not list(sub_dir.rglob("performance/result_summary.json"))
+
+    def test_missing_summary_names_the_expected_path(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
+        import shutil
+
+        folder = tmp_path / "run"
+        shutil.copytree(run_folder, folder)
+        (folder / "result_summary.json").unlink()
+        archive = tmp_path / "run.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname="run")
+
+        with pytest.raises(SubmissionBuildError, match="performance/result_summary.json"):
+            build_submission_folder(
+                [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+            )
+
+    def test_endpoints_accuracy_artifact_is_used(self, run_folder: Path, tmp_path: Path) -> None:
+        """endpoints writes accuracy/accuracy_results.json, not accuracy/results.json."""
+        import shutil
+
+        folder = tmp_path / "run"
+        shutil.copytree(run_folder, folder)
+        config = yaml.safe_load((folder / "config.yaml").read_text())
+        config["datasets"] = [{"type": "accuracy"}]
+        (folder / "config.yaml").write_text(yaml.dump(config))
+        (folder / "results.json").unlink(missing_ok=True)
+        (folder / "accuracy").mkdir(exist_ok=True)
+        (folder / "accuracy" / "accuracy_results.json").write_text(
+            json.dumps({"cnn_dailymail": {"num_samples": 10, "score": {"rouge1": 42.0}}})
+        )
+        archive = tmp_path / "run.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname="run")
+
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        written = next(sub_dir.rglob("accuracy_results.json"))
+        assert json.loads(written.read_text())["cnn_dailymail"]["score"]["rouge1"] == 42.0
+
+
+@pytest.mark.unit
 class TestDirectoryNamingPrecedence:
     """§8.1 names the results directory ``<model_name>``, which lives in point.yaml.
 

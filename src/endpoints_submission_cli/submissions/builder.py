@@ -250,9 +250,12 @@ def _load_run_data(run_id: str, division: str, availability: str, run_dir: Path)
     point_path = min(candidates, key=lambda p: len(p.parts))
     base = point_path.parent
 
-    summary_path = base / layout.RESULT_SUMMARY_JSON
-    if not summary_path.exists():
-        raise SubmissionBuildError(f"Run {run_id}: archive is missing {layout.RESULT_SUMMARY_JSON}")
+    summary_path = _find_result_summary(base)
+    if summary_path is None:
+        raise SubmissionBuildError(
+            f"Run {run_id}: archive is missing {layout.RESULT_SUMMARY_JSON}. endpoints writes"
+            f" it to {layout.PERFORMANCE_SUBDIR}/{layout.RESULT_SUMMARY_JSON}."
+        )
 
     point_bytes = point_path.read_bytes()
     point_config: dict[str, Any] = yaml.safe_load(point_bytes) or {}
@@ -311,6 +314,23 @@ def _load_system_desc(base: Path, run_id: str, division: str, availability: str)
     return sd.model_dump(mode="json")
 
 
+def _find_result_summary(base: Path) -> Path | None:
+    """Locate a run's performance summary, endpoints layout first.
+
+    ``mlcommons/endpoints`` writes it to ``performance/result_summary.json``. The flat
+    location is still read, because the builder consumes archives the API already holds
+    — including ones uploaded before that layout was adopted. ``runs create`` is
+    deliberately stricter: it validates *new* input and accepts only the real layout.
+    """
+    for candidate in (
+        base / layout.PERFORMANCE_SUBDIR / layout.RESULT_SUMMARY_JSON,
+        base / layout.RESULT_SUMMARY_JSON,
+    ):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _load_extra_files(base: Path) -> dict[str, bytes]:
     """Read supplementary run files into memory for inclusion in the result directory."""
     extra: dict[str, bytes] = {}
@@ -321,7 +341,9 @@ def _load_extra_files(base: Path) -> dict[str, bytes]:
         "serving_config.json",
         "report.txt",
         "metrics/final_snapshot.json",
-        "accuracy/results.json",
+        # Accuracy: the name endpoints writes, then the pre-#78 name.
+        f"{layout.ACCURACY_SUBDIR}/{layout.ACCURACY_RESULTS_JSON}",
+        f"{layout.ACCURACY_SUBDIR}/{layout.RESULTS_JSON}",
     ]
     for rel in candidates:
         p = base / rel
@@ -674,11 +696,17 @@ def _write_point_extra_files(
 def _write_accuracy_results(point_dir: Path, accuracy_run: dict[str, Any]) -> None:
     """Write ``accuracy_results.json`` for a point from its accuracy run.
 
-    Run archives carry accuracy either as a standalone ``accuracy/results.json`` or
-    as ``accuracy_scores`` embedded in the run's own ``results.json``.
+    endpoints writes ``accuracy/accuracy_results.json``; older archives carry
+    ``accuracy/results.json``, or ``accuracy_scores`` embedded in the run's own
+    ``results.json``. All three are read so a bundle can still be assembled from runs
+    uploaded before the layout settled.
     """
     extras = accuracy_run.get("_extra_files", {})
-    content = extras.get("accuracy/results.json") or extras.get("results.json")
+    content = (
+        extras.get(f"{layout.ACCURACY_SUBDIR}/{layout.ACCURACY_RESULTS_JSON}")
+        or extras.get(f"{layout.ACCURACY_SUBDIR}/{layout.RESULTS_JSON}")
+        or extras.get(layout.RESULTS_JSON)
+    )
     if content is None:
         return
     (point_dir / "accuracy_results.json").write_bytes(truncate_responses(content))
