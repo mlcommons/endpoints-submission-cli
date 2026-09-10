@@ -32,3 +32,10 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local scratch and credentials — never commit. These were swept into a PR by an
+# unscoped `git add -A` once; the root-level *.txt rule makes that impossible to repeat.
+/*.txt
+!requirements*.txt
+mutants/
+scanoss-key*
