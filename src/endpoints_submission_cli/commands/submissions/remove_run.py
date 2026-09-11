@@ -26,6 +26,11 @@ __all__ = ["submissions_remove_run"]
 
 
 def _rollback_remove_run(token: str, submission_id: str, run_id: str) -> None:
+    """Restore a run this command just removed, after a later step failed.
+
+    This re-adds a run the submission already had, so it is not a §8 post-submission
+    addition — it is the undo half of an operation that did not complete.
+    """
     _console.print(f"[yellow]Rolling back: re-adding run {run_id} to record…[/yellow]")
     try:
         subs_api.add_run_to_submission(token, submission_id, run_id)
@@ -43,29 +48,22 @@ def _rollback_remove_run(token: str, submission_id: str, run_id: str) -> None:
     help="PRISM API key (mlc_...).",
 )
 def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -> None:
-    """Remove a run from an existing submission and update the GitHub PR.
+    """Withdraw a run from an existing submission.
+
+    Submission Rules §8.1 lets a submitter withdraw a faulty measurement point during
+    peer review. Withdrawn points do not count toward the 7-point minimum, so removing
+    one can leave the submission non-compliant — and since §8 no longer provides a
+    window for adding points, that cannot be repaired by adding another. The Submission
+    Checker runs below and will say so.
 
     Workflow:
-      1. Check GitHub prerequisites (gh installed and authenticated)
-      2. DELETE /submissions/{id}/runs/{run_id}
-      3. Download remaining run archives (with progress) — skipped if no runs remain
-      4. Rebuild submission folder — skipped if no runs remain
-      5. Run Submission Checker — rollback and abort on errors; skipped if no runs remain
-      6. Upload updated bundle to blob storage — skipped if no runs remain
-      7. Clone repo, check out existing PR branch, surgically update files, push
-         — skipped if no runs remain
+      1. DELETE /submissions/{id}/runs/{run_id}
+      2. Download remaining run archives (with progress) — skipped if no runs remain
+      3. Rebuild submission folder — skipped if no runs remain
+      4. Run Submission Checker — rollback and abort on errors; skipped if no runs remain
+      5. Upload updated bundle to blob storage — skipped if no runs remain
     """
     resolved_token = _get_token(token)
-    """
-    _console.print("[cyan]Checking GitHub prerequisites…[/cyan]")
-    try:
-        repo_ok, repo_warning = github_ops.check_prerequisites(target_repo)
-    except GitHubError as exc:
-        _console.print(f"[bold red]GitHub prerequisite check failed:[/bold red] {exc}")
-        sys.exit(1)
-    if not repo_ok:
-        _console.print(f"[yellow]Warning:[/yellow] {repo_warning}")
-    """
 
     try:
         sub_out = subs_api.remove_run_from_submission(resolved_token, submission_id, run_id)
@@ -136,23 +134,6 @@ def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -
             sys.exit(1)
 
         upload_source = submission_dir
-        """
-        # 4. Merge fresh build with existing PR branch content (fatal — rollback on failure)
-        if pr_number:
-            _console.print("[cyan]Preparing PR branch merge…[/cyan]")
-            try:
-                repo_dir, merged_org_dir = github_ops.prepare_pr_branch_merge(
-                    submission_dir,
-                    target_repo,
-                    tmp_path / "gh",
-                    branch=f"submission-{submission_id}",
-                )
-                upload_source = merged_org_dir
-            except GitHubError as exc:
-                _console.print(f"[bold red]PR branch merge failed:[/bold red] {exc}")
-                _rollback_remove_run(resolved_token, submission_id, run_id)
-                sys.exit(1)
-        """
 
         # 5. Upload merged bundle to blob storage
         _console.print("[cyan]Uploading submission bundle…[/cyan]")
@@ -164,19 +145,6 @@ def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -
             _console.print(f"[bold red]Bundle upload failed:[/bold red] {exc}")
             _rollback_remove_run(resolved_token, submission_id, run_id)
             sys.exit(1)
-
-        """
-        # 6. Push merged branch to GitHub (non-fatal)
-        if pr_number and repo_dir:
-            _console.print("[cyan]Updating GitHub PR…[/cyan]")
-            try:
-                github_ops.commit_and_push(repo_dir, f"update: remove run {run_id[:8]}")
-            except GitHubError as exc:
-                _console.print(
-                    f"[yellow]GitHub push failed (blob updated, DB updated):[/yellow] {exc}\n"
-                    f"Re-run [bold]submissions remove-run[/bold] to retry."
-                )
-        """
 
     _console.print(
         f"[bold green]Run {run_id} removed from submission {submission_id}.[/bold green]"

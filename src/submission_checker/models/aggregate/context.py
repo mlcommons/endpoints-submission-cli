@@ -17,7 +17,7 @@ from ..file.accuracy import AccuracyResult
 from ..file.point_config import PointConfig
 from ..file.point_summary import PointSummary
 from ..file.system import SystemDescription
-from ..regions import Regions
+from ..regions import ULTRA_LOW_CONCURRENCY_MAX, Regions, covered_region
 from ..results import CheckResult, err, ok, warn
 
 _MIN_POINTS = 7
@@ -46,7 +46,8 @@ class ModelContext(BaseModel):
     system_id: str
     system_desc: SystemDescription
     model_dir: Path
-    regions: Regions
+    #: ``None`` when no point parsed, so no ``C_min`` basis exists (§5.4).
+    regions: Regions | None
     points_dir: Path
     accuracy_dir: Path | None = None
     all_point_count: int
@@ -83,18 +84,73 @@ class ModelContext(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _check_regional_coverage(self) -> ModelContext:
-        """§3–6: at least one valid point must fall in each of the four concurrency regions."""
+    def _check_ultra_low_concurrency_coverage(self) -> ModelContext:
+        """§5.4: at least one point must sit in the Ultra Low Concurrency band (1–32).
+
+        Checked against the *fixed* 1–32 window rather than the derived ``low_latency``
+        region. ``C_min`` is the lowest submitted concurrency, so ``low_latency`` is
+        ``1–C_min`` and always contains that point — testing it would be vacuous. The
+        real requirement is that the curve reaches down into the band at all.
+        """
         concurrencies = [config.concurrency for _, config in self.valid_points]
+        ultra_low = [c for c in concurrencies if c <= ULTRA_LOW_CONCURRENCY_MAX]
+        if ultra_low:
+            self._check_results.append(
+                ok(
+                    "ultra-low-concurrency-coverage",
+                    f"Ultra Low Concurrency covered: {sorted(ultra_low)}"
+                    f" (≤ {ULTRA_LOW_CONCURRENCY_MAX})",
+                    self.points_dir,
+                    "#5.4",
+                )
+            )
+        else:
+            lowest = min(concurrencies) if concurrencies else None
+            detail = f"lowest point is {lowest}" if lowest is not None else "no valid points"
+            self._check_results.append(
+                err(
+                    "ultra-low-concurrency-coverage",
+                    f"No point at concurrency ≤ {ULTRA_LOW_CONCURRENCY_MAX} ({detail})",
+                    self.points_dir,
+                    "#5.4",
+                )
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_regional_coverage(self) -> ModelContext:
+        """§3–6: at least one valid point must fall in each of the three concurrency regions.
+
+        Attribution goes through
+        :func:`~submission_checker.models.regions.covered_region`, so a point in the
+        10 % margin does not stand in for a High Concurrency point.
+        """
+        if self.regions is None:
+            return self  # no C_min basis; region-basis already reported it
         r = self.regions
+        attributed: dict[str, list[int]] = {}
+        for _, config in self.valid_points:
+            region = covered_region(config.concurrency, r)
+            if region is not None:
+                attributed.setdefault(region, []).append(config.concurrency)
+
         coverage_checks = [
-            ("low-latency-coverage", "Low Latency", r.low_latency),
-            ("low-throughput-coverage", "Low Throughput", r.low_throughput),
-            ("med-throughput-coverage", "Medium Throughput", r.med_throughput),
-            ("high-throughput-coverage", "High Throughput", r.high_throughput),
+            ("low-concurrency-coverage", "Low Concurrency", "low_concurrency", r.low_concurrency),
+            (
+                "med-concurrency-coverage",
+                "Medium Concurrency",
+                "med_concurrency",
+                r.med_concurrency,
+            ),
+            (
+                "high-concurrency-coverage",
+                "High Concurrency",
+                "high_concurrency",
+                r.high_concurrency,
+            ),
         ]
-        for rule, label, bounds in coverage_checks:
-            matching = [c for c in concurrencies if bounds.contains(c)]
+        for rule, label, key, bounds in coverage_checks:
+            matching = attributed.get(key, [])
             if matching:
                 self._check_results.append(
                     ok(
@@ -119,9 +175,10 @@ class ModelContext(BaseModel):
     def _check_model_name_consistency(self) -> ModelContext:
         """§16: model name in system_desc must match the model directory name.
 
-        The model directory name is derived from config.yaml's model_params.name
-        (last path component, slugified). system_desc.model_id is the authoritative
-        source; system_desc.model_name is the fallback. Both may be in HuggingFace
+        The model directory name comes from point.yaml's §8.3 ``model_name`` (last path
+        component, slugified), which is what §8.1's ``results/<system>/<model_name>/``
+        asks for. system_desc.model_id is the authoritative source here;
+        system_desc.model_name is the fallback. Both may be in HuggingFace
         format (e.g. "meta-llama/Llama-3.1-8B-Instruct") so we take the last "/"
         component before comparing.
 

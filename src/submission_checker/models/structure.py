@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from pydantic import BaseModel, PrivateAttr, computed_field, model_validator
 
+from .. import layout
 from .results import CheckResult, err, ok
-
-#: A Pareto-point directory: "r" followed by the concurrency level (r1, r32, r256).
-_POINT_DIR_RE = re.compile(r"r(\d+)")
 
 
 class SubmissionDir(BaseModel):
@@ -24,17 +21,17 @@ class SubmissionDir(BaseModel):
     @property
     def results_dir(self) -> Path:
         """Path to the results/ subdirectory."""
-        return self.root / "results"
+        return self.root / layout.RESULTS_DIR
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def docs_dir(self) -> Path:
         """Path to the docs/ subdirectory."""
-        return self.root / "docs"
+        return self.root / layout.DOCS_DIR
 
     @model_validator(mode="after")
     def _check_required_dirs(self) -> SubmissionDir:
-        for name in ("results", "docs"):
+        for name in (layout.RESULTS_DIR, layout.DOCS_DIR):
             path = self.root / name
             if path.is_dir():
                 self._check_results.append(
@@ -65,7 +62,7 @@ class SrcDir(BaseModel):
 
     @model_validator(mode="after")
     def _check_src(self) -> SrcDir:
-        src_dir = self.root / "src"
+        src_dir = self.root / layout.SRC_DIR
         if not src_dir.is_dir():
             self._check_results.append(
                 err(
@@ -122,39 +119,6 @@ class SrcDir(BaseModel):
         return self
 
 
-class SystemResults(BaseModel):
-    """Validates results/<system_id>/ exists."""
-
-    _check_results: list[CheckResult] = PrivateAttr(default_factory=list)
-
-    results_dir: Path
-    system_id: str
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def system_dir(self) -> Path:
-        """Path to the results/<system_id>/ subdirectory."""
-        return self.results_dir / self.system_id
-
-    @model_validator(mode="after")
-    def _check_dir_exists(self) -> SystemResults:
-        path = self.system_dir
-        if path.is_dir():
-            self._check_results.append(
-                ok("system-results-dir", f"Found results/{self.system_id}/", path, "#1")
-            )
-        else:
-            self._check_results.append(
-                err(
-                    "system-results-dir",
-                    f"No results/{self.system_id}/ directory found",
-                    path,
-                    "#1",
-                )
-            )
-        return self
-
-
 class ModelDir(BaseModel):
     """Validates a benchmark-model directory holds at least one r<N>/ point directory."""
 
@@ -168,8 +132,7 @@ class ModelDir(BaseModel):
     @property
     def point_dirs(self) -> list[Path]:
         """The r<N>/ Pareto-point directories, ordered by concurrency."""
-        found = [d for d in self.root.iterdir() if d.is_dir() and _POINT_DIR_RE.fullmatch(d.name)]
-        return sorted(found, key=lambda d: int(d.name[1:]))
+        return layout.iter_point_dirs(self.root)
 
     @model_validator(mode="after")
     def _check_point_dirs(self) -> ModelDir:
