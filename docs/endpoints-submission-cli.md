@@ -22,7 +22,6 @@ submissions against the PRISM Submission API.
    - [submissions get](#submissions-get)
    - [submissions update](#submissions-update)
    - [submissions withdraw](#submissions-withdraw)
-   - [submissions add-run](#submissions-add-run)
    - [submissions remove-run](#submissions-remove-run)
 6. [Environment variable reference](#environment-variable-reference)
 7. [Exit codes](#exit-codes)
@@ -72,22 +71,12 @@ Two additional environment variables control where the CLI talks to:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `MLPERF_API_BASE_URL(for testing purpose)` | `http://localhost:8080` | Base URL of the PRISM Submission API |
-| `MLPERF_SUBMISSION_REPO` | `MLCommons-Systems/test-endpoints-submission-repo` | GitHub repository for submission PRs |
 
 Add these to your shell profile for persistent configuration:
 
 ```bash
 export PRISM_USER_API_TOKEN=mlc_your_token_here
 export MLPERF_API_BASE_URL=https://api.mlcommons.org
-export MLPERF_SUBMISSION_REPO=MLCommons-Systems/test-endpoints-submission-repo
-```
-
-The `submissions create`, `submissions withdraw`, `submissions add-run`, and
-`submissions remove-run` commands use the GitHub CLI (`gh`). Make sure `gh` is
-installed and authenticated:
-
-```bash
-gh auth login
 ```
 
 ---
@@ -114,26 +103,14 @@ endpoints-submission-cli submissions create \
 
 # Output:
 #   Submission created: a1b2c3d4-e5f6-7890-abcd-ef1234567890
-#   PR: https://github.com/mlcommons/inference_results_rolling/pull/42
 SUB_ID=a1b2c3d4-e5f6-7890-abcd-ef1234567890
-```
-
-### Add more runs to an existing submission
-
-```bash
-endpoints-submission-cli runs create --path /results/my_run_concurrency_16
-# NEW_RUN_ID=...
-
-endpoints-submission-cli submissions add-run \
-  --submission-id $SUB_ID \
-  --run-id $NEW_RUN_ID
 ```
 
 ### Withdraw a submission
 
 ```bash
 endpoints-submission-cli submissions withdraw --submission-id $SUB_ID
-# Closes the GitHub PR and deletes the stored bundle
+# Deletes the stored bundle
 ```
 
 ---
@@ -168,7 +145,7 @@ Parse a local run folder, register a run record with the API, and upload the
 folder as a compressed archive.
 
 ```bash
-endpoints-submission-cli runs create --path PATH [--token TOKEN] [--expires-at DATETIME] [--pinned] [--dry-run]
+endpoints-submission-cli runs create --path PATH [--token TOKEN] [--expires-at DATETIME] [--pinned] [--test] [--dry-run]
 ```
 
 | Flag | Description |
@@ -177,14 +154,15 @@ endpoints-submission-cli runs create --path PATH [--token TOKEN] [--expires-at D
 | `--token TOKEN` | API token |
 | `--expires-at DATETIME` | Expiry datetime in ISO 8601 format (e.g. `2026-01-01T00:00:00`). Defaults to server policy. |
 | `--pinned` | Pin the run immediately to prevent automatic expiry. |
+| `--test` | Mark the run as a test run (excluded from published reporting; fixed at creation). |
 | `--dry-run` | Print the parsed API payload as JSON and exit without calling the API. |
 
-The folder must contain exactly these three files (see [Run folder layout](#run-folder-layout)):
+The folder must contain these three files (see [Run folder layout](#run-folder-layout)):
 
 ```
-system_info.json
-config.yaml
-result_summary.json
+system_desc.json
+point.yaml
+performance/result_summary.json
 ```
 
 If the archive upload fails the run record is automatically deleted (rollback
@@ -266,8 +244,7 @@ runs. This command runs the full automated workflow:
 3. Run the Submission Checker — aborts if compliance errors are found.
 4. Register the submission with the API (`POST /submissions`).
 5. Upload the submission bundle.
-6. Create a GitHub PR in the target repository.
-7. Store the PR URL, PR number, and set status to `REVIEW_PENDING` on the submission record.
+6. Set status to `REVIEW_PENDING` on the submission record.
 
 ```bash
 endpoints-submission-cli submissions create \
@@ -295,9 +272,9 @@ endpoints-submission-cli submissions create \
 | `--embargo-date DATETIME` | no | Embargo datetime in ISO 8601 format (e.g. `2025-12-01T00:00:00`) |
 | `--dry-run` | no | Assemble folder, run checker, print layout — exit without submitting |
 
-**If the GitHub PR step fails** the submission record and uploaded bundle still
-exist. Retry the PR step manually with `gh pr create` on the submission branch,
-then contact MLCommons to update the PR linkage.
+**If the final status PATCH fails** the submission record and uploaded bundle still
+exist; the failure is a warning, not a fatal error. The CLI does not open the review
+pull request — `pr_url` and `pr_number` stay on the record for whatever does.
 
 ---
 
@@ -335,31 +312,20 @@ endpoints-submission-cli submissions update \
 
 **When `--run-ids` is provided** the command runs a full rebuild:
 
-1. Check GitHub prerequisites (`gh` installed and authenticated).
-2. GET current submission to determine the division, PR number, and existing run list.
-3. Log added / removed runs.
-4. PATCH the DB with the new run list (and any metadata fields in the same call).
-5. Download all desired run archives (with progress bar).
-6. Assemble the submission folder and run the Submission Checker — rollback and abort on errors.
-7. Clone the submission repository, check out the existing PR branch, and apply the surgical merge — rollback and abort on errors.
-8. Upload the merged bundle to blob storage (`POST /submissions/{id}/archive`) — rollback and abort on errors.
-9. Push the merged branch to the GitHub PR.
+1. GET the current submission to determine its division and existing run list.
+2. **Reject the update if it would add a run** (see below); log removed runs.
+3. PATCH the DB with the new run list (and any metadata fields in the same call).
+4. Download the remaining run archives (with progress bar).
+5. Assemble the submission folder and run the Submission Checker — rollback and abort on errors.
+6. Upload the bundle to blob storage (`POST /submissions/{id}/archive`) — rollback and abort on errors.
 
-**Rollback:** if any step 5–8 fails after the DB PATCH, the run list is automatically restored to
-its original value. The GitHub push (step 9) is non-fatal — if it fails, blob storage and the DB
-are already consistent; re-run `submissions update` to retry.
+**Rollback:** if any step 4–6 fails after the DB PATCH, the run list is automatically restored to
+its original value.
 
-**GitHub PR branch file update strategy:** The CLI clones the submission repository and checks out
-the existing PR branch. It then compares the fresh build against what is already on the branch —
-only generated content is overwritten; files that may have been manually edited by reviewers are
-preserved. `points/` and `accuracy/` are replaced entirely; log files are replaced per-point;
-`system_desc.json` is preserved from the PR branch (seeded for new points); `systems/`, `src/`,
-and `documentation/` are preserved from the PR branch. Commit message format:
-`update: add <ids>; remove <ids> (<N> runs total)`.
-
-> **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the
-> fresh build with reviewer-edited files (`system_desc.json`, `systems/`) preserved from the PR
-> branch. Blob storage and the GitHub PR branch always contain identical content.
+> **`--run-ids` may only shrink the list.** MLPerf Endpoints Submission Rules §8 no longer
+> provide a post-submission window for adding measurement points, so a list containing a run
+> the submission does not already have is rejected before anything is fetched or patched.
+> Removals are still permitted.
 
 **When only metadata flags are provided** (no `--run-ids`) the command is a DB-only PATCH —
 no download, rebuild, archive upload, or GitHub push occurs.
@@ -370,7 +336,7 @@ Providing no optional flags prints a warning and makes no API call.
 
 ### submissions withdraw
 
-Withdraw a submission: marks it `WITHDRAWN`, closes its GitHub PR, and deletes
+Withdraw a submission: marks it `WITHDRAWN` and deletes
 the stored bundle.
 
 ```bash
@@ -378,57 +344,14 @@ endpoints-submission-cli submissions withdraw \
   --submission-id SUB_ID [--token TOKEN]
 ```
 
-The operations are ordered so that the DB state is updated first. PR closure
-and archive deletion are best-effort — failures are reported as warnings but
-do not affect the exit code.
-
----
-
-### submissions add-run
-
-Add a run to an existing submission, rebuild the submission bundle, re-run
-compliance checking, and push a new commit to the PR branch.
-
-```bash
-endpoints-submission-cli submissions add-run \
-  --submission-id SUB_ID \
-  --run-id RUN_ID \
-  [--token TOKEN]
-```
-
-**Pipeline:**
-
-1. Check GitHub prerequisites (`gh` installed and authenticated).
-2. `POST /submissions/{id}/runs/{run_id}` — register the addition.
-3. Download all run archives (including the newly added run).
-4. Rebuild the submission folder.
-5. Run the Submission Checker — rollback and abort on errors.
-6. Clone the submission repository, check out the existing PR branch, and apply the surgical merge — rollback and abort on errors.
-7. Upload the merged bundle to blob storage (`POST /submissions/{id}/archive`) — rollback and abort on errors.
-8. Push the merged branch to the GitHub PR.
-
-**Rollback:** if any step 3–7 fails after registration, the run is automatically removed from the
-submission record before exiting. The GitHub push (step 8) is non-fatal — if it fails, blob
-storage and the DB are already consistent; re-run `submissions add-run` to retry.
-
-**GitHub PR branch file update strategy:** The CLI clones the submission repository and checks
-out the existing PR branch. It then compares the fresh build against what is already on the
-branch — only generated content is overwritten; files that may have been manually edited by
-reviewers are preserved. `points/` and `accuracy/` are replaced entirely; log files
-(`mlperf_endpoints_log_*.json`) are replaced per-point; `system_desc.json` is preserved from
-the PR branch (seeded for new points); `systems/`, `src/`, and `documentation/` are preserved
-from the PR branch; `systems/` is seeded from the fresh build only if absent.
-
-> **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the
-> fresh build with reviewer-edited files (`system_desc.json`, `systems/`) preserved from the PR
-> branch. Blob storage and the GitHub PR branch always contain identical content.
-
----
+The operations are ordered so that the DB state is updated first. Archive deletion
+is best-effort — a failure is reported as a warning but does not affect the exit
+code. The CLI does not close the review pull request; it no longer manages one.
 
 ### submissions remove-run
 
 Remove a run from an existing submission. If runs still remain, the bundle is
-rebuilt, compliance-checked, re-uploaded, and pushed to the PR branch.
+rebuilt, compliance-checked, and re-uploaded.
 
 ```bash
 endpoints-submission-cli submissions remove-run \
@@ -439,32 +362,22 @@ endpoints-submission-cli submissions remove-run \
 
 **Pipeline:**
 
-1. Check GitHub prerequisites (`gh` installed and authenticated).
-2. `DELETE /submissions/{id}/runs/{run_id}` — register the removal.
-3. Download remaining run archives — skipped if no runs remain.
-4. Rebuild the submission folder — skipped if no runs remain.
-5. Run the Submission Checker — rollback and abort on errors; skipped if no runs remain.
-6. Clone the submission repository, check out the existing PR branch, and apply the surgical merge — rollback and abort on errors; skipped if no runs remain.
-7. Upload the merged bundle to blob storage (`POST /submissions/{id}/archive`) — rollback and abort on errors; skipped if no runs remain.
-8. Push the merged branch to the GitHub PR — skipped if no runs remain.
+1. `DELETE /submissions/{id}/runs/{run_id}` — register the removal.
+2. Download remaining run archives — skipped if no runs remain.
+3. Rebuild the submission folder — skipped if no runs remain.
+4. Run the Submission Checker — rollback and abort on errors; skipped if no runs remain.
+5. Upload the bundle to blob storage (`POST /submissions/{id}/archive`) — rollback and abort
+   on errors; skipped if no runs remain.
 
-If no runs remain after removal, steps 3–8 are skipped and a warning is printed.
+If no runs remain after removal, steps 2–5 are skipped and a warning is printed.
 
-**Rollback:** if any step 3–7 fails after removal, the run is automatically re-added to the
-submission record. The GitHub push (step 8) is non-fatal — if it fails, blob storage and the DB
-are already consistent; re-run `submissions remove-run` to retry.
+**Rollback:** if any step 2–5 fails after removal, the run is automatically re-added to the
+submission record.
 
-**GitHub PR branch file update strategy:** The CLI clones the submission repository and checks
-out the existing PR branch. It then compares the fresh build against what is already on the
-branch — only generated content is overwritten; files that may have been manually edited by
-reviewers are preserved. `points/` and `accuracy/` are replaced entirely; log files are
-replaced per-point; `system_desc.json` is preserved from the PR branch; point dirs for the
-removed run are deleted; `systems/`, `src/`, and `documentation/` are preserved from the PR
-branch.
-
-> **Blob storage and GitHub PR branch content:** Both destinations receive the merged result — the
-> fresh build with reviewer-edited files (`system_desc.json`, `systems/`) preserved from the PR
-> branch. Blob storage and the GitHub PR branch always contain identical content.
+> **A withdrawn point cannot be replaced.** Submission Rules §8.1 lets a submitter withdraw a
+> faulty measurement point during peer review, which is what this command does — but §8 no
+> longer provides a window for adding points, so a submission that drops below the 7-point
+> minimum cannot be repaired by adding another. The Submission Checker reports the shortfall.
 
 ---
 
@@ -474,7 +387,6 @@ branch.
 |----------|----------|---------|-------------|
 | `PRISM_USER_API_TOKEN` | yes* | — | API key for the PRISM Submission API (`mlc_…`). Can be passed per-command with `--token` instead. |
 | `MLPERF_API_BASE_URL` | no | `http://localhost:8080` | Base URL of the PRISM Submission API. |
-| `MLPERF_SUBMISSION_REPO` | no | `MLCommons-Systems/test-endpoints-submission-repo` | Target GitHub repository for submission PRs (`org/repo` format). |
 
 \* Required unless `--token` is passed.
 
@@ -495,13 +407,28 @@ branch.
 
 ```
 <run-folder>/
-├── system_info.json        # Hardware and software description (required)
-├── config.yaml             # Benchmark configuration (model, concurrency, endpoints, …) (required)
-├── result_summary.json     # Aggregated performance metrics (required)
-└── runtime_settings.json   # Inference server runtime settings (optional)
+├── system_desc.json                  # §8.2 hardware/software description (required)
+├── point.yaml                        # §8.3 Pareto-point disclosure (required)
+│                                     #   ^ both authored by the submitter, not by endpoints
+├── performance/result_summary.json   # Performance metrics (required)
+├── accuracy/accuracy_results.json    # Per-dataset accuracy scores
+├── config.yaml                       # Resolved benchmark configuration (optional as of v1.0)
+├── events.jsonl                      # Per-event log (largest file by far)
+├── report.txt                        # Human-readable report
+├── sample_idx_map.json               # Sample index mapping
+├── metrics/final_snapshot.json       # Metrics snapshot
+├── src/<implementation>/             # Merged into the bundle's shared src/ (README.md required)
+└── documentation/                    # Merged into the bundle's shared docs/
 ```
 
-**`system_info.json`** — hardware description:
+This is the layout `mlcommons/endpoints` writes to its `report_dir` — `performance/`
+exists when the performance phase ran, `accuracy/` when the accuracy phase ran, and
+`--mode both` produces both. See
+[run-folder layout](endpoints-cli/reference/run-folder-layout.md) for a captured example. Flat
+layouts that put `result_summary.json` at the top level are not accepted by
+`runs create`.
+
+**`system_desc.json`** — §8.2 system description:
 
 ```json
 {
@@ -541,8 +468,70 @@ endpoint_config:
 }
 ```
 
-**`runtime_settings.json`** *(optional)* — inference server runtime settings used
-as the base for the `runtime_settings` block in each `point_<N>.yaml`:
+**`point.yaml`** — the §8.3 Pareto-point disclosure for this run, validated by the
+Submission Checker and copied into the bundle **verbatim**:
+
+```yaml
+concurrency: 4
+region: low_latency
+dataset: cnn_dailymail
+
+# §8.3 disclosure
+division: Standardized
+max_supported_concurrency: 1024
+model_name: llama3.1-8b
+model_precision: FP16
+link_to_model: https://example.com/model
+link_to_model_transformation: https://example.com/quantization
+dataset_name: CNN/DailyMail
+dataset_type: Performance
+dataset_link: https://example.com/dataset
+
+# §4.6 seed binding — the set is named here and its values used below
+seed_set: A
+target_cohort: 2026-09-C0
+
+# §8.1 bundle-internal pointers; injected by the builder when absent
+shared_src: src/trtllm
+shared_docs: docs
+
+runtime_settings:
+  load_pattern: concurrency
+  stream_all_chunks: true
+  min_duration_ms: 1200000
+  min_sample_count: 2000
+  runtime:
+    scheduler_rng_seed: 10487924139932647040
+    sample_index_rng_seed: 586478644936801402
+    model_seed: 9315206023656308754
+warmup:
+  duration_s: 60.0
+  requests_issued: 40
+  requests_completed: 40
+  data_source: cnn_dailymail validation split
+  concurrency: 4
+  initialization_steps: [model loaded, kv-cache warmed]
+  logs_retained: true
+```
+
+The CLI does **not** derive this from `config.yaml`. It used to, which silently produced
+nulls for any disclosure field a harness did not happen to put in its config — and the
+checker then rejected the bundle. `point.yaml` is now required and passed through
+untouched, so the harness owns the disclosure. `config.yaml` became **optional** in
+v1.0: it records what the harness was told to do and carries no disclosure of its own.
+
+The one exception is `shared_src` / `shared_docs`. The builder fills these in when a
+run does not declare them, because their referent — `src/<implementation>/`, the union
+of every run's `src/` folder — does not exist until the builder assembles the bundle, so
+no single run archive can name it. A value the run *does* declare is validated and never
+overwritten; one that does not resolve fails the build.
+
+v1.0 also rotates the RNG seeds (§4.6). v0.7 fixed every seed at 42; a v1.0 point names
+a published seed set and seeds `scheduler_rng_seed`, `sample_index_rng_seed` and
+`model_seed` from it.
+
+**`runtime_settings.json`** *(optional)* — inference server runtime settings recorded
+alongside the run:
 
 ```json
 {
@@ -560,21 +549,28 @@ The [Submission Checker](../README.md) validates it before the submission is
 registered:
 
 ```
-<org>/
-├── systems/
-│   └── <system_id>.json              # hardware + software description
-└── pareto/
-    └── <system_id>/
-        └── <model>/
-            ├── points/
-            │   └── point_<N>.yaml    # one config per concurrency level
-            ├── results/
-            │   └── point_<N>/
-            │       ├── mlperf_endpoints_log_summary.json
-            │       └── mlperf_endpoints_log_detail.json
-            └── accuracy/
-                ├── accuracy.txt
-                └── accuracy_result.json
+<submitting_organization>/
+└── <submission_id>/                       # assigned by MLC; one per submission
+    ├── src/                               # SHARED across the whole submission
+    │   └── <implementation>/              # e.g. trtllm/, vllm/, sglang/
+    │       ├── README.md                  # how to build/launch the SUT, reproduce a point
+    │       └── <endpoint interface code, infra/cluster setup, client harness>
+    │
+    ├── docs/                              # SHARED across the whole submission
+    │   ├── calibration.adoc               # if weight transformations applied (§3.3)
+    │   ├── software_disclosure.md         # §8.4
+    │   └── <additional documentation>
+    │
+    └── results/
+        └── <system>/                      # e.g. H200-SXM-141GBx8_TRT/
+            └── <benchmark_model>/         # e.g. deepseek-r1/, gpt-oss-120b/
+                └── r<N>/                  # one PARETO POINT per concurrency (r1, r32, …)
+                    ├── point.yaml             # §8.3
+                    ├── system_desc.json       # §8.2 — per point since policies PR #119
+                    ├── result_summary.json    # aggregate metrics (QPS, TPS, TTFT, TPOT)
+                    ├── accuracy_results.json  # §6.6
+                    ├── config.yaml            # OPTIONAL as of v1.0
+                    └── server_configs/        # OPTIONAL, point-specific backend configs
 ```
 
 ---

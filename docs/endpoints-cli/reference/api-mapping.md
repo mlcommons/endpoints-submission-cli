@@ -29,7 +29,7 @@ This table maps every CLI command to the API endpoints it calls, in the order th
 | `submissions create` | 1 | GET | `/runs/{run_id}/archive` | Repeated for each `--run-ids` value. |
 | | 2 | POST | `/submissions` | Registers the submission record. |
 | | 3 | POST | `/submissions/{id}/archive` | Uploads the bundle `.tar.gz`. |
-| | (rollback) | DELETE | `/submissions/{id}` | Only on GitHub PR failure, after upload. |
+| | (rollback) | DELETE | `/submissions/{id}` | Only on bundle-upload failure, after registration. |
 | | 4 | PATCH | `/submissions/{id}` | Sets `pr_url`, `pr_number`, `status=REVIEW_PENDING`. |
 | `submissions get` | 1 | GET | `/submissions/{id}` | Query param `include_runs=true` by default. |
 | `submissions update` (run-ids) | 1 | GET | `/submissions/{id}` | Fetch current run list and division. |
@@ -40,7 +40,6 @@ This table maps every CLI command to the API endpoints it calls, in the order th
 | `submissions update` (metadata only) | 1 | PATCH | `/submissions/{id}` | Single call with only metadata fields. |
 | `submissions withdraw` | 1 | DELETE | `/submissions/{id}` | Marks `WITHDRAWN`; returns PR number. |
 | | 2 | DELETE | `/submissions/{id}/archive` | Best-effort; failure is a warning. |
-| `submissions add-run` | 1 | POST | `/submissions/{id}/runs/{run_id}` | Registers the addition. Returns updated run list. |
 | | 2 | GET | `/runs/{run_id}/archive` | Repeated for all runs (including new). |
 | | 3 | POST | `/submissions/{id}/archive` | Uploads updated bundle. |
 | | (rollback) | DELETE | `/submissions/{id}/runs/{run_id}` | Only on failure after step 1. |
