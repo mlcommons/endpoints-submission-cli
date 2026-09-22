@@ -29,6 +29,7 @@ from .models import (
     SrcDir,
     SubmissionDir,
     SystemDescription,
+    SystemPower,
     compute_regions,
 )
 from .models import err as _err
@@ -40,12 +41,16 @@ from .models.loader import (
     load_point_config,
     load_result_summary,
     load_system_description,
+    load_system_power,
 )
 from .models.regions import ULTRA_LOW_CONCURRENCY_MAX
 from .seed_sets import SeedSet, SeedSetError, load_seed_sets
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+#: Relative tolerance for stored-vs-derived metric comparisons.
+_TPS_TOLERANCE = 0.01
 
 # Absolute tolerance for the tps_utilization consistency check.
 _TPS_UTILIZATION_ABS_TOL = 0.1
@@ -340,6 +345,9 @@ class SubmissionChecker:
         results: list[CheckResult] = []
         system_id = system_dir.name
 
+        power, power_results = self._load_system_power(system_dir)
+        results.extend(power_results)
+
         model_dirs = [d for d in sorted(system_dir.iterdir()) if d.is_dir()]
         if not model_dirs:
             results.append(
@@ -353,15 +361,78 @@ class SubmissionChecker:
             return results
 
         for model_dir in model_dirs:
-            results.extend(self._check_model(system_id, model_dir))
+            results.extend(self._check_model(system_id, model_dir, power))
 
         return results
+
+    def _load_system_power(self, system_dir: Path) -> tuple[SystemPower | None, list[CheckResult]]:
+        """§9.1 "Power descriptor": every system must ship a `system_power.json`.
+
+        Per *system*, not per point — §4.5.3 makes provisioned power a property of the
+        system, constant across its whole curve. It is the one per-system file in
+        §8.1's tree, which policies PR #119 had otherwise emptied.
+        """
+        results: list[CheckResult] = []
+        path = system_dir / layout.SYSTEM_POWER_JSON
+        if not path.is_file():
+            results.append(
+                _err(
+                    "power-descriptor",
+                    f"Missing {layout.SYSTEM_POWER_JSON} for"
+                    f" {system_dir.relative_to(self.submission_path)}; §4.5.2 requires one"
+                    " per system",
+                    path,
+                    "#4.5.2",
+                )
+            )
+            return None, results
+
+        power, load_results = load_system_power(path)
+        results.extend(load_results)
+        if power is None:
+            return None, results
+
+        kw = power.provisioned_power_kw
+        if kw is None:
+            results.append(
+                _err(
+                    "power-descriptor",
+                    f"{layout.SYSTEM_POWER_JSON} states no provisioned power and no component"
+                    " group it could be derived from (§4.5.2)",
+                    path,
+                    "#4.5.2",
+                )
+            )
+            return power, results
+
+        missing = power.missing_groups
+        if missing:
+            results.append(
+                _warn(
+                    "power-estimated",
+                    f"{', '.join(missing)} left for MLCommons to auto-populate; §4.5.2"
+                    " triggers the estimated-power tag when a value is not supplied",
+                    path,
+                    "#4.5.2",
+                )
+            )
+        results.append(
+            _ok(
+                "power-descriptor",
+                f"Provisioned power {kw:.3f} kW",
+                path,
+                "#4.5.2",
+            )
+        )
+        return power, results
 
     # ------------------------------------------------------------------
     # Per benchmark-model orchestration
     # ------------------------------------------------------------------
 
-    def _check_model(self, system_id: str, model_dir: Path) -> list[CheckResult]:
+    def _check_model(
+        self, system_id: str, model_dir: Path, power: SystemPower | None = None
+    ) -> list[CheckResult]:
         """Run every check scoped to one Pareto curve (§8.5: one system, one model).
 
         Two-phase, because v1.0 derives ``C_min`` from the submitted points (§5.4)
@@ -408,7 +479,7 @@ class SubmissionChecker:
         loaded_points: list[tuple[PointConfig, PointSummary]] = []
 
         for point in loaded:
-            results.extend(self._check_point(point, regions, loaded_points))
+            results.extend(self._check_point(point, regions, loaded_points, power))
 
         results.extend(self._check_shared_paths(loaded))
 
@@ -671,6 +742,7 @@ class SubmissionChecker:
         point: _LoadedPoint,
         regions: Regions | None,
         loaded_points: list[tuple[PointConfig, PointSummary]],
+        power: SystemPower | None = None,
     ) -> list[CheckResult]:
         """Run the per-point rules that need the curve's regions or its result summary.
 
@@ -710,7 +782,46 @@ class SubmissionChecker:
         )
         results.extend(point_result._check_results)
         loaded_points.append((point.config, summary))
+        results.extend(self._check_tps_per_kw(point, summary, power))
         return results
+
+    def _check_tps_per_kw(
+        self, point: _LoadedPoint, summary: PointSummary, power: SystemPower | None
+    ) -> list[CheckResult]:
+        """§4.5.3: ``system_tps_per_kw = system_tps / provisioned_power_kw``.
+
+        The denominator is the system's provisioned power, constant across the curve —
+        §4.5.3 is explicit that a low-concurrency point leaving most of the system idle
+        is still normalised by the full figure.
+        """
+        if power is None:
+            return []
+        kw = power.provisioned_power_kw
+        if kw is None or kw <= 0:
+            return []
+        derived = summary.system_tps / kw
+        stored = (summary.model_extra or {}).get("system_tps_per_kw")
+        path = point.point_dir / layout.RESULT_SUMMARY_JSON
+        if stored is not None:
+            rel_err = abs(float(stored) - derived) / max(abs(derived), 1e-9)
+            if rel_err > _TPS_TOLERANCE:
+                return [
+                    _err(
+                        "metric-consistency-tps-per-kw",
+                        f"stored system_tps_per_kw {float(stored):.4f} ≠ derived"
+                        f" system_tps / {kw:.3f} kW = {derived:.4f} (rel err {rel_err:.1%})",
+                        path,
+                        "#4.5.3",
+                    )
+                ]
+        return [
+            _ok(
+                "metric-consistency-tps-per-kw",
+                f"system_tps_per_kw={derived:.4f} ({summary.system_tps:.3f} / {kw:.3f} kW)",
+                path,
+                "#4.5.3",
+            )
+        ]
 
     def _load_curve_accuracy(
         self, loaded: list[_LoadedPoint]

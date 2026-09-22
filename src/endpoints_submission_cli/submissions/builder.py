@@ -148,6 +148,9 @@ def build_submission_folder(
     # one system, one model (§8.5) — which is also how the checker recomputes it.
     # Normalising per model across systems would divide a small system's points by a
     # larger system's peak, so no submission with two systems could match its own file.
+    for system_id, system_runs in runs_by_system.items():
+        _write_system_power(submission_dir, system_id, system_runs)
+
     for (system_id, model), runs in groups.items():
         _write_point_dirs(
             submission_dir,
@@ -275,6 +278,9 @@ def _load_run_data(run_id: str, division: str, availability: str, run_dir: Path)
         "system_info": system_info,
         "config": config,
         "point_config": point_config,
+        # §4.5.2 provisioned power. Submitter-authored like system_desc.json, and
+        # per system rather than per point, so the builder writes it one level up.
+        "system_power": _load_json_if_present(base / layout.SYSTEM_POWER_JSON),
         "result_summary": result_summary,
         # Raw bytes, so the submitter's point.yaml lands in the bundle untouched.
         "point_yaml": point_bytes,
@@ -329,6 +335,41 @@ def _find_result_summary(base: Path) -> Path | None:
         if candidate.is_file():
             return candidate
     return None
+
+
+def _load_json_if_present(path: Path) -> dict[str, Any] | None:
+    """Read a JSON object from *path*, or None when it is absent or unreadable."""
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _write_system_power(submission_dir: Path, system_id: str, runs: list[dict[str, Any]]) -> None:
+    """Write ``results/<system>/system_power.json`` from whichever run supplies it.
+
+    §4.5.3 makes provisioned power a property of the *system* — constant across every
+    point of its curve — so the runs of one system must agree on it.
+
+    Raises:
+        SubmissionBuildError: If the system's runs declare conflicting power.
+    """
+    declared = [r["system_power"] for r in runs if r.get("system_power") is not None]
+    if not declared:
+        return
+    first = declared[0]
+    if any(d != first for d in declared[1:]):
+        raise SubmissionBuildError(
+            f"System {system_id}: runs declare different {layout.SYSTEM_POWER_JSON} contents."
+            " §4.5.3 makes provisioned power a property of the system, constant across"
+            " every point of its curve."
+        )
+    path = submission_dir / layout.RESULTS_DIR / system_id / layout.SYSTEM_POWER_JSON
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(first, indent=2), encoding="utf-8")
 
 
 def _load_extra_files(base: Path) -> dict[str, bytes]:

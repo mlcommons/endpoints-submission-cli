@@ -161,6 +161,7 @@ Pareto point carries its own `system_desc.json`.
     ├── docs/                         # calibration, software disclosure, …
     └── results/
         └── <system>/
+            ├── system_power.json      # §4.5.2 — REQUIRED, one per system
             └── <model_name>/
                 └── r<N>/             # one directory per concurrency level
                     ├── point.yaml            # §8.3 measurement-point disclosure
@@ -204,6 +205,8 @@ submission root (§9.1).
 | `model-name-consistency` | §16 | It matches the results directory name |
 | `max-concurrency-declared` | §7 | `max_supported_concurrency` (C_max) present and > 32 |
 | `tps-utilization` | §8.2 | Equals `system_tps / max(system_tps)` over the point's own curve |
+| `power-descriptor` | §4.5.2 | `system_power.json` present per system and states a derivable power |
+| `power-estimated` | §4.5.2 | Flags component groups left for MLCommons to auto-populate (warn) |
 
 ### Regions (§5)
 
@@ -275,6 +278,7 @@ set published after this release.
 | `metric-consistency-system-tps` | §9.1 | Stored `system_tps` matches the derived value |
 | `metric-consistency-tpot-p90` | §9.1 | Reported TPOT P90 present, finite, strictly positive |
 | `metric-consistency-tps-per-user` | §9.1 | Stored `tps_per_user` matches `1000 / tpot_p90_ms` |
+| `metric-consistency-tps-per-kw` | §4.5.3 | Stored `system_tps_per_kw` matches `system_tps / provisioned_power_kw` |
 
 ### Accuracy (§15)
 

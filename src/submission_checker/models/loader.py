@@ -11,6 +11,7 @@ __all__ = [
     "load_point_config",
     "load_result_summary",
     "load_system_description",
+    "load_system_power",
 ]
 
 from typing import Any
@@ -18,7 +19,7 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
-from .file import AccuracyResult, PointConfig, PointSummary, SystemDescription
+from .file import AccuracyResult, PointConfig, PointSummary, SystemDescription, SystemPower
 from .results import CheckResult, Severity
 
 
@@ -180,3 +181,23 @@ def load_accuracy_scores(
         return instance, list(instance._check_results), True
     except ValidationError as exc:
         return None, _validation_errors(exc, "accuracy-valid", path), True
+
+
+def load_system_power(path: Path) -> tuple[SystemPower | None, list[CheckResult]]:
+    """Load and validate a system's ``system_power.json`` (§4.5.2).
+
+    Returns:
+        A ``(model, check_results)`` pair. On failure the model is None and
+        check_results contains one entry per validation error.
+    """
+    data, load_err = _load_json(path)
+    if load_err:
+        return None, [
+            CheckResult(
+                rule="power-descriptor", message=load_err, severity=Severity.ERROR, path=path
+            )
+        ]
+    try:
+        return SystemPower.model_validate(data), []
+    except ValidationError as exc:
+        return None, _validation_errors(exc, "power-descriptor", path)

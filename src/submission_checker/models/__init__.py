@@ -15,6 +15,7 @@ from .file import (
     SteadyStateWindow,
     SystemAvailabilityStatus,
     SystemDescription,
+    SystemPower,
 )
 from .regions import MIN_DURATION_MS, RegionBounds, Regions, classify_concurrency, compute_regions
 from .results import CheckResult, Report, Severity, err, ok, warn
@@ -45,6 +46,7 @@ __all__ = [
     "SrcDir",
     "SteadyState",
     "SteadyStateWindow",
+    "SystemPower",
     "SubmissionDir",
     "SystemAvailabilityStatus",
     "SystemDescription",

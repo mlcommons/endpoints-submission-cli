@@ -141,6 +141,8 @@ def regenerate_submission(submission_dir: Path, seed_set: Any, *, dry_run: bool)
         for model_dir in sorted(p for p in system_dir.iterdir() if p.is_dir()):
             changes += _regenerate_curve(model_dir, base_desc, seed_set, dry_run=dry_run)
 
+        changes += _write_system_power(system_dir, base_desc, dry_run=dry_run)
+
         if legacy_desc_path.exists():
             changes.append(f"delete {_rel(legacy_desc_path)}")
             if not dry_run:
@@ -194,6 +196,45 @@ def _regenerate_curve(
 # ---------------------------------------------------------------------------
 # system_desc.json
 # ---------------------------------------------------------------------------
+
+
+def _write_system_power(system_dir: Path, desc: dict[str, Any], *, dry_run: bool) -> list[str]:
+    """Write the §4.5.2 provisioned-power descriptor for one system.
+
+    Synthesised from the node counts already in the system description, so the fixture
+    corpus carries a self-consistent figure rather than a magic number. Left alone once
+    present: a hand-tuned power file is a legitimate fixture edit.
+    """
+    path = system_dir / layout.SYSTEM_POWER_JSON
+    if path.is_file():
+        return []
+
+    nodes = desc.get("node_types") or [{}]
+    node = nodes[0] if isinstance(nodes[0], dict) else {}
+    accelerators = node.get("accelerator_info") or [{}]
+    accel = accelerators[0] if isinstance(accelerators[0], dict) else {}
+    node_count = int(desc.get("system_node_ensemble_total") or 1)
+
+    power = {
+        "cpu": {
+            "count": int(node.get("host_processors_per_node") or 2) * node_count,
+            "tdp_per_unit": 350,
+            "link": "https://example.com/cpu-spec",
+        },
+        "accelerator": {
+            "count": int(accel.get("accelerators_per_node") or 8) * node_count,
+            "tdp_per_unit": 700,
+            "link": "https://example.com/accelerator-spec",
+        },
+        "scale_up_network": {
+            "count": node_count,
+            "tdp_per_unit": 3500,
+            "link": "https://example.com/switch-spec",
+        },
+        # §4.5.2: 0.30 liquid-cooled, 0.50 air-cooled.
+        "overhead_fraction": 0.30 if "liquid" in str(node.get("cooling", "")).lower() else 0.50,
+    }
+    return _write_json(path, power, dry_run=dry_run)
 
 
 def _system_description_for(system_dir: Path, legacy_path: Path) -> dict[str, Any]:

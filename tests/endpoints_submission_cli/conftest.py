@@ -261,12 +261,22 @@ _POINT = {
 }
 
 
+#: §4.5.2 provisioned power. Submitter-authored, one per system.
+_SYSTEM_POWER = {
+    "cpu": {"count": 2, "tdp_per_unit": 350, "link": "https://example.com/cpu"},
+    "accelerator": {"count": 8, "tdp_per_unit": 700, "link": "https://example.com/gpu"},
+    "scale_up_network": {"count": 1, "tdp_per_unit": 3500, "link": "https://example.com/sw"},
+    "overhead_fraction": 0.5,
+}
+
+
 @pytest.fixture
 def run_folder(tmp_path: Path) -> Path:
     """Create a minimal valid run folder in a temp directory."""
     folder = tmp_path / "test_run"
     folder.mkdir()
     (folder / "system_desc.json").write_text(json.dumps(_SYSTEM_DESC))
+    (folder / "system_power.json").write_text(json.dumps(_SYSTEM_POWER))
     (folder / "mlperf-system-info-single-node-0.json").write_text(json.dumps(_HW_INFO))
     (folder / "serving_config.json").write_text(json.dumps(_SERVING_CONFIG))
     (folder / "config.yaml").write_text(yaml.dump(_CONFIG))
@@ -320,6 +330,7 @@ def endpoints_run_folder(tmp_path: Path) -> Path:
     (folder / "metrics").mkdir()
 
     (folder / "system_desc.json").write_text(json.dumps(_SYSTEM_DESC))
+    (folder / "system_power.json").write_text(json.dumps(_SYSTEM_POWER))
     (folder / "point.yaml").write_text(yaml.dump(_POINT))
     (folder / "config.yaml").write_text(yaml.dump(_CONFIG))
     (folder / "performance" / "result_summary.json").write_text(json.dumps(_RESULT_SUMMARY))
