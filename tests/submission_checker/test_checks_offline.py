@@ -1,0 +1,391 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 MLCommons
+# SPDX-License-Identifier: Apache-2.0
+"""Tests for the Offline point (§5.7) and §5.3's accuracy coverage.
+
+The Offline point is the first point that is deliberately *not* a fixed-concurrency
+run, so most of what is asserted here is which ordinary rules must stand down for it.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from submission_checker.models import (
+    AccuracyResult,
+    PointConfig,
+    RegionPlacement,
+    RuntimeSettings,
+    Severity,
+)
+
+from .conftest import _REGIONS, _config, _model_ctx, _summary
+
+#: One point's accuracy results, reused wherever coverage rather than score matters.
+_ACCURACY = AccuracyResult({"cnn_dailymail": {"num_samples": 500, "score": {"rouge1": 45.0}}})
+
+
+def _offline_config(concurrency: int = 24576, offline: str = "dedicated") -> PointConfig:
+    """A point declaring itself the Offline run.
+
+    The default concurrency is a realistic dataset cardinality (open_orca), which is
+    what §5.7.1 fixes it to — and which is far outside C_max's 10 % margin.
+    """
+    return PointConfig(
+        concurrency=concurrency,
+        dataset="open_orca",
+        offline=offline,
+        runtime_settings=RuntimeSettings(
+            load_pattern="offline",
+            runtime=RuntimeSettings.Runtime(scheduler_rng_seed=1, sample_index_rng_seed=2),
+        ),
+    )
+
+
+@pytest.mark.unit
+class TestOfflineVocabulary:
+    @pytest.mark.parametrize("value", ["dedicated", "elected", "none"])
+    def test_valid_values_accepted(self, tmp_path: Path, value: str) -> None:
+        config = PointConfig.model_validate(
+            {
+                "concurrency": 64,
+                "offline": value,
+                "runtime_settings": {"load_pattern": "concurrency", "runtime": {}},
+            },
+            context={"yaml_path": tmp_path / "point.yaml"},
+        )
+        assert not [
+            r
+            for r in config._check_results
+            if r.rule == "offline-declared" and r.severity == Severity.ERROR
+        ]
+
+    def test_unknown_value_errors(self, tmp_path: Path) -> None:
+        config = PointConfig.model_validate(
+            {
+                "concurrency": 64,
+                "offline": "maybe",
+                "runtime_settings": {"load_pattern": "concurrency", "runtime": {}},
+            },
+            context={"yaml_path": tmp_path / "point.yaml"},
+        )
+        assert [
+            r
+            for r in config._check_results
+            if r.rule == "offline-declared" and r.severity == Severity.ERROR
+        ]
+
+    def test_absent_is_not_a_finding(self, tmp_path: Path) -> None:
+        config = _config(concurrency=64)
+        assert not [r for r in config._check_results if r.rule == "offline-declared"]
+        assert not config.is_offline
+
+    @pytest.mark.parametrize(
+        "value, expected", [("dedicated", True), ("elected", True), ("none", False), (None, False)]
+    )
+    def test_is_offline(self, value: str | None, expected: bool) -> None:
+        assert _offline_config(offline=value).is_offline is expected if value else True
+
+
+@pytest.mark.unit
+class TestRulesThatStandDownForOffline:
+    """§5.7 makes the Offline point an exception to three fixed-concurrency rules."""
+
+    def test_dedicated_run_is_exempt_from_the_load_pattern(self, tmp_path: Path) -> None:
+        """§6.1: it uses the Offline load pattern, not fixed concurrency."""
+        config = PointConfig.model_validate(
+            {
+                "concurrency": 24576,
+                "offline": "dedicated",
+                "runtime_settings": {"load_pattern": "offline", "runtime": {}},
+            },
+            context={"yaml_path": tmp_path / "point.yaml"},
+        )
+        assert not [
+            r
+            for r in config._check_results
+            if r.rule == "load-pattern" and r.severity == Severity.ERROR
+        ]
+
+    def test_elected_point_is_not_exempt(self, tmp_path: Path) -> None:
+        """An elected point is an ordinary run nominated afterwards, so §6.1 applies."""
+        config = PointConfig.model_validate(
+            {
+                "concurrency": 1024,
+                "offline": "elected",
+                "runtime_settings": {"load_pattern": "offline", "runtime": {}},
+            },
+            context={"yaml_path": tmp_path / "point.yaml"},
+        )
+        assert [
+            r
+            for r in config._check_results
+            if r.rule == "load-pattern" and r.severity == Severity.ERROR
+        ]
+
+    def test_offline_concurrency_is_exempt_from_the_region_range(self, tmp_path: Path) -> None:
+        """§5.7.1 fixes it to the dataset cardinality, well past C_max's margin."""
+        placement = RegionPlacement(
+            config=_offline_config(), regions=_REGIONS, yaml_path=tmp_path / "point.yaml"
+        )
+        assert not [
+            r
+            for r in placement._check_results
+            if r.rule == "concurrency-in-range" and r.severity == Severity.ERROR
+        ]
+
+    def test_an_ordinary_point_at_that_concurrency_is_not_exempt(self, tmp_path: Path) -> None:
+        placement = RegionPlacement(
+            config=_config(concurrency=24576), regions=_REGIONS, yaml_path=tmp_path / "p.yaml"
+        )
+        assert [
+            r
+            for r in placement._check_results
+            if r.rule == "concurrency-in-range" and r.severity == Severity.ERROR
+        ]
+
+    def test_dedicated_run_covers_no_region(self, tmp_path: Path) -> None:
+        """§5.7.2: it "does not satisfy any region-coverage requirement of §5.3"."""
+        placement = RegionPlacement(
+            config=_offline_config(concurrency=512),
+            regions=_REGIONS,
+            yaml_path=tmp_path / "point.yaml",
+        )
+        assert placement.covered_region is None
+
+    def test_elected_point_keeps_its_region(self, tmp_path: Path) -> None:
+        placement = RegionPlacement(
+            config=_offline_config(concurrency=512, offline="elected"),
+            regions=_REGIONS,
+            yaml_path=tmp_path / "point.yaml",
+        )
+        assert placement.covered_region == "high_concurrency"
+
+
+@pytest.mark.unit
+class TestPointCount:
+    """§5.3: 1 + 3 + 3 + 1, where the last group is the Offline point."""
+
+    def _points(self, tmp_path: Path, n: int, offline: str | None = None):
+        pts = [(tmp_path / f"r{i}" / "point.yaml", _config(concurrency=i)) for i in range(1, n)]
+        if offline:
+            pts.append((tmp_path / "rOff" / "point.yaml", _offline_config(offline=offline)))
+        return pts
+
+    def test_dedicated_offline_raises_the_minimum_to_eight(self, tmp_path: Path) -> None:
+        pts = self._points(tmp_path, 7, offline="dedicated")  # 6 + 1 = 7 points
+        ctx = _model_ctx(tmp_path, all_point_count=7, valid_points=pts)
+        assert [
+            r
+            for r in ctx._check_results
+            if r.rule == "point-count" and r.severity == Severity.ERROR
+        ]
+
+    def test_eight_points_with_a_dedicated_offline_passes(self, tmp_path: Path) -> None:
+        pts = self._points(tmp_path, 8, offline="dedicated")
+        ctx = _model_ctx(tmp_path, all_point_count=8, valid_points=pts)
+        assert not [
+            r
+            for r in ctx._check_results
+            if r.rule == "point-count" and r.severity == Severity.ERROR
+        ]
+
+    def test_elected_offline_keeps_the_minimum_at_seven(self, tmp_path: Path) -> None:
+        """§5.7.2: electing C_max adds no run, so no extra point is required."""
+        pts = self._points(tmp_path, 7, offline="elected")
+        ctx = _model_ctx(tmp_path, all_point_count=7, valid_points=pts)
+        assert not [
+            r
+            for r in ctx._check_results
+            if r.rule == "point-count" and r.severity == Severity.ERROR
+        ]
+
+
+@pytest.mark.unit
+class TestOfflinePointPresent:
+    def test_two_declarations_error(self, tmp_path: Path) -> None:
+        pts = [
+            (tmp_path / "a" / "point.yaml", _offline_config(concurrency=100)),
+            (tmp_path / "b" / "point.yaml", _offline_config(concurrency=200)),
+        ]
+        ctx = _model_ctx(tmp_path, valid_points=pts)
+        assert [
+            r
+            for r in ctx._check_results
+            if r.rule == "offline-point-present" and r.severity == Severity.ERROR
+        ]
+
+    def test_absent_warns_because_agentic_is_indistinguishable(self, tmp_path: Path) -> None:
+        """§9.1 rejects for non-agentic and requires absence for agentic; nothing the
+        checker reads says which this is, so it flags rather than guesses."""
+        ctx = _model_ctx(tmp_path, valid_points=[(tmp_path / "p.yaml", _config())])
+        hits = [r for r in ctx._check_results if r.rule == "offline-point-present"]
+        assert hits and hits[0].severity == Severity.WARNING
+
+    def test_elected_must_be_the_c_max_point(self, tmp_path: Path) -> None:
+        """§5.7.2 elects the C_max point specifically; _model_ctx's C_max is 1024."""
+        pts = [(tmp_path / "p.yaml", _offline_config(concurrency=512, offline="elected"))]
+        ctx = _model_ctx(tmp_path, valid_points=pts)
+        assert [
+            r
+            for r in ctx._check_results
+            if r.rule == "offline-point-present" and r.severity == Severity.ERROR
+        ]
+
+    def test_elected_at_c_max_passes(self, tmp_path: Path) -> None:
+        pts = [(tmp_path / "p.yaml", _offline_config(concurrency=1024, offline="elected"))]
+        ctx = _model_ctx(tmp_path, valid_points=pts)
+        assert not [
+            r
+            for r in ctx._check_results
+            if r.rule == "offline-point-present" and r.severity == Severity.ERROR
+        ]
+
+
+@pytest.mark.unit
+class TestOfflineOrdering:
+    """§5.7.2: Offline must beat the C_max point on throughput and concurrency."""
+
+    def _ctx(self, tmp_path: Path, offline_tps: float, offline_concurrency: int = 24576):
+        c_max_config = _config(concurrency=1024)
+        offline_config = _offline_config(concurrency=offline_concurrency)
+        # _summary()'s system_tps is total_tokens / elapsed; set both points explicitly.
+        c_max_summary = _summary(total_tokens=1_200_000.0)  # 1000 tok/s over 1200 s
+        offline_summary = _summary(total_tokens=offline_tps * 1200.0)
+        return _model_ctx(
+            tmp_path,
+            valid_points=[
+                (tmp_path / "a" / "point.yaml", c_max_config),
+                (tmp_path / "b" / "point.yaml", offline_config),
+            ],
+            loaded_points=[
+                (c_max_config, c_max_summary),
+                (offline_config, offline_summary),
+            ],
+        )
+
+    def test_offline_faster_than_c_max_passes(self, tmp_path: Path) -> None:
+        ctx = self._ctx(tmp_path, offline_tps=1200.0)
+        assert not [
+            r
+            for r in ctx._check_results
+            if r.rule == "offline-ordering" and r.severity != Severity.INFO
+        ]
+
+    def test_within_the_two_percent_tolerance_passes(self, tmp_path: Path) -> None:
+        """The margin absorbs run-to-run variation; 0.99 × is inside it."""
+        ctx = self._ctx(tmp_path, offline_tps=990.0)
+        assert not [
+            r
+            for r in ctx._check_results
+            if r.rule == "offline-ordering" and r.severity != Severity.INFO
+        ]
+
+    def test_below_the_tolerance_is_flagged_not_rejected(self, tmp_path: Path) -> None:
+        """§9.1's action for this row is "Flag non-compliant submission"."""
+        ctx = self._ctx(tmp_path, offline_tps=800.0)
+        hits = [r for r in ctx._check_results if r.rule == "offline-ordering"]
+        assert any(r.severity == Severity.WARNING for r in hits)
+        assert not any(r.severity == Severity.ERROR for r in hits)
+
+    def test_concurrency_below_c_max_is_flagged(self, tmp_path: Path) -> None:
+        ctx = self._ctx(tmp_path, offline_tps=1200.0, offline_concurrency=512)
+        assert [
+            r
+            for r in ctx._check_results
+            if r.rule == "offline-ordering" and r.severity == Severity.WARNING
+        ]
+
+    def test_not_applied_to_an_elected_point(self, tmp_path: Path) -> None:
+        """An elected point *is* the C_max point; comparing it to itself is meaningless."""
+        config = _offline_config(concurrency=1024, offline="elected")
+        ctx = _model_ctx(
+            tmp_path,
+            valid_points=[(tmp_path / "p.yaml", config)],
+            loaded_points=[(config, _summary())],
+        )
+        assert not [r for r in ctx._check_results if r.rule == "offline-ordering"]
+
+
+@pytest.mark.unit
+class TestAccuracyCoverage:
+    """§5.3: accuracy at N points — the four mandatory bands plus Offline."""
+
+    def _pts(self, tmp_path: Path, concurrencies):
+        return [(tmp_path / f"r{c}" / "point.yaml", _config(concurrency=c)) for c in concurrencies]
+
+    def test_all_four_bands_covered_passes(self, tmp_path: Path) -> None:
+        """_REGIONS is C_max=1024 / C_min=32: low 33–42, med 43–131, high 132–1024."""
+        concurrencies = [16, 40, 100, 512]
+        ctx = _model_ctx(
+            tmp_path,
+            valid_points=self._pts(tmp_path, concurrencies),
+            accuracy_by_point=dict.fromkeys(concurrencies, _ACCURACY),
+        )
+        assert not [
+            r
+            for r in ctx._check_results
+            if r.rule == "accuracy-coverage" and r.severity == Severity.ERROR
+        ]
+
+    def test_missing_band_errors(self, tmp_path: Path) -> None:
+        concurrencies = [16, 40, 100, 512]
+        ctx = _model_ctx(
+            tmp_path,
+            valid_points=self._pts(tmp_path, concurrencies),
+            accuracy_by_point={16: _ACCURACY, 40: _ACCURACY, 100: _ACCURACY},
+        )
+        hits = [
+            r
+            for r in ctx._check_results
+            if r.rule == "accuracy-coverage" and r.severity == Severity.ERROR
+        ]
+        assert hits and "high concurrency" in hits[0].message
+
+    def test_clustering_in_one_band_does_not_satisfy_the_count(self, tmp_path: Path) -> None:
+        """Five accuracy runs all in High Concurrency is five runs, not coverage."""
+        concurrencies = [200, 300, 400, 500, 600]
+        ctx = _model_ctx(
+            tmp_path,
+            valid_points=self._pts(tmp_path, concurrencies),
+            accuracy_by_point=dict.fromkeys(concurrencies, _ACCURACY),
+        )
+        assert [
+            r
+            for r in ctx._check_results
+            if r.rule == "accuracy-coverage" and r.severity == Severity.ERROR
+        ]
+
+    def test_offline_point_must_carry_accuracy(self, tmp_path: Path) -> None:
+        """§5.3 counts the Offline point among the N required."""
+        covered = [16, 40, 100, 512]
+        pts = self._pts(tmp_path, covered)
+        pts.append((tmp_path / "rOff" / "point.yaml", _offline_config()))
+        ctx = _model_ctx(
+            tmp_path, valid_points=pts, accuracy_by_point=dict.fromkeys(covered, _ACCURACY)
+        )
+        hits = [
+            r
+            for r in ctx._check_results
+            if r.rule == "accuracy-coverage" and r.severity == Severity.ERROR
+        ]
+        assert hits and "Offline point" in hits[0].message
+
+    def test_offline_point_with_accuracy_passes(self, tmp_path: Path) -> None:
+        covered = [16, 40, 100, 512]
+        offline = _offline_config()
+        pts = self._pts(tmp_path, covered)
+        pts.append((tmp_path / "rOff" / "point.yaml", offline))
+        by_point = dict.fromkeys(covered, _ACCURACY)
+        by_point[offline.concurrency] = _ACCURACY
+        ctx = _model_ctx(tmp_path, valid_points=pts, accuracy_by_point=by_point)
+        assert not [
+            r
+            for r in ctx._check_results
+            if r.rule == "accuracy-coverage" and r.severity == Severity.ERROR
+        ]
+
+    def test_skipped_without_a_region_basis(self, tmp_path: Path) -> None:
+        ctx = _model_ctx(tmp_path, valid_points=[], regions=None)
+        assert not [r for r in ctx._check_results if r.rule == "accuracy-coverage"]
