@@ -18,6 +18,8 @@ from pathlib import Path
 
 import yaml
 
+from .cohorts import Cohort, adoption_window
+
 __all__ = [
     "SEED_SETS_ENV_VAR",
     "SeedSet",
@@ -49,9 +51,10 @@ class SeedSet:
         scheduler_rng_seed: Seed for the request-issue scheduler RNG.
         sample_index_rng_seed: Seed for the sample-order RNG.
         model_seed: Seed passed through to the model / per-query salt.
-        cohorts: Cohorts this set was published for. Empty when the upstream
-            registry carries no cohort keys, which makes §4.6's four-cohort
-            adoption window unevaluable — see :mod:`submission_checker.seed_sets`.
+        cohorts: The cohorts during which a *new* submission may adopt this set —
+            §4.6's four-cohort adoption window, derived from the registry's
+            publication cohort. Empty only when the file declares no ``cohort-id``,
+            in which case the adoption test cannot run.
     """
 
     id: str
@@ -95,11 +98,21 @@ def load_seed_sets(path: Path | None = None) -> dict[str, SeedSet]:
     except yaml.YAMLError as exc:
         raise SeedSetError(f"Invalid YAML in seed-set file {chosen}: {exc}") from exc
 
-    if not isinstance(raw, dict) or not isinstance(raw.get("seed_sets"), list):
-        raise SeedSetError(f"{chosen} must be a mapping with a 'seed_sets' list")
+    entries, published = _unwrap(chosen, raw)
+
+    # §4.6 states the window in terms of the publication cohort, so the registry
+    # carries one `cohort-id` rather than listing the window per set.
+    cohorts: tuple[str, ...] = ()
+    if published is not None:
+        parsed = Cohort.parse(published)
+        if parsed is None:
+            raise SeedSetError(
+                f"{chosen}: cohort-id {published!r} is not of the form YYYY-MM-C0/C1"
+            )
+        cohorts = tuple(str(c) for c in adoption_window(parsed))
 
     sets: dict[str, SeedSet] = {}
-    for index, entry in enumerate(raw["seed_sets"]):
+    for index, entry in enumerate(entries):
         if not isinstance(entry, dict):
             raise SeedSetError(f"{chosen}: seed_sets[{index}] is not a mapping")
         set_id = entry.get("id")
@@ -112,14 +125,40 @@ def load_seed_sets(path: Path | None = None) -> dict[str, SeedSet]:
                 f"{chosen}: seed set {set_id!r} must define integer"
                 f" {', '.join(_SEED_FIELDS)}: {exc}"
             ) from exc
-        cohorts = entry.get("cohorts") or []
-        if not isinstance(cohorts, list):
+        # A per-set `cohorts` list overrides the derived window, so a future registry
+        # that publishes sets on different schedules needs no loader change.
+        explicit = entry.get("cohorts")
+        if explicit is not None and not isinstance(explicit, list):
             raise SeedSetError(f"{chosen}: seed set {set_id!r} has a non-list 'cohorts'")
-        sets[set_id] = SeedSet(id=set_id, cohorts=tuple(str(c) for c in cohorts), **seeds)
+        window = tuple(str(c) for c in explicit) if explicit is not None else cohorts
+        sets[set_id] = SeedSet(id=set_id, cohorts=window, **seeds)
 
     if not sets:
         raise SeedSetError(f"{chosen} defines no seed sets")
     return sets
+
+
+def _unwrap(path: Path, raw: object) -> tuple[list[object], str | None]:
+    """Return ``(seed-set entries, publication cohort)`` from either registry shape.
+
+    Upstream nests everything under a ``cohort:`` mapping that also carries the
+    ``cohort-id`` §4.6 counts from. The older flat ``seed_sets:`` form is still
+    accepted so an operator can point ``--seed-sets`` at a file predating that
+    change; such a file simply declares no cohort, and the adoption test stands down.
+    """
+    if not isinstance(raw, dict):
+        raise SeedSetError(f"{path} must be a mapping")
+    cohort = raw.get("cohort")
+    if isinstance(cohort, dict):
+        entries = cohort.get("seed_sets")
+        published = cohort.get("cohort-id")
+        if not isinstance(entries, list):
+            raise SeedSetError(f"{path}: cohort.seed_sets must be a list")
+        return entries, str(published) if published is not None else None
+    entries = raw.get("seed_sets")
+    if not isinstance(entries, list):
+        raise SeedSetError(f"{path} must define cohort.seed_sets (or a top-level seed_sets list)")
+    return entries, None
 
 
 def _env_path() -> Path | None:

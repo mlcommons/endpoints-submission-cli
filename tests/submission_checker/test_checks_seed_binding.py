@@ -20,7 +20,7 @@ def _point(
     tmp_path: Path,
     concurrency: int = 64,
     seed_set: str | None = "A",
-    target_cohort: str | None = "2026-09-C0",
+    target_cohort: str | None = "2026-10-C1",
     seeds: dict[str, int] | None = None,
     legacy: bool = False,
 ) -> tuple[Path, PointConfig]:
@@ -121,16 +121,42 @@ class TestSeedRuntimeMatch:
 
 @pytest.mark.unit
 class TestSeedSetAdoption:
-    def test_skipped_while_the_registry_has_no_cohorts(self, tmp_path: Path) -> None:
-        """§4.6's four-cohort window cannot be evaluated against a cohort-less registry."""
-        binding = _binding(tmp_path, [_point(tmp_path)])
+    def test_enforced_against_the_published_registry(self, tmp_path: Path) -> None:
+        """The bundled registry now carries a cohort-id, so the window is evaluable."""
+        binding = SeedBinding(
+            points=[_point(tmp_path)], registry=load_seed_sets(), model_dir=tmp_path
+        )
+        assert binding.adoption_checkable
+        assert not _errors(binding, "seed-set-adoption")
+
+    def test_cohort_outside_the_window_errors(self, tmp_path: Path) -> None:
+        """2026-09-C0 precedes the 2026-10-C1 publication cohort, so it cannot adopt."""
+        points = [_point(tmp_path, target_cohort="2026-09-C0")]
+        binding = SeedBinding(points=points, registry=load_seed_sets(), model_dir=tmp_path)
+        assert _errors(binding, "seed-set-adoption")
+
+    def test_last_cohort_of_the_window_is_accepted(self, tmp_path: Path) -> None:
+        """The window is inclusive of its fourth cohort (§4.6)."""
+        points = [_point(tmp_path, target_cohort="2026-12-C0")]
+        binding = SeedBinding(points=points, registry=load_seed_sets(), model_dir=tmp_path)
+        assert not _errors(binding, "seed-set-adoption")
+
+    def test_one_cohort_past_the_window_errors(self, tmp_path: Path) -> None:
+        points = [_point(tmp_path, target_cohort="2026-12-C1")]
+        binding = SeedBinding(points=points, registry=load_seed_sets(), model_dir=tmp_path)
+        assert _errors(binding, "seed-set-adoption")
+
+    def test_skipped_only_when_the_registry_declares_no_cohort(self, tmp_path: Path) -> None:
+        """A pre-cohort registry file leaves §4.6 unevaluable rather than failing."""
+        cohortless = {"A": SeedSet(id="A", **_SET_A.seeds, cohorts=())}
+        binding = SeedBinding(points=[_point(tmp_path)], registry=cohortless, model_dir=tmp_path)
         results = [r for r in binding._check_results if r.rule == "seed-set-adoption"]
         assert len(results) == 1
         assert results[0].severity == Severity.INFO
         assert "SKIPPED" in results[0].message
 
     def test_enforced_once_cohorts_exist(self, tmp_path: Path) -> None:
-        published = SeedSet(id="A", **_SET_A.seeds, cohorts=("2026-09-C0",))
+        published = SeedSet(id="A", **_SET_A.seeds, cohorts=("2026-10-C1",))
         binding = _binding(tmp_path, [_point(tmp_path)], registry={"A": published})
         assert not _errors(binding, "seed-set-adoption")
 

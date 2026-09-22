@@ -276,7 +276,7 @@ def _make_run_yaml(concurrency: int) -> dict:
         "shared_src": "src",
         "shared_docs": "docs",
         "seed_set": "A",
-        "target_cohort": "2026-09-C0",
+        "target_cohort": "2026-10-C1",
         "warmup": {
             "duration_s": 60.0,
             "requests_issued": concurrency * 10,

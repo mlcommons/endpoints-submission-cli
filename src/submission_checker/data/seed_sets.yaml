@@ -1,21 +1,20 @@
 # MLPerf Endpoints published seed sets (§4.6 Seed Rotation).
 #
-# Mirrored from `mlcommons/endpoints_policies` PR #117 (`feat/add-1.0-seeds`),
-# file `seedset.yaml`. PR #117 is OPEN at the time of writing — if its values
-# change before merge, re-mirror them here.
+# Mirrored verbatim from `mlcommons/endpoints_policies` `seedset.yaml`, merged to
+# `v1.0_rules_dev` in PR #117 (`a36d158`, 2026-09-15).
 #
-# A submission binds exactly one set, names it in every point's `seed_set`, and
-# seeds the client's RNGs from it. §4.6 additionally requires the bound set to
-# have been published for the submission's `target_cohort` or one of the three
-# preceding cohorts; the upstream file carries no cohort keys yet, so `cohorts`
-# is left empty and the adoption test reports SKIP until it does.
+# `cohort-id` is the cohort the sets below were published for. §4.6 makes each set
+# adoptable for that cohort and the three following it, so the adoption window is
+# derived rather than listed — see `submission_checker.seed_sets`.
 #
-# Override this file with `--seed-sets FILE` or $MLPERF_ENDPOINTS_SEED_SETS so a
-# newly published set can be used without waiting for a checker release.
+# Override with `--seed-sets FILE` or $MLPERF_ENDPOINTS_SEED_SETS so a newly
+# published set can be used without waiting for a checker release.
 
-seed_sets:
-  - id: A
-    scheduler_rng_seed: 10487924139932647040
-    sample_index_rng_seed: 586478644936801402
-    model_seed: 9315206023656308754
-    cohorts: []
+cohort:
+  version: 1.0
+  cohort-id: 2026-10-C1
+  seed_sets:                              # a submission selects exactly one, by id
+    - id: A
+      scheduler_rng_seed:    10487924139932647040
+      sample_index_rng_seed: 586478644936801402
+      model_seed:            9315206023656308754
