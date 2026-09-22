@@ -21,6 +21,20 @@ runtime_settings:
 seed_set: A
 shared_docs: docs
 shared_src: src
+steady_state:
+  state:
+    tpot_p50: Plateau
+    tpot_p90: Plateau
+    ttft_p50: Plateau
+    ttft_p90: Plateau
+  status: windowable
+  verdict: STEADY STATE
+  window:
+    duration_s: 1200.0
+    n_samples: 4000
+    super_pass_end: 4
+    super_pass_size: 1000
+    super_pass_start: 1
 target_cohort: 2026-10-C1
 warmup:
   concurrency: 192
