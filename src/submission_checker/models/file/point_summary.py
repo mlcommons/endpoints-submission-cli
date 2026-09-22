@@ -49,6 +49,11 @@ class PointSummary(BaseModel):
     tpot: PercentileStats = Field(default_factory=PercentileStats)
     output_sequence_lengths: PercentileStats = Field(default_factory=PercentileStats)
 
+    #: §4.1 agentic inputs. Summed across every completed turn of every trajectory;
+    #: e2e_turn_time excludes tool-call execution time.
+    output_tokens_per_turn_total: float | None = None
+    e2e_turn_time_seconds_total: float | None = None
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def duration_ms(self) -> float:
@@ -116,3 +121,18 @@ class PointSummary(BaseModel):
         """
         raw = self.tpot.percentiles.get("90")
         return None if raw is None else raw / 1_000_000
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def e2e_avg_interactivity(self) -> float | None:
+        """§4.1: ``sum(output_tokens_per_turn) / sum(e2e_turn_time_seconds)``.
+
+        The agentic analogue of ``tps_per_user`` — the output-token rate across
+        completed turns, one scalar per measurement point. ``None`` for a single-turn
+        benchmark, which reports neither input.
+        """
+        tokens = self.output_tokens_per_turn_total
+        seconds = self.e2e_turn_time_seconds_total
+        if tokens is None or seconds is None or seconds <= 0:
+            return None
+        return tokens / seconds

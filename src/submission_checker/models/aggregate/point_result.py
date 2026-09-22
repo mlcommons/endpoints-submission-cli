@@ -373,6 +373,49 @@ class PointResult(BaseModel):
             )
         )
 
+    def _check_agentic_metrics(self, s: PointSummary, path: Path | None) -> None:
+        """§9.1: reported agentic metrics are derivable from their §4 definitions.
+
+        Only applies where the summary reports the inputs — a single-turn benchmark
+        reports neither, and §9.1's row is about agentic metrics that *are* reported.
+        """
+        derived = s.e2e_avg_interactivity
+        stored = (s.model_extra or {}).get("e2e_avg_interactivity")
+        if derived is None:
+            if stored is not None:
+                self._check_results.append(
+                    err(
+                        "agentic-metric-consistency",
+                        f"e2e_avg_interactivity {stored!r} is reported, but the summary states"
+                        " no output_tokens_per_turn_total / e2e_turn_time_seconds_total to"
+                        " derive it from (§4.1)",
+                        path,
+                        "#4.1",
+                    )
+                )
+            return
+        if stored is not None:
+            rel_err = abs(float(stored) - derived) / max(abs(derived), 1e-9)
+            if rel_err > _TPS_TOLERANCE:
+                self._check_results.append(
+                    err(
+                        "agentic-metric-consistency",
+                        f"stored e2e_avg_interactivity {float(stored):.4f} ≠ derived"
+                        f" {derived:.4f} (rel err {rel_err:.1%})",
+                        path,
+                        "#4.1",
+                    )
+                )
+                return
+        self._check_results.append(
+            ok(
+                "agentic-metric-consistency",
+                f"e2e_avg_interactivity={derived:.4f} tok/s across completed turns",
+                path,
+                "#4.1",
+            )
+        )
+
     @model_validator(mode="after")
     def _check_metric_consistency(self, info: ValidationInfo) -> PointResult:
         """§14 + §9.1: validate point-log accounting invariants and tps derivability."""
@@ -384,4 +427,5 @@ class PointResult(BaseModel):
         self._check_system_tps_derivable(s, summary_path)
         self._check_tpot_p90(s, summary_path)
         self._check_tps_per_user(s, self.config.concurrency, summary_path)
+        self._check_agentic_metrics(s, summary_path)
         return self

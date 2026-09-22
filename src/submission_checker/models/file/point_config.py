@@ -227,6 +227,9 @@ class PointConfig(BaseModel):
     #: §4.4 reporting basis. Absent on a point that predates the steady-state rules.
     steady_state: SteadyState | None = None
 
+    #: §8.3 speculative-decoding disclosure. Absent when the point used none.
+    speculative_decoding: dict[str, object] | None = None
+
     # §8.1 / §9.1, absent from §8.3's table — see _REQUIRED_UNDOCUMENTED_FIELDS.
     shared_src: str | None = None
     shared_docs: str | None = None
