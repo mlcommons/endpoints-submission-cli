@@ -1332,3 +1332,52 @@ class TestBuilderTruncatesResults:
         assert isinstance(written["responses"], list)
         assert len(json.dumps(written["responses"]).encode()) <= 10 * 1024
         assert 0 < len(written["responses"]) < 10_000
+
+
+@pytest.mark.unit
+class TestSystemPowerDescriptor:
+    """§4.5.2's system_power.json is per system, so the builder writes it one level up."""
+
+    def _archive(self, run_folder: Path, tmp_path: Path, name: str, power: dict | None) -> Path:
+        import shutil
+
+        folder = tmp_path / name
+        shutil.copytree(run_folder, folder)
+        if power is None:
+            (folder / "system_power.json").unlink(missing_ok=True)
+        else:
+            (folder / "system_power.json").write_text(json.dumps(power))
+        archive = tmp_path / f"{name}.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname=name)
+        return archive
+
+    def test_written_at_the_system_level(self, run_folder: Path, tmp_path: Path) -> None:
+        archive = self._archive(run_folder, tmp_path, "run", {"provisioned_power_w": 14700})
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        written = list(sub_dir.rglob("system_power.json"))
+        assert len(written) == 1
+        # results/<system>/system_power.json — a sibling of the model directory.
+        assert written[0].parent.parent.name == "results"
+        assert json.loads(written[0].read_text())["provisioned_power_w"] == 14700
+
+    def test_absent_descriptor_does_not_break_the_build(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
+        """The checker rejects the missing file; the builder should not also crash."""
+        archive = self._archive(run_folder, tmp_path, "run", None)
+        sub_dir = build_submission_folder(
+            [("run-001", archive)], "standardized", "available", tmp_path / "sub"
+        )
+        assert not list(sub_dir.rglob("system_power.json"))
+
+    def test_conflicting_descriptors_fail_the_build(self, run_folder: Path, tmp_path: Path) -> None:
+        """§4.5.3 makes provisioned power a property of the system, not of a point."""
+        a = self._archive(run_folder, tmp_path, "a", {"provisioned_power_w": 14700})
+        b = self._archive(run_folder, tmp_path, "b", {"provisioned_power_w": 20000})
+        with pytest.raises(SubmissionBuildError, match="provisioned power"):
+            build_submission_folder(
+                [("run-001", a), ("run-002", b)], "standardized", "available", tmp_path / "sub"
+            )

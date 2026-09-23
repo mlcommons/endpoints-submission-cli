@@ -47,6 +47,7 @@ __all__ = [
     "SERVER_CONFIGS_DIR",
     "SRC_DIR",
     "SYSTEM_DESC_JSON",
+    "SYSTEM_POWER_JSON",
     "iter_curves",
     "iter_point_dirs",
     "parse_point_dir",
@@ -68,6 +69,9 @@ ACCURACY_RESULTS_JSON = "accuracy_results.json"
 RESULTS_JSON = "results.json"
 #: Benchmark configuration. Optional as of v1.0 — shipped when the run supplies it.
 CONFIG_YAML = "config.yaml"
+#: §4.5.2 provisioned-power descriptor. Per *system* — the only such file in §8.1's
+#: tree, which policies PR #119 had otherwise emptied of per-system files.
+SYSTEM_POWER_JSON = "system_power.json"
 README_MD = "README.md"
 
 # ── Directory names ───────────────────────────────────────────────────────────
