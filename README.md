@@ -218,11 +218,14 @@ not satisfy High Concurrency coverage.
 | `concurrency-in-range` | §9.1 | Each concurrency falls in a valid region, margin included |
 | `region-declared` | §8.3 | Declared `region` is one of the spec's values |
 | `region-placement` | §8.3 | Declared region matches the computed one (warn) |
+| `offline-declared` | §5.7 | `offline` is `dedicated`, `elected`, or `none` |
+| `offline-point-present` | §5.7 | Exactly one Offline point; `elected` sits on the C_max point |
+| `offline-ordering` | §5.7.2 | Offline beats C_max on throughput (2% tolerance) and concurrency (warn) |
 | `ultra-low-concurrency-coverage` | §5.4 | At least one point at concurrency ≤ 32 |
 | `low-concurrency-coverage` | §9.1 | At least one point in the Low Concurrency region |
 | `med-concurrency-coverage` | §9.1 | At least one point in the Medium Concurrency region |
 | `high-concurrency-coverage` | §9.1 | At least one point in the High Concurrency region |
-| `point-count` | §2, §8 | 7–32 measurement points |
+| `point-count` | §5.3 | 7–32 measurement points; 8 with a dedicated Offline run |
 | `point-cap` | §2, §8 | Point count does not exceed 32 |
 
 ### Measurement points (§8.3, §6)
@@ -275,6 +278,7 @@ set published after this release.
 | Rule | Spec | Description |
 |------|------|-------------|
 | `accuracy-present` | §15 | At least one model in the submission carries accuracy results |
+| `accuracy-coverage` | §5.3 | Accuracy at each of the four mandatory bands, plus the Offline point |
 | `accuracy-valid` | §15 | `accuracy_results.json` parses correctly |
 | `accuracy-sample-count` | §15 | Issued sample count meets the model's minimum |
 | `accuracy-gate` | §15 | Score meets the benchmark quality target |

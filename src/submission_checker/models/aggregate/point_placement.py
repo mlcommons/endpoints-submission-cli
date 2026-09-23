@@ -12,7 +12,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr, model_validator
 
-from ..file.point_config import PointConfig
+from ..file.point_config import OFFLINE_DEDICATED, PointConfig
 from ..regions import SUBMITTERS_CHOICE, Regions, classify_concurrency, covered_region
 from ..results import CheckResult, err, ok, warn
 
@@ -32,7 +32,29 @@ class RegionPlacement(BaseModel):
 
     @model_validator(mode="after")
     def _check_concurrency_range(self) -> RegionPlacement:
-        """§9.1: the concurrency must fall inside a valid region, margin included."""
+        """§9.1: the concurrency must fall inside a valid region, margin included.
+
+        A **dedicated** Offline run is exempt: §5.7.1 fixes its concurrency at the
+        *cardinality of the performance dataset* — "a property of the benchmark dataset
+        rather than a value the submitter selects" — which routinely exceeds C_max and
+        its 10 % margin. §5.7.2 constrains it instead, by requiring it to be ≥ C_max.
+
+        An **elected** point is not exempt. §5.7.2's Option 2 is explicit that "the
+        §5.7.1 exemptions … apply to a dedicated Offline run, not to an elected point":
+        it "remains a fixed-concurrency pareto point" whose concurrency the submitter
+        chose, so the §5.7.1 rationale does not reach it.
+        """
+        if self.config.offline == OFFLINE_DEDICATED:
+            self._check_results.append(
+                ok(
+                    "concurrency-in-range",
+                    f"Dedicated Offline run: concurrency {self.config.concurrency} is the"
+                    " dataset cardinality (§5.7.1), exempt from the region range",
+                    self.yaml_path,
+                    "#5.7.1",
+                )
+            )
+            return self
         concurrency = self.config.concurrency
         region = classify_concurrency(concurrency, self.regions)
         if region is None:
@@ -88,5 +110,12 @@ class RegionPlacement(BaseModel):
 
     @property
     def covered_region(self) -> str | None:
-        """The region this point counts towards for §9.1 coverage, if any."""
+        """The region this point counts towards for §9.1 coverage, if any.
+
+        A dedicated Offline run counts towards none: §5.7.2 says it "does not satisfy
+        any region-coverage requirement of §5.3". An elected point is an ordinary
+        fixed-concurrency point and keeps its region.
+        """
+        if self.config.offline == OFFLINE_DEDICATED:
+            return None
         return covered_region(self.config.concurrency, self.regions)

@@ -157,6 +157,7 @@ def _model_ctx(
     system_desc: SystemDescription | None = None,
     model_name: str = "llama3-70b",
     accuracy_result: AccuracyResult | None = None,
+    accuracy_by_point: dict[int, AccuracyResult] | None = None,
     regions: Regions | None = _REGIONS,
 ) -> ModelContext:
     model_dir = tmp_path / model_name
@@ -172,7 +173,14 @@ def _model_ctx(
         all_point_count=all_point_count,
         valid_points=valid_points or [],
         loaded_points=loaded_points or [],
-        accuracy_result=accuracy_result,
+        # §5.3 keys accuracy by the point that carries it. `accuracy_result` stays
+        # as a convenience for gate tests, which care about one result's scores
+        # rather than which points carry them.
+        accuracy_by_point=(
+            accuracy_by_point
+            if accuracy_by_point is not None
+            else ({64: accuracy_result} if accuracy_result is not None else {})
+        ),
     )
 
 

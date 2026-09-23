@@ -10,16 +10,25 @@ from pathlib import Path
 
 __all__ = ["ModelContext"]
 
-from pydantic import BaseModel, ConfigDict, PrivateAttr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from ...accuracy_targets import get_thresholds
 from ..file.accuracy import AccuracyResult
-from ..file.point_config import PointConfig
+from ..file.point_config import OFFLINE_DEDICATED, OFFLINE_ELECTED, PointConfig
 from ..file.point_summary import PointSummary
 from ..file.system import SystemDescription
 from ..regions import ULTRA_LOW_CONCURRENCY_MAX, Regions, covered_region
 from ..results import CheckResult, err, ok, warn
 
+#: §5.3 minimum point counts. A non-agentic submission is 1 + 3 + 3 + 1 — the fourth
+#: group being the Offline point. Where the submitter *elects* the C_max point as the
+#: Offline result no separate run happens, so the minimum falls back to 7; agentic
+#: benchmarks are 7 because §5.7 does not apply to them.
+_MIN_POINTS_WITH_DEDICATED_OFFLINE = 8
+
+#: §5.7.2's throughput tolerance between a dedicated Offline run and the C_max point.
+#: A tolerance for run-to-run variation, not a target.
+_OFFLINE_TPS_MARGIN = 0.98
 _MIN_POINTS = 7
 _MAX_POINTS = 32
 
@@ -53,17 +62,37 @@ class ModelContext(BaseModel):
     all_point_count: int
     valid_points: list[tuple[Path, PointConfig]]
     loaded_points: list[tuple[PointConfig, PointSummary]]
-    accuracy_result: AccuracyResult | None = None
+    #: Accuracy results keyed by the concurrency of the point carrying them (§5.3).
+    accuracy_by_point: dict[int, AccuracyResult] = Field(default_factory=dict)
+
+    @property
+    def offline_points(self) -> list[tuple[Path, PointConfig]]:
+        """Points carrying an Offline declaration (§5.7)."""
+        return [(path, c) for path, c in self.valid_points if c.is_offline]
+
+    @property
+    def min_points(self) -> int:
+        """§5.3's minimum for this curve, which depends on how Offline is satisfied.
+
+        A dedicated Offline run is an extra point on top of the seven, so the minimum
+        is 8. Electing the C_max point adds no run, so it stays at 7 — as does an
+        agentic benchmark, where §5.7 does not apply.
+        """
+        declared = {c.offline for _, c in self.offline_points}
+        if OFFLINE_DEDICATED in declared:
+            return _MIN_POINTS_WITH_DEDICATED_OFFLINE
+        return _MIN_POINTS
 
     @model_validator(mode="after")
     def _check_point_count(self) -> ModelContext:
-        """§2, §8: submission must have 7–32 measurement points."""
+        """§5.3: 7–32 measurement points, or 8 with a dedicated Offline run."""
         n = self.all_point_count
-        if n < _MIN_POINTS:
+        minimum = self.min_points
+        if n < minimum:
             self._check_results.append(
                 err(
                     "point-count",
-                    f"Only {n} measurement point(s) — minimum {_MIN_POINTS} required",
+                    f"Only {n} measurement point(s) — minimum {minimum} required",
                     self.points_dir,
                     "#2, #8",
                 )
@@ -79,6 +108,126 @@ class ModelContext(BaseModel):
                     f"{n} points exceed the {_MAX_POINTS}-point cap",
                     self.points_dir,
                     "#2, #8",
+                )
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_offline_point_present(self) -> ModelContext:
+        """§9.1: exactly one point carries an Offline declaration (§5.7).
+
+        Skipped entirely for agentic benchmarks, where §5.7 does not apply and §9.1
+        requires that *none* is present. This checker has no way to tell an agentic
+        curve from a single-turn one yet — §3 does not surface the distinction in any
+        file it reads — so the absent case is reported as a WARNING rather than an
+        error, and says why. Once the benchmark definition is machine-readable this
+        becomes the ERROR §9.1 specifies for non-agentic submissions.
+        """
+        declared = self.offline_points
+        if len(declared) > 1:
+            listed = ", ".join(f"r{c.concurrency}" for _, c in declared)
+            self._check_results.append(
+                err(
+                    "offline-point-present",
+                    f"{len(declared)} points declare `offline` ({listed}); §5.7 allows exactly one",
+                    self.points_dir,
+                    "#5.7",
+                )
+            )
+            return self
+        if not declared:
+            self._check_results.append(
+                warn(
+                    "offline-point-present",
+                    "No point declares `offline`. §5.3 requires one for every non-agentic"
+                    " submission; agentic benchmarks must not have one, and the benchmark"
+                    " type is not yet machine-readable here",
+                    self.points_dir,
+                    "#5.7",
+                )
+            )
+            return self
+
+        _path, config = declared[0]
+        if config.offline == OFFLINE_ELECTED:
+            c_max = self.system_desc.max_supported_concurrency
+            if config.concurrency != c_max:
+                self._check_results.append(
+                    err(
+                        "offline-point-present",
+                        f"`offline: elected` is declared at concurrency {config.concurrency},"
+                        f" but §5.7.2 elects the C_max point and C_max = {c_max}",
+                        self.points_dir,
+                        "#5.7.2",
+                    )
+                )
+                return self
+        self._check_results.append(
+            ok(
+                "offline-point-present",
+                f"Offline point: r{config.concurrency} ({config.offline})",
+                self.points_dir,
+                "#5.7",
+            )
+        )
+        return self
+
+    @model_validator(mode="after")
+    def _check_offline_ordering(self) -> ModelContext:
+        """§5.7.2: a dedicated Offline run must beat the C_max point on both axes.
+
+        ``system_tps(Offline) ≥ 0.98 × system_tps(C_max)`` and
+        ``concurrency(Offline) ≥ C_max``. The 2 % is a tolerance for run-to-run
+        variation between two runs of the same system, not a target — §5.7.2 says so
+        explicitly — and it is tighter than the 5 % same-system reproducibility margin
+        because both runs come from one submission.
+
+        WARN, not ERROR: §9.1's failure action for this row is "Flag non-compliant
+        submission". Not applicable to an elected point, which *is* the C_max point.
+        """
+        dedicated = [(path, c) for path, c in self.offline_points if c.offline == OFFLINE_DEDICATED]
+        if not dedicated or not self.loaded_points:
+            return self
+        _path, offline_config = dedicated[0]
+
+        tps_by_concurrency = {
+            config.concurrency: summary.system_tps for config, summary in self.loaded_points
+        }
+        offline_tps = tps_by_concurrency.get(offline_config.concurrency)
+        c_max = self.system_desc.max_supported_concurrency
+        c_max_tps = tps_by_concurrency.get(c_max)
+
+        if offline_config.concurrency < c_max:
+            self._check_results.append(
+                warn(
+                    "offline-ordering",
+                    f"Offline concurrency {offline_config.concurrency} < C_max {c_max} (§5.7.2)",
+                    self.points_dir,
+                    "#5.7.2",
+                )
+            )
+        if offline_tps is None or c_max_tps is None:
+            # One of the two summaries did not load; the missing-file rules report that.
+            return self
+        floor = _OFFLINE_TPS_MARGIN * c_max_tps
+        if offline_tps < floor:
+            self._check_results.append(
+                warn(
+                    "offline-ordering",
+                    f"Offline system_tps {offline_tps:.3f} < {_OFFLINE_TPS_MARGIN:.2f} ×"
+                    f" C_max system_tps {c_max_tps:.3f} = {floor:.3f} (§5.7.2)",
+                    self.points_dir,
+                    "#5.7.2",
+                )
+            )
+        else:
+            self._check_results.append(
+                ok(
+                    "offline-ordering",
+                    f"Offline system_tps {offline_tps:.3f} ≥ {floor:.3f}"
+                    f" and concurrency {offline_config.concurrency} ≥ C_max {c_max}",
+                    self.points_dir,
+                    "#5.7.2",
                 )
             )
         return self
@@ -258,11 +407,95 @@ class ModelContext(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _check_accuracy(self) -> ModelContext:
-        """§15: every accuracy metric must meet its quality threshold."""
-        if self.accuracy_result is None:
-            return self  # file missing/invalid already reported by checker.py
+    def _check_accuracy_coverage(self) -> ModelContext:
+        """§5.3: accuracy is required at N points, not once per submission.
 
+        The four mandatory concurrency points — one in Ultra Low Concurrency and one
+        in each of Low, Medium and High — plus the Offline point. N is 5 for a
+        non-agentic benchmark and 4 for an agentic one.
+
+        Reported per band rather than as a bare count, because "5 accuracy runs" all
+        clustered in one region satisfies a count and not the requirement.
+        """
+        if self.regions is None or not self.valid_points:
+            return self
+
+        covered: set[str] = set()
+        for _path, config in self.valid_points:
+            if config.concurrency not in self.accuracy_by_point:
+                continue
+            if config.concurrency <= ULTRA_LOW_CONCURRENCY_MAX:
+                covered.add("ultra_low_concurrency")
+            band = covered_region(config.concurrency, self.regions)
+            if band is not None and band != "low_latency":
+                covered.add(band)
+
+        required = (
+            "ultra_low_concurrency",
+            "low_concurrency",
+            "med_concurrency",
+            "high_concurrency",
+        )
+        missing = [band for band in required if band not in covered]
+        if missing:
+            self._check_results.append(
+                err(
+                    "accuracy-coverage",
+                    "No accuracy results at a point in: "
+                    + ", ".join(b.replace("_", " ") for b in missing)
+                    + " (§5.3 requires accuracy at each of the four mandatory points)",
+                    self.points_dir,
+                    "#5.3",
+                )
+            )
+        else:
+            self._check_results.append(
+                ok(
+                    "accuracy-coverage",
+                    f"Accuracy present in all four mandatory bands ({len(self.accuracy_by_point)}"
+                    " point(s) carry results)",
+                    self.points_dir,
+                    "#5.3",
+                )
+            )
+
+        for _path, config in self.offline_points:
+            if config.concurrency in self.accuracy_by_point:
+                self._check_results.append(
+                    ok(
+                        "accuracy-coverage",
+                        f"Offline point r{config.concurrency} carries accuracy results",
+                        self.points_dir,
+                        "#5.3",
+                    )
+                )
+            else:
+                self._check_results.append(
+                    err(
+                        "accuracy-coverage",
+                        f"Offline point r{config.concurrency} has no accuracy results;"
+                        " §5.3 counts it among the N required points",
+                        self.points_dir,
+                        "#5.3",
+                    )
+                )
+        return self
+
+    @model_validator(mode="after")
+    def _check_accuracy(self) -> ModelContext:
+        """§15: every accuracy metric must meet its quality threshold.
+
+        Runs over every point that carries results — §5.3 requires N of them, and a
+        failing gate at any one is a failing submission.
+        """
+        if not self.accuracy_by_point:
+            return self  # file missing/invalid already reported by checker.py
+        for concurrency in sorted(self.accuracy_by_point):
+            self._gate_accuracy(self.accuracy_by_point[concurrency])
+        return self
+
+    def _gate_accuracy(self, accuracy_result: AccuracyResult) -> None:
+        """Gate one point's accuracy results against the model's thresholds (§15)."""
         json_path = (
             (self.accuracy_dir / "results.json")
             if self.accuracy_dir
@@ -280,10 +513,10 @@ class ModelContext(BaseModel):
                     "#15",
                 )
             )
-            return self
+            return
 
         thresholds, min_queries = target
-        root = self.accuracy_result.root
+        root = accuracy_result.root
 
         # MLPerf inference gates accuracy as a single aggregate over the whole dataset:
         # one total sample count and one sample-weighted score per metric. Endpoints
@@ -331,7 +564,7 @@ class ModelContext(BaseModel):
                 )
 
         # Sample-weighted mean per metric across subsets (the aggregate accuracy).
-        per_ds = self.accuracy_result.metric_scores()  # {ds: {metric: float}}
+        per_ds = accuracy_result.metric_scores()  # {ds: {metric: float}}
         weighted: dict[str, list[tuple[float, float | None]]] = {}
         for ds_name, scores in per_ds.items():
             raw = root.get(ds_name, {}).get("num_samples")
@@ -409,4 +642,4 @@ class ModelContext(BaseModel):
                         "#15",
                     )
                 )
-        return self
+        return

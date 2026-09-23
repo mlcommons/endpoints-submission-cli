@@ -418,7 +418,7 @@ class SubmissionChecker:
             )
             results.extend(seed_binding._check_results)
 
-        accuracy_result, accuracy_dir, accuracy_results = self._load_curve_accuracy(loaded)
+        accuracy_by_point, accuracy_dir, accuracy_results = self._load_curve_accuracy(loaded)
         results.extend(accuracy_results)
 
         # ModelContext validates point-count, coverage, config-consistency, accuracy-gate
@@ -432,7 +432,7 @@ class SubmissionChecker:
             all_point_count=len(point_dirs),
             valid_points=valid_points,
             loaded_points=loaded_points,
-            accuracy_result=accuracy_result,
+            accuracy_by_point=accuracy_by_point,
         )
         results.extend(model_ctx._check_results)
 
@@ -714,37 +714,50 @@ class SubmissionChecker:
 
     def _load_curve_accuracy(
         self, loaded: list[_LoadedPoint]
-    ) -> tuple[AccuracyResult | None, Path | None, list[CheckResult]]:
-        """Find the curve's accuracy results, preferring the standalone file.
+    ) -> tuple[dict[int, AccuracyResult], Path | None, list[CheckResult]]:
+        """Load accuracy results for **every** point that carries them.
 
         ``accuracy_results.json`` beside ``point.yaml`` wins; otherwise
-        ``accuracy_scores`` embedded in the point's ``results.json`` is used. §4.3 says
-        accuracy is a property of the curve, not of each point, so the first point that
-        carries usable results supplies them for the whole curve — :meth:`run` enforces
-        separately that at least one curve in the submission has any.
+        ``accuracy_scores`` embedded in the point's ``results.json`` is used.
+
+        §5.3 moved accuracy from one run per submission to ``N`` points — the four
+        mandatory concurrency points plus the Offline point — so the first usable
+        result no longer stands in for the curve and each point is loaded on its own.
+
+        Returns:
+            ``(results keyed by concurrency, a directory for messages, check results)``.
         """
         results: list[CheckResult] = []
+        by_concurrency: dict[int, AccuracyResult] = {}
+        first_dir: Path | None = None
+
         for point in loaded:
             point_dir = point.point_dir
+            acc: AccuracyResult | None = None
 
             accuracy_json = point_dir / layout.ACCURACY_RESULTS_JSON
             if accuracy_json.exists():
                 acc, acc_results = load_accuracy_result(accuracy_json)
                 results.extend(acc_results)
-                if acc is not None and not any(r.severity == Severity.ERROR for r in acc_results):
-                    return acc, point_dir, results
-                continue
+                if any(r.severity == Severity.ERROR for r in acc_results):
+                    acc = None
+            else:
+                results_json = point_dir / layout.RESULTS_JSON
+                if results_json.exists():
+                    acc, acc_results, present = load_accuracy_scores(results_json)
+                    if present:
+                        results.extend(acc_results)
+                        if any(r.severity == Severity.ERROR for r in acc_results):
+                            acc = None
+                    else:
+                        acc = None
 
-            results_json = point_dir / layout.RESULTS_JSON
-            if results_json.exists():
-                acc, acc_results, present = load_accuracy_scores(results_json)
-                if present:
-                    results.extend(acc_results)
-                    if acc is not None and not any(
-                        r.severity == Severity.ERROR for r in acc_results
-                    ):
-                        return acc, point_dir, results
-        return None, None, results
+            if acc is not None:
+                by_concurrency[point.config.concurrency] = acc
+                if first_dir is None:
+                    first_dir = point_dir
+
+        return by_concurrency, first_dir, results
 
     # ------------------------------------------------------------------
     # Per-curve system-description rules

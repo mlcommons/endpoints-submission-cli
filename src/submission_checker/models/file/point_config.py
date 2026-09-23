@@ -26,6 +26,14 @@ _VALID_REGIONS = frozenset({*REGION_NAMES, SUBMITTERS_CHOICE})
 #: Cohort identifier (§4.6): calendar year-month plus the cohort index within it.
 _COHORT_RE = re.compile(r"\d{4}-\d{2}-C[01]")
 
+#: §8.3's `offline` vocabulary. ``dedicated`` — this point is its own Offline run;
+#: ``elected`` — this is the C_max point, elected as the Offline result under §5.7.2;
+#: ``none`` (or absent) — an ordinary fixed-concurrency point.
+OFFLINE_DEDICATED = "dedicated"
+OFFLINE_ELECTED = "elected"
+OFFLINE_NONE = "none"
+_VALID_OFFLINE = frozenset({OFFLINE_DEDICATED, OFFLINE_ELECTED, OFFLINE_NONE})
+
 
 class WarmupSpec(BaseModel):
     """Warmup procedure declaration required by §6.3.3.
@@ -205,11 +213,58 @@ class PointConfig(BaseModel):
     dataset_type: str | None = None
     dataset_link: str | None = None
 
+    #: §5.7 Offline-point declaration. Absent is equivalent to ``none``.
+    offline: str | None = None
+
     # §8.1 / §9.1, absent from §8.3's table — see _REQUIRED_UNDOCUMENTED_FIELDS.
     shared_src: str | None = None
     shared_docs: str | None = None
     seed_set: str | None = None
     target_cohort: str | None = None
+
+    @property
+    def is_offline(self) -> bool:
+        """True when this point carries an Offline declaration (§5.7).
+
+        Covers both forms that satisfy the requirement: a ``dedicated`` run and the
+        ``elected`` C_max point. Use this only for questions about *whether a point is
+        the Offline result* — presence, count, which point it is.
+
+        Do **not** use it to switch off a fixed-concurrency rule. §5.7.2's Option 2
+        says the §5.7.1 exemptions "apply to a dedicated Offline run, not to an elected
+        point": an elected point "remains a fixed-concurrency pareto point" and its
+        latency metrics "remain defined and reported as for any other". Exemptions
+        therefore test ``offline == OFFLINE_DEDICATED``.
+        """
+        return self.offline in (OFFLINE_DEDICATED, OFFLINE_ELECTED)
+
+    @model_validator(mode="after")
+    def _check_offline_declared(self, info: ValidationInfo) -> PointConfig:
+        """§8.3: `offline`, when present, must be a value the spec defines.
+
+        Only the vocabulary is checked here. Whether exactly one point declares it,
+        and whether an `elected` point really is the C_max point, are properties of
+        the whole curve — see
+        :class:`~submission_checker.models.aggregate.ModelContext`.
+        """
+        path: Path | None = (info.context or {}).get("yaml_path")
+        if self.offline is None:
+            return self
+        if self.offline not in _VALID_OFFLINE:
+            self._check_results.append(
+                err(
+                    "offline-declared",
+                    f"Invalid offline {self.offline!r}: must be one of"
+                    f" {', '.join(sorted(_VALID_OFFLINE))}",
+                    path,
+                    "#5.7",
+                )
+            )
+        else:
+            self._check_results.append(
+                ok("offline-declared", f"offline={self.offline!r}", path, "#5.7")
+            )
+        return self
 
     @model_validator(mode="after")
     def _check_disclosure_complete(self, info: ValidationInfo) -> PointConfig:
@@ -382,9 +437,26 @@ class PointConfig(BaseModel):
 
     @model_validator(mode="after")
     def _check_load_pattern(self, info: ValidationInfo) -> PointConfig:
-        """§10: load_pattern must be 'concurrency' with a positive concurrency level."""
+        """§6.1: every point but the Offline one uses the fixed-concurrency pattern.
+
+        §6.1 makes the Offline point the sole exception — it issues the whole sample
+        set at once rather than pacing to a target concurrency, so requiring
+        ``concurrency`` of it would reject every compliant Offline run. A *dedicated*
+        Offline run is exempt; an *elected* one is an ordinary fixed-concurrency point
+        that was nominated afterwards, so it is not.
+        """
         path: Path | None = (info.context or {}).get("yaml_path")
         lp = self.runtime_settings.load_pattern
+        if self.offline == OFFLINE_DEDICATED:
+            self._check_results.append(
+                ok(
+                    "load-pattern",
+                    f"Offline point: load pattern {lp!r} exempt from fixed concurrency",
+                    path,
+                    "#6.1",
+                )
+            )
+            return self
         if lp != "concurrency":
             self._check_results.append(
                 err(
