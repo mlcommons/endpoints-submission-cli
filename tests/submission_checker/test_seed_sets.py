@@ -40,12 +40,85 @@ class TestBundledRegistry:
         """v0.7 fixed every seed at 42; v1.0 rotates them, which is why the rule changed."""
         assert all(value != 42 for value in load_seed_sets()["A"].seeds.values())
 
-    def test_no_cohorts_yet(self) -> None:
-        """PR #117 carries no cohort keys, so §4.6's adoption window is unevaluable."""
-        assert all(not s.cohorts for s in load_seed_sets().values())
+    def test_adoption_window_is_derived_from_the_publication_cohort(self) -> None:
+        """§4.6: adoptable for the publication cohort and the three following it."""
+        assert load_seed_sets()["A"].cohorts == (
+            "2026-10-C1",
+            "2026-11-C0",
+            "2026-11-C1",
+            "2026-12-C0",
+        )
 
     def test_bundled_file_ships_with_the_package(self) -> None:
         assert bundled_seed_sets_path().is_file()
+
+
+class TestRegistryShapes:
+    """Upstream nests under `cohort:`; the older flat form is still read."""
+
+    def test_upstream_cohort_shape(self, tmp_path: Path) -> None:
+        path = tmp_path / "seeds.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {
+                    "cohort": {
+                        "version": 1.0,
+                        "cohort-id": "2027-03-C0",
+                        "seed_sets": [
+                            {
+                                "id": "Z",
+                                "scheduler_rng_seed": 1,
+                                "sample_index_rng_seed": 2,
+                                "model_seed": 3,
+                            }
+                        ],
+                    }
+                }
+            )
+        )
+        z = load_seed_sets(path)["Z"]
+        assert z.cohorts == ("2027-03-C0", "2027-03-C1", "2027-04-C0", "2027-04-C1")
+
+    def test_flat_shape_still_parses_but_declares_no_window(self, tmp_path: Path) -> None:
+        """A file predating the cohort wrapper leaves the adoption test unevaluable."""
+        path = tmp_path / "seeds.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {
+                    "seed_sets": [
+                        {
+                            "id": "Z",
+                            "scheduler_rng_seed": 1,
+                            "sample_index_rng_seed": 2,
+                            "model_seed": 3,
+                        }
+                    ]
+                }
+            )
+        )
+        assert load_seed_sets(path)["Z"].cohorts == ()
+
+    def test_per_set_cohorts_override_the_derived_window(self, tmp_path: Path) -> None:
+        path = tmp_path / "seeds.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {
+                    "cohort": {
+                        "cohort-id": "2026-10-C1",
+                        "seed_sets": [
+                            {
+                                "id": "Z",
+                                "scheduler_rng_seed": 1,
+                                "sample_index_rng_seed": 2,
+                                "model_seed": 3,
+                                "cohorts": ["2030-01-C0"],
+                            }
+                        ],
+                    }
+                }
+            )
+        )
+        assert load_seed_sets(path)["Z"].cohorts == ("2030-01-C0",)
 
 
 class TestOverrides:
@@ -117,7 +190,35 @@ class TestMalformedRegistries:
     def test_not_a_mapping(self, tmp_path: Path) -> None:
         path = tmp_path / "seeds.yaml"
         path.write_text("- just\n- a\n- list\n")
-        with pytest.raises(SeedSetError, match="seed_sets"):
+        with pytest.raises(SeedSetError, match="must be a mapping"):
+            load_seed_sets(path)
+
+    def test_malformed_cohort_id(self, tmp_path: Path) -> None:
+        path = tmp_path / "seeds.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {
+                    "cohort": {
+                        "cohort-id": "not-a-cohort",
+                        "seed_sets": [
+                            {
+                                "id": "A",
+                                "scheduler_rng_seed": 1,
+                                "sample_index_rng_seed": 2,
+                                "model_seed": 3,
+                            }
+                        ],
+                    }
+                }
+            )
+        )
+        with pytest.raises(SeedSetError, match="YYYY-MM-C0/C1"):
+            load_seed_sets(path)
+
+    def test_cohort_without_seed_sets(self, tmp_path: Path) -> None:
+        path = tmp_path / "seeds.yaml"
+        path.write_text(yaml.safe_dump({"cohort": {"cohort-id": "2026-10-C1"}}))
+        with pytest.raises(SeedSetError, match="cohort.seed_sets must be a list"):
             load_seed_sets(path)
 
     def test_empty_seed_set_list(self, tmp_path: Path) -> None:

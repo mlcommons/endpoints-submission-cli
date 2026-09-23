@@ -489,7 +489,7 @@ dataset_link: https://example.com/dataset
 
 # §4.6 seed binding — the set is named here and its values used below
 seed_set: A
-target_cohort: 2026-09-C0
+target_cohort: 2026-10-C1
 
 # §8.1 bundle-internal pointers; injected by the builder when absent
 shared_src: src/trtllm

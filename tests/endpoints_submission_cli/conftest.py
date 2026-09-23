@@ -234,7 +234,7 @@ _POINT = {
     "shared_src": "src",
     "shared_docs": "docs",
     "seed_set": _SEED_SET_ID,
-    "target_cohort": "2026-09-C0",
+    "target_cohort": "2026-10-C1",
     "runtime_settings": {
         "load_pattern": "concurrency",
         "stream_all_chunks": True,

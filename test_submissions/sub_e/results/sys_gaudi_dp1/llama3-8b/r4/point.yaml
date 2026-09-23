@@ -21,7 +21,7 @@ runtime_settings:
 seed_set: A
 shared_docs: docs
 shared_src: src
-target_cohort: 2026-09-C0
+target_cohort: 2026-10-C1
 warmup:
   concurrency: 4
   data_source: mlperf-perf-dataset-v1 validation split

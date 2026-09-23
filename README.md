@@ -248,11 +248,13 @@ not satisfy High Concurrency coverage.
 | `seed-set-membership` | §9.1 | The bound set is one MLCommons published |
 | `seed-runtime-match` | §2.1.1 | The RNG seeds equal the bound set's values |
 | `target-cohort` | §4.6 | `target_cohort` matches `YYYY-MM-C0` / `YYYY-MM-C1` |
-| `seed-set-adoption` | §4.6 | Set published for the target cohort or the three before it |
+| `seed-set-adoption` | §4.6 | `target_cohort` falls inside the set's four-cohort adoption window |
 | `seed-config-legacy` | §4.6 | v0.7 fallback: seeds == 42 when no `seed_set` is declared |
 | `seed-set-registry` | §4.6 | Warns when the seed-set file itself cannot be read |
 
-The published sets ship as data (`src/submission_checker/data/seed_sets.yaml`). Point
+The published sets ship as data (`src/submission_checker/data/seed_sets.yaml`), mirrored
+from the policies repo's `seedset.yaml`. The file's `cohort-id` is the cohort its sets
+were published for; §4.6's four-cohort adoption window is derived from it. Point
 `--seed-sets FILE` or `$MLPERF_ENDPOINTS_SEED_SETS` at a newer file to check against a
 set published after this release.
 

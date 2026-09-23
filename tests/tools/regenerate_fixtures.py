@@ -50,8 +50,12 @@ from submission_checker.seed_sets import load_seed_sets  # noqa: E402
 FIXTURE_ROOT = Path(__file__).resolve().parents[2] / "test_submissions"
 
 #: The seed set every fixture binds, and the cohort it targets.
+#:
+#: §4.6 makes a set adoptable only for its publication cohort and the three
+#: following, so this must sit inside the window derived from the registry's
+#: `cohort-id` — see submission_checker.cohorts.adoption_window.
 SEED_SET_ID = "A"
-TARGET_COHORT = "2026-09-C0"
+TARGET_COHORT = "2026-10-C1"
 
 #: Pareto points that must move for the fixture to remain valid under v1.0.
 #:
