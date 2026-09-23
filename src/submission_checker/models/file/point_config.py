@@ -18,6 +18,14 @@ from pydantic import (
 
 from ..regions import REGION_NAMES, SUBMITTERS_CHOICE
 from ..results import CheckResult, err, ok, warn
+from .steady_state import (
+    GATING_STATES,
+    MIN_TREND_N,
+    OFFICIAL_STATUS,
+    STEADY_STATE_STATUSES,
+    STEADY_STATE_VERDICTS,
+    SteadyState,
+)
 
 # §8.3's own table still lists the v0.7 *_throughput names, but §5.5's reference
 # algorithm and §9.1's check names both use *_concurrency. The algorithm wins.
@@ -216,6 +224,9 @@ class PointConfig(BaseModel):
     #: §5.7 Offline-point declaration. Absent is equivalent to ``none``.
     offline: str | None = None
 
+    #: §4.4 reporting basis. Absent on a point that predates the steady-state rules.
+    steady_state: SteadyState | None = None
+
     # §8.1 / §9.1, absent from §8.3's table — see _REQUIRED_UNDOCUMENTED_FIELDS.
     shared_src: str | None = None
     shared_docs: str | None = None
@@ -263,6 +274,92 @@ class PointConfig(BaseModel):
         else:
             self._check_results.append(
                 ok("offline-declared", f"offline={self.offline!r}", path, "#5.7")
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_steady_state_vocabulary(self, info: ValidationInfo) -> PointConfig:
+        """§4.4: `status`, `verdict` and per-metric `state` use the spec's vocabulary."""
+        path: Path | None = (info.context or {}).get("yaml_path")
+        block = self.steady_state
+        if block is None:
+            return self
+
+        bad: list[str] = []
+        if block.status is not None and block.status not in STEADY_STATE_STATUSES:
+            bad.append(
+                f"status {block.status!r} (expected one of {', '.join(STEADY_STATE_STATUSES)})"
+            )
+        if block.verdict is not None and block.verdict not in STEADY_STATE_VERDICTS:
+            bad.append(
+                f"verdict {block.verdict!r} (expected one of {', '.join(STEADY_STATE_VERDICTS)})"
+            )
+        for metric, state in sorted(block.state.items()):
+            if state not in GATING_STATES:
+                bad.append(
+                    f"state[{metric}] {state!r} (expected one of {', '.join(GATING_STATES)})"
+                )
+
+        if bad:
+            self._check_results.append(err("steady-state-valid", "; ".join(bad), path, "#4.4"))
+        else:
+            self._check_results.append(
+                ok(
+                    "steady-state-valid",
+                    f"steady_state status={block.status!r} verdict={block.verdict!r}",
+                    path,
+                    "#4.4",
+                )
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_steady_state_consistency(self, info: ValidationInfo) -> PointConfig:
+        """§4.4: the reported status must agree with the window it describes.
+
+        The status table keys on two things the block also states outright — how many
+        super-passes the window spans, and whether every gating metric is a Plateau.
+        A block claiming ``windowable`` over three super-passes is internally
+        inconsistent, and since ``windowable`` is what makes the windowed numbers
+        *official*, the disagreement decides which metrics get published.
+        """
+        path: Path | None = (info.context or {}).get("yaml_path")
+        block = self.steady_state
+        if block is None or block.status is None:
+            return self
+
+        problems: list[str] = []
+        spans = block.window.super_passes
+        if block.status == OFFICIAL_STATUS:
+            if spans is not None and spans < MIN_TREND_N:
+                problems.append(
+                    f"status 'windowable' over {spans} super-pass(es);"
+                    f" §4.4 needs ≥ {MIN_TREND_N} (MIN_TREND_N)"
+                )
+            drifting = block.drifting_metrics
+            if drifting:
+                problems.append(
+                    f"status 'windowable' with drifting gating metric(s):"
+                    f" {', '.join(drifting)}; §4.4 requires every one to be a Plateau"
+                )
+        elif block.status == "insufficient_passes" and spans is not None and spans >= MIN_TREND_N:
+            problems.append(
+                f"status 'insufficient_passes' over {spans} super-pass(es),"
+                f" which meets the ≥ {MIN_TREND_N} floor"
+            )
+
+        if problems:
+            self._check_results.append(
+                err("steady-state-consistency", "; ".join(problems), path, "#4.4")
+            )
+        else:
+            self._check_results.append(
+                ok(
+                    "steady-state-consistency",
+                    f"steady_state status {block.status!r} consistent with the reported window",
+                    path,
+                    "#4.4",
+                )
             )
         return self
 

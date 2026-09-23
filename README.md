@@ -236,7 +236,10 @@ not satisfy High Concurrency coverage.
 | `point-disclosure-complete` | §8.3 | Every required §8.3 disclosure field is present |
 | `load-pattern` | §6.1 | `load_pattern` is `concurrency` with a positive level |
 | `streaming-config` | §6.5 | `stream_all_chunks` is `True` |
-| `point-duration` | §6.2 | Point meets its region's minimum duration (warn) |
+| `point-duration` | §6.2 | Steady-state window's issue-time span meets the region minimum (warn) |
+| `steady-state-valid` | §4.4 | `status`, `verdict` and gating `state` use the spec's vocabulary |
+| `steady-state-consistency` | §4.4 | The reported status agrees with the window it describes |
+| `steady-state-basis` | §4.4 | Which basis supplies the official result; flags fallbacks and drift (warn) |
 | `min-query-count` | §6.4 | `n_samples_completed` meets the dataset minimum |
 | `warmup-present` | §6.3.3 | Warmup declaration present |
 | `warmup-logs-retained` | §6.3.2 | Warmup log retention declared (warn) |

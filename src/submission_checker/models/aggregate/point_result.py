@@ -44,7 +44,15 @@ class PointResult(BaseModel):
 
     @model_validator(mode="after")
     def _check_point_duration(self, info: ValidationInfo) -> PointResult:
-        """§11: warn when measured duration is below the per-region minimum."""
+        """§6.2: warn when the measured duration is below the per-region minimum.
+
+        §4.4 changed what "measured duration" means. The minimum is now checked
+        against the steady-state window's **issue-time span**, not wall-clock: the
+        window excludes the drain by construction, so wall-clock overstates it and a
+        point could clear §6.2 on time its official metrics never covered. Points
+        reporting no window fall back to whole-run duration, which is the pre-1.0
+        basis and what §4.4 calls the fallback result.
+        """
         regions = (info.context or {}).get("regions")
         summary_path: Path | None = (info.context or {}).get("summary_path")
         if regions is None:
@@ -54,13 +62,13 @@ class PointResult(BaseModel):
         if region is None:
             return self  # already flagged by concurrency-in-range
         min_ms = MIN_DURATION_MS.get(region, 0)
-        duration_ms = self.summary.duration_ms
+        duration_ms, basis = self._duration_basis()
         if duration_ms < min_ms:
             self._check_results.append(
                 warn(
                     "point-duration",
-                    f"Point {c} ({region}): duration {duration_ms:.0f} ms < minimum {min_ms} ms"
-                    " (§6.2 values pending WG ratification)",
+                    f"Point {c} ({region}): {basis} duration {duration_ms:.0f} ms"
+                    f" < minimum {min_ms} ms",
                     summary_path,
                     "#11",
                 )
@@ -69,9 +77,72 @@ class PointResult(BaseModel):
             self._check_results.append(
                 ok(
                     "point-duration",
-                    f"Point {c}: duration {duration_ms:.0f} ms meets minimum for {region}",
+                    f"Point {c}: {basis} duration {duration_ms:.0f} ms meets minimum for {region}",
                     summary_path,
                     "#11",
+                )
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_steady_state_basis(self, info: ValidationInfo) -> PointResult:
+        """§4.4: record which basis supplies this point's official result.
+
+        Steady-state metrics are official only where ``status`` is ``windowable``;
+        every other status falls back to whole-run ``total`` with the windowed numbers
+        reported as low-confidence. That fallback is not a rejection — §4.4 keeps
+        ``total`` as a valid basis — but it is a material difference in what the
+        published number means, so it is surfaced rather than passed over.
+
+        A ``drifting_up`` / ``drifting_down`` verdict is flagged separately: §4.4 says
+        such a metric is reported "as drift (range/slope), never as a point estimate",
+        which a percentile read out of ``result_summary.json`` silently is.
+        """
+        path: Path | None = (info.context or {}).get("summary_path")
+        block = self.config.steady_state
+        c = self.config.concurrency
+        if block is None:
+            self._check_results.append(
+                warn(
+                    "steady-state-basis",
+                    f"Point {c}: no steady_state block; metrics are whole-run, which §4.4"
+                    " makes the fallback rather than the official basis",
+                    path,
+                    "#4.4",
+                )
+            )
+            return self
+
+        if block.is_official:
+            self._check_results.append(
+                ok(
+                    "steady-state-basis",
+                    f"Point {c}: official result is the steady-state window"
+                    f" ({block.window.super_passes or '?'} super-passes)",
+                    path,
+                    "#4.4",
+                )
+            )
+        else:
+            self._check_results.append(
+                warn(
+                    "steady-state-basis",
+                    f"Point {c}: status {block.status!r} — official result falls back to"
+                    " whole-run `total`; steady-state numbers are low-confidence (§4.4)",
+                    path,
+                    "#4.4",
+                )
+            )
+
+        if block.verdict in ("drifting_up", "drifting_down"):
+            self._check_results.append(
+                warn(
+                    "steady-state-basis",
+                    f"Point {c}: verdict {block.verdict!r} — §4.4 reports a drifting gating"
+                    f" metric as a range or slope, never as a point estimate"
+                    + (f" ({', '.join(block.drifting_metrics)})" if block.drifting_metrics else ""),
+                    path,
+                    "#4.4",
                 )
             )
         return self
@@ -108,6 +179,18 @@ class PointResult(BaseModel):
                 )
             )
         return self
+
+    def _duration_basis(self) -> tuple[float, str]:
+        """Return ``(duration in ms, what it measures)`` for the §6.2 comparison.
+
+        §4.4 measures §6.2 against the steady-state window's issue-time span. A point
+        that reports no window — or one whose window states no ``duration_s`` — falls
+        back to the whole run, which is §4.4's own fallback basis.
+        """
+        block = self.config.steady_state
+        if block is not None and block.window.duration_s is not None:
+            return block.window.duration_s * 1000.0, "steady-state window"
+        return self.summary.duration_ms, "whole-run"
 
     # ------------------------------------------------------------------
     # Metric-consistency sub-checks (called from _check_metric_consistency)

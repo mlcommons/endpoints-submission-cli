@@ -360,6 +360,30 @@ def _write_point_yaml(
     runtime_settings["runtime"] = runtime
     point["runtime_settings"] = runtime_settings
 
+    # §4.4 makes the steady-state window the official reporting basis. The corpus is
+    # synthetic, so the block is synthesised as a clean `windowable` result: the point
+    # of the fixtures is to exercise the rules, and a corpus that fell back to `total`
+    # everywhere would never reach them.
+    if "steady_state" not in point:
+        duration_s = float(point.get("runtime_settings", {}).get("min_duration_ms", 0)) / 1000.0
+        point["steady_state"] = {
+            "status": "windowable",
+            "verdict": "STEADY STATE",
+            "window": {
+                "super_pass_start": 1,
+                "super_pass_end": 4,
+                "super_pass_size": 1000,
+                "n_samples": 4000,
+                "duration_s": duration_s or 1200.0,
+            },
+            "state": {
+                "ttft_p50": "Plateau",
+                "ttft_p90": "Plateau",
+                "tpot_p50": "Plateau",
+                "tpot_p90": "Plateau",
+            },
+        }
+
     warmup = point.get("warmup")
     if isinstance(warmup, dict):
         warmup = dict(warmup)
