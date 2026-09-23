@@ -226,9 +226,15 @@ class PointConfig(BaseModel):
     def is_offline(self) -> bool:
         """True when this point carries an Offline declaration (§5.7).
 
-        Covers both satisfying forms: a ``dedicated`` run, and the ``elected`` C_max
-        point. Rules that must not apply to the Offline point key off this rather
-        than on the load pattern, since an elected point runs fixed-concurrency.
+        Covers both forms that satisfy the requirement: a ``dedicated`` run and the
+        ``elected`` C_max point. Use this only for questions about *whether a point is
+        the Offline result* — presence, count, which point it is.
+
+        Do **not** use it to switch off a fixed-concurrency rule. §5.7.2's Option 2
+        says the §5.7.1 exemptions "apply to a dedicated Offline run, not to an elected
+        point": an elected point "remains a fixed-concurrency pareto point" and its
+        latency metrics "remain defined and reported as for any other". Exemptions
+        therefore test ``offline == OFFLINE_DEDICATED``.
         """
         return self.offline in (OFFLINE_DEDICATED, OFFLINE_ELECTED)
 

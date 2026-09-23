@@ -34,17 +34,22 @@ class RegionPlacement(BaseModel):
     def _check_concurrency_range(self) -> RegionPlacement:
         """§9.1: the concurrency must fall inside a valid region, margin included.
 
-        The Offline point is exempt. §5.7.1 fixes its concurrency at the *cardinality
-        of the performance dataset* — "a property of the benchmark dataset rather than
-        a value the submitter selects" — which routinely exceeds C_max and its 10 %
-        margin. §5.7.2 constrains it instead, by requiring it to be ≥ C_max.
+        A **dedicated** Offline run is exempt: §5.7.1 fixes its concurrency at the
+        *cardinality of the performance dataset* — "a property of the benchmark dataset
+        rather than a value the submitter selects" — which routinely exceeds C_max and
+        its 10 % margin. §5.7.2 constrains it instead, by requiring it to be ≥ C_max.
+
+        An **elected** point is not exempt. §5.7.2's Option 2 is explicit that "the
+        §5.7.1 exemptions … apply to a dedicated Offline run, not to an elected point":
+        it "remains a fixed-concurrency pareto point" whose concurrency the submitter
+        chose, so the §5.7.1 rationale does not reach it.
         """
-        if self.config.is_offline:
+        if self.config.offline == OFFLINE_DEDICATED:
             self._check_results.append(
                 ok(
                     "concurrency-in-range",
-                    f"Offline point: concurrency {self.config.concurrency} is the dataset"
-                    " cardinality (§5.7.1), exempt from the region range",
+                    f"Dedicated Offline run: concurrency {self.config.concurrency} is the"
+                    " dataset cardinality (§5.7.1), exempt from the region range",
                     self.yaml_path,
                     "#5.7.1",
                 )

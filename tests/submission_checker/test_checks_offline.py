@@ -124,7 +124,7 @@ class TestRulesThatStandDownForOffline:
             if r.rule == "load-pattern" and r.severity == Severity.ERROR
         ]
 
-    def test_offline_concurrency_is_exempt_from_the_region_range(self, tmp_path: Path) -> None:
+    def test_dedicated_concurrency_is_exempt_from_the_region_range(self, tmp_path: Path) -> None:
         """§5.7.1 fixes it to the dataset cardinality, well past C_max's margin."""
         placement = RegionPlacement(
             config=_offline_config(), regions=_REGIONS, yaml_path=tmp_path / "point.yaml"
@@ -140,6 +140,36 @@ class TestRulesThatStandDownForOffline:
             config=_config(concurrency=24576), regions=_REGIONS, yaml_path=tmp_path / "p.yaml"
         )
         assert [
+            r
+            for r in placement._check_results
+            if r.rule == "concurrency-in-range" and r.severity == Severity.ERROR
+        ]
+
+    def test_elected_point_is_not_exempt_from_the_region_range(self, tmp_path: Path) -> None:
+        """§5.7.2 Option 2: the §5.7.1 exemptions do not reach an elected point.
+
+        It "remains a fixed-concurrency pareto point" whose concurrency the submitter
+        chose, so an out-of-range value is a real defect rather than a dataset property.
+        """
+        placement = RegionPlacement(
+            config=_offline_config(concurrency=24576, offline="elected"),
+            regions=_REGIONS,
+            yaml_path=tmp_path / "point.yaml",
+        )
+        assert [
+            r
+            for r in placement._check_results
+            if r.rule == "concurrency-in-range" and r.severity == Severity.ERROR
+        ]
+
+    def test_elected_point_in_range_passes(self, tmp_path: Path) -> None:
+        """The ordinary path: an elected point sits at C_max, which is in range."""
+        placement = RegionPlacement(
+            config=_offline_config(concurrency=1024, offline="elected"),
+            regions=_REGIONS,
+            yaml_path=tmp_path / "point.yaml",
+        )
+        assert not [
             r
             for r in placement._check_results
             if r.rule == "concurrency-in-range" and r.severity == Severity.ERROR
@@ -389,3 +419,94 @@ class TestAccuracyCoverage:
     def test_skipped_without_a_region_basis(self, tmp_path: Path) -> None:
         ctx = _model_ctx(tmp_path, valid_points=[], regions=None)
         assert not [r for r in ctx._check_results if r.rule == "accuracy-coverage"]
+
+
+@pytest.mark.unit
+class TestTheTwoOptionsDifferEverywhereTheSpecSaysTheyDo:
+    """§5.7.2 offers two ways to satisfy the Offline requirement, and they are not alike.
+
+    Option 1 is a dedicated run under the Offline load pattern. Option 2 elects the
+    C_max point, which "remains a fixed-concurrency pareto point" — so every §5.7.1
+    exemption applies to the first and none to the second. Collected in one table
+    because the difference is easy to lose in per-rule tests.
+    """
+
+    @pytest.mark.parametrize(
+        "rule, dedicated_exempt, elected_exempt",
+        [
+            ("load-pattern", True, False),
+            ("concurrency-in-range", True, False),
+        ],
+    )
+    def test_exemptions_apply_to_option_1_only(
+        self, tmp_path: Path, rule: str, dedicated_exempt: bool, elected_exempt: bool
+    ) -> None:
+        for offline, exempt in (("dedicated", dedicated_exempt), ("elected", elected_exempt)):
+            config = PointConfig.model_validate(
+                {
+                    # Out of range for _REGIONS, and not the fixed-concurrency pattern.
+                    "concurrency": 24576,
+                    "offline": offline,
+                    "runtime_settings": {"load_pattern": "offline", "runtime": {}},
+                },
+                context={"yaml_path": tmp_path / "point.yaml"},
+            )
+            if rule == "load-pattern":
+                found = [
+                    r
+                    for r in config._check_results
+                    if r.rule == rule and r.severity == Severity.ERROR
+                ]
+            else:
+                placement = RegionPlacement(
+                    config=config, regions=_REGIONS, yaml_path=tmp_path / "point.yaml"
+                )
+                found = [
+                    r
+                    for r in placement._check_results
+                    if r.rule == rule and r.severity == Severity.ERROR
+                ]
+            assert bool(found) is (not exempt), (
+                f"{rule}: offline={offline!r} should {'not ' if exempt else ''}report an error"
+            )
+
+    def test_only_a_dedicated_run_raises_the_point_minimum(self, tmp_path: Path) -> None:
+        """§5.7.2: electing "contains one fewer distinct run", so the minimum stays 7."""
+        base = [(tmp_path / f"r{i}" / "point.yaml", _config(concurrency=i)) for i in range(1, 7)]
+        dedicated = _model_ctx(
+            tmp_path,
+            all_point_count=7,
+            valid_points=[*base, (tmp_path / "o.yaml", _offline_config(offline="dedicated"))],
+        )
+        elected = _model_ctx(
+            tmp_path,
+            all_point_count=7,
+            valid_points=[
+                *base,
+                (tmp_path / "o.yaml", _offline_config(concurrency=1024, offline="elected")),
+            ],
+        )
+        assert dedicated.min_points == 8
+        assert elected.min_points == 7
+
+    def test_only_a_dedicated_run_is_ordering_checked(self, tmp_path: Path) -> None:
+        """§5.7.2: for an election the constraints "are met with equality"."""
+        for offline, expect_rule in (("dedicated", True), ("elected", False)):
+            config = _offline_config(concurrency=1024, offline=offline)
+            ctx = _model_ctx(
+                tmp_path,
+                valid_points=[(tmp_path / "p.yaml", config)],
+                loaded_points=[(config, _summary())],
+            )
+            has = bool([r for r in ctx._check_results if r.rule == "offline-ordering"])
+            assert has is expect_rule
+
+    def test_only_a_dedicated_run_forfeits_its_region(self, tmp_path: Path) -> None:
+        """§5.7.2: an elected point "keeps its role as the C_max point"."""
+        for offline, expected in (("dedicated", None), ("elected", "high_concurrency")):
+            placement = RegionPlacement(
+                config=_offline_config(concurrency=512, offline=offline),
+                regions=_REGIONS,
+                yaml_path=tmp_path / "point.yaml",
+            )
+            assert placement.covered_region == expected
