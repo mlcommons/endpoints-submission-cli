@@ -1,6 +1,13 @@
 """Data models for MLPerf Endpoints submission checking."""
 
-from .aggregate import MIN_QUERY_COUNT, ModelContext, PointResult, RegionPlacement, SeedBinding
+from .aggregate import (
+    MIN_QUERY_COUNT,
+    DrafterBinding,
+    ModelContext,
+    PointResult,
+    RegionPlacement,
+    SeedBinding,
+)
 from .file import (
     AccuracyResult,
     ConfigSummary,
@@ -25,6 +32,7 @@ __all__ = [
     "AccuracyResult",
     "CheckResult",
     "DatasetAccuracyScores",
+    "DrafterBinding",
     "Division",
     "MIN_DURATION_MS",
     "MIN_QUERY_COUNT",

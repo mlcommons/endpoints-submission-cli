@@ -13,9 +13,11 @@ from typing import TYPE_CHECKING
 __all__ = ["SubmissionChecker"]
 
 from . import layout
+from .drafters import ApprovedDrafter, DrafterListError, load_approved_drafters
 from .models import (
     AccuracyResult,
     CheckResult,
+    DrafterBinding,
     ModelContext,
     ModelDir,
     PointConfig,
@@ -169,11 +171,19 @@ class SubmissionChecker:
             print(err.rule, err.message)
     """
 
-    def __init__(self, submission_path: Path, seed_sets_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        submission_path: Path,
+        seed_sets_path: Path | None = None,
+        approved_drafters_path: Path | None = None,
+    ) -> None:
         self.submission_path = _resolve_submission_root(submission_path)
         self.seed_sets_path = seed_sets_path
+        self.approved_drafters_path = approved_drafters_path
         self._seed_sets: dict[str, SeedSet] = {}
         self._seed_sets_error: str | None = None
+        self._drafters: dict[str, list[ApprovedDrafter]] = {}
+        self._drafters_error: str | None = None
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -196,6 +206,13 @@ class SubmissionChecker:
             self._seed_sets = {}
             self._seed_sets_error = str(exc)
             report.results.append(_warn("seed-set-registry", str(exc), None, "#4.6"))
+
+        try:
+            self._drafters = load_approved_drafters(self.approved_drafters_path)
+        except DrafterListError as exc:
+            self._drafters = {}
+            self._drafters_error = str(exc)
+            report.results.append(_warn("drafter-list-registry", str(exc), None, "#2.9.4"))
 
         if not self.submission_path.exists():
             report.results.append(
@@ -488,6 +505,16 @@ class SubmissionChecker:
                 points=valid_points, registry=self._seed_sets, model_dir=model_dir
             )
             results.extend(seed_binding._check_results)
+
+        if self._drafters_error is None:
+            benchmark = system_desc.model_name or model_dir.name
+            drafter_binding = DrafterBinding(
+                points=valid_points,
+                approved=self._drafters.get(benchmark, []),
+                benchmark=benchmark,
+                model_dir=model_dir,
+            )
+            results.extend(drafter_binding._check_results)
 
         accuracy_by_point, accuracy_dir, accuracy_results = self._load_curve_accuracy(loaded)
         results.extend(accuracy_results)

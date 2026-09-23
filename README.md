@@ -134,6 +134,7 @@ directory below it; a submission root is the level holding `results/` and `docs/
 | `--quiet` / `-q` | Suppress INFO-level passing checks |
 | `--output FILE` / `-o FILE` | Write full results as JSON to *FILE* |
 | `--seed-sets FILE` | Published seed sets to check against (§4.6). Defaults to the bundled set; also settable via `$MLPERF_ENDPOINTS_SEED_SETS`. |
+| `--approved-drafters FILE` | Published approved drafters (§2.9.4). Defaults to the bundled list; also settable via `$MLPERF_ENDPOINTS_APPROVED_DRAFTERS`. |
 
 **Exit codes:** `0` = all checks passed, `1` = one or more errors (or warnings with `--strict`).
 
@@ -261,6 +262,20 @@ not satisfy High Concurrency coverage.
 | `seed-config-legacy` | §4.6 | v0.7 fallback: seeds == 42 when no `seed_set` is declared |
 | `seed-set-registry` | §4.6 | Warns when the seed-set file itself cannot be read |
 
+### Speculative decoding (§2.9.4)
+
+| Rule | Spec | Description |
+|------|------|-------------|
+| `approved-drafter` | §2.9.4 | The declared drafter is on the benchmark's published list |
+| `drafter-approval-lead-time` | §2.9.4 | Approved at least two cohorts before `target_cohort` |
+| `drafter-list-registry` | §2.9.4 | Warns when the drafter list itself cannot be read |
+
+The approved list ships as data (`src/submission_checker/data/approved_drafters.yaml`)
+and is **empty** — §2.9.4's list has not been published yet, and an empty registry means
+speculative decoding is not permitted for any benchmark, which is §2.9.4's own rule for a
+benchmark with no approved drafter. Point `--approved-drafters FILE` or
+`$MLPERF_ENDPOINTS_APPROVED_DRAFTERS` at a published list.
+
 The published sets ship as data (`src/submission_checker/data/seed_sets.yaml`), mirrored
 from the policies repo's `seedset.yaml`. The file's `cohort-id` is the cohort its sets
 were published for; §4.6's four-cohort adoption window is derived from it. Point
@@ -279,6 +294,7 @@ set published after this release.
 | `metric-consistency-tpot-p90` | §9.1 | Reported TPOT P90 present, finite, strictly positive |
 | `metric-consistency-tps-per-user` | §9.1 | Stored `tps_per_user` matches `1000 / tpot_p90_ms` |
 | `metric-consistency-tps-per-kw` | §4.5.3 | Stored `system_tps_per_kw` matches `system_tps / provisioned_power_kw` |
+| `agentic-metric-consistency` | §4.1 | `e2e_avg_interactivity` is derivable from its reported inputs |
 
 ### Accuracy (§15)
 

@@ -7,6 +7,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .checker import SubmissionChecker
+from .drafters import APPROVED_DRAFTERS_ENV_VAR
 from .models import Severity, compute_regions
 from .models.regions import ULTRA_LOW_CONCURRENCY_MAX
 from .seed_sets import SEED_SETS_ENV_VAR
@@ -56,8 +57,23 @@ def main() -> None:
         f"this checker; also settable via ${SEED_SETS_ENV_VAR}."
     ),
 )
+@click.option(
+    "--approved-drafters",
+    type=click.Path(path_type=Path),
+    default=None,
+    envvar=APPROVED_DRAFTERS_ENV_VAR,
+    help=(
+        "Published approved speculative-decoding drafters (§2.9.4). Defaults to the list "
+        f"bundled with this checker; also settable via ${APPROVED_DRAFTERS_ENV_VAR}."
+    ),
+)
 def check(
-    path: Path, strict: bool, quiet: bool, output: Path | None, seed_sets: Path | None
+    path: Path,
+    strict: bool,
+    quiet: bool,
+    output: Path | None,
+    seed_sets: Path | None,
+    approved_drafters: Path | None,
 ) -> None:
     r"""Check the submission at PATH for §9.1 compliance.
 
@@ -69,7 +85,9 @@ def check(
       0  All checks passed (no errors; warnings ignored unless --strict).
       1  One or more errors found (or warnings when --strict is active).
     """
-    checker = SubmissionChecker(path, seed_sets_path=seed_sets)
+    checker = SubmissionChecker(
+        path, seed_sets_path=seed_sets, approved_drafters_path=approved_drafters
+    )
     report = checker.run()
 
     if output is not None:

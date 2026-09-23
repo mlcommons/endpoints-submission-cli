@@ -1,0 +1,25 @@
+# Approved speculative-decoding drafters (§2.9.4), per benchmark.
+#
+# §2.9.4 makes this "a curated, published list, not a single fixed drafter",
+# published in the reference repository and versioned per submission round. No such
+# list has been published yet, so this file ships empty and the checker treats an
+# empty registry as "speculative decoding is not yet permitted for any benchmark" —
+# which is exactly §2.9.4's rule for a benchmark with no approved drafter.
+#
+# Override with `--approved-drafters FILE` or $MLPERF_ENDPOINTS_APPROVED_DRAFTERS
+# once the task force publishes one, without waiting for a checker release.
+#
+# Shape, per §2.9.4's two identification forms:
+#
+#   drafters:
+#     - benchmark: llama3.1-8b
+#       approved_cohort: 2026-10-C1      # the cohort the updated list was published in
+#       model_id: acme/llama3-eagle      # weight-identified
+#       weight_checksum: sha256:...
+#     - benchmark: deepseek-r1
+#       approved_cohort: 2026-10-C1
+#       target_checksum: sha256:...      # configuration-identified
+#       configuration:
+#         exit_layer: 24
+
+drafters: []
