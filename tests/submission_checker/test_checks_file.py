@@ -60,7 +60,7 @@ class TestLoadPatternValidator:
 
 @pytest.mark.unit
 class TestStreamingValidator:
-    def test_stream_false_errors(self, tmp_path):
+    def test_stream_false_does_not_imply_server_streaming_is_disabled(self, tmp_path):
         config = PointConfig.model_validate(
             {
                 "concurrency": 64,
@@ -77,7 +77,7 @@ class TestStreamingValidator:
             for r in config._check_results
             if r.rule == "streaming-config" and r.severity == Severity.ERROR
         ]
-        assert errors
+        assert not errors
 
     def test_stream_true_passes(self, tmp_path):
         config = PointConfig.model_validate(

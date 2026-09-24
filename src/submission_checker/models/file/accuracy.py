@@ -31,6 +31,41 @@ class AccuracyResult(RootModel[dict[str, dict[str, Any]]]):
 
     _check_results: list[CheckResult] = PrivateAttr(default_factory=list)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _read_native_report(cls, data: Any) -> Any:
+        """Accept native reports and index their entries without changing the file."""
+        if isinstance(data, dict) and "accuracy_scores" in data:
+            data = data["accuracy_scores"]
+            if not isinstance(data, (dict, list)):
+                raise ValueError("accuracy_scores must be a dataset mapping or list")
+        if not isinstance(data, list):
+            return data
+        indexed: dict[str, dict[str, Any]] = {}
+        for entry in data:
+            if not isinstance(entry, dict):
+                raise ValueError("Each accuracy_scores entry must be a dictionary")
+            name = entry.get("dataset_name")
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("Each accuracy_scores entry must have a non-empty dataset_name")
+            if name in indexed:
+                raise ValueError(f"Duplicate accuracy dataset_name: {name!r}")
+            if "score" not in entry:
+                raise ValueError(f"Native accuracy entry {name!r} is missing score")
+            normalized = dict(entry)
+            # Native scorers name these fields differently. Keep the originals
+            # and expose aliases used by the existing sample-count/weight gates.
+            for native, canonical in (
+                ("unit_samples", "num_samples"),
+                ("num_repeats", "n_repeats"),
+            ):
+                if native in entry:
+                    if canonical in entry and entry[canonical] != entry[native]:
+                        raise ValueError(f"Conflicting {native} and {canonical} for {name!r}")
+                    normalized[canonical] = entry[native]
+            indexed[name] = normalized
+        return indexed
+
     @model_validator(mode="after")
     def _check_not_empty(self) -> AccuracyResult:
         if not self.root:
@@ -49,6 +84,12 @@ class AccuracyResult(RootModel[dict[str, dict[str, Any]]]):
             "ground_truth_column",
             "n_repeats",
             "complete",
+            "unit_samples",
+            "total_samples",
+            "num_repeats",
+            "duration_s",
+            "dataset_type",
+            "response_counts",
         }
     )
 
