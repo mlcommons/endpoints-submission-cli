@@ -1059,7 +1059,9 @@ class TestBuilderCheckerContract:
 
     #: A curve covering every §9.1 region for C_max=1024 with a derived C_min=16:
     #: low 17–26 → 20, med 27–117 → 88, high 118–1024 → 256, 512, 768, 1000.
-    _COMPLIANT_CURVE = (16, 20, 88, 256, 512, 768, 1000)
+    #: The top point sits at C_max so it can be elected as the Offline result
+    #: (§5.7.2 Option 2), which keeps the §5.3 minimum at 7 points.
+    _COMPLIANT_CURVE = (16, 20, 88, 256, 512, 768, 1024)
 
     def _curve_archive(
         self, run_folder: Path, tmp_path: Path, concurrency: int, system_tps: float
@@ -1075,6 +1077,8 @@ class TestBuilderCheckerContract:
         point = yaml.safe_load((folder / "point.yaml").read_text())
         point["concurrency"] = concurrency
         point["max_supported_concurrency"] = 1024
+        if concurrency == 1024:
+            point["offline"] = "elected"  # §5.7.2 Option 2
         point.pop("region", None)  # let the checker place it
         point["runtime_settings"]["min_duration_ms"] = 1_200_000
         point["warmup"] = {

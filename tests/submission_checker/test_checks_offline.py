@@ -246,12 +246,16 @@ class TestOfflinePointPresent:
             if r.rule == "offline-point-present" and r.severity == Severity.ERROR
         ]
 
-    def test_absent_warns_because_agentic_is_indistinguishable(self, tmp_path: Path) -> None:
-        """§9.1 rejects for non-agentic and requires absence for agentic; nothing the
-        checker reads says which this is, so it flags rather than guesses."""
+    def test_absent_errors_on_a_single_turn_curve(self, tmp_path: Path) -> None:
+        """§9.1 rejects a non-agentic submission with no Offline point.
+
+        This used to warn because the checker could not tell the two benchmark types
+        apart. §6.1's load pattern now says which, so the rule is the ERROR §9.1 asks
+        for rather than a hedge.
+        """
         ctx = _model_ctx(tmp_path, valid_points=[(tmp_path / "p.yaml", _config())])
         hits = [r for r in ctx._check_results if r.rule == "offline-point-present"]
-        assert hits and hits[0].severity == Severity.WARNING
+        assert hits and hits[0].severity == Severity.ERROR
 
     def test_elected_must_be_the_c_max_point(self, tmp_path: Path) -> None:
         """§5.7.2 elects the C_max point specifically; _model_ctx's C_max is 1024."""
@@ -510,3 +514,97 @@ class TestTheTwoOptionsDifferEverywhereTheSpecSaysTheyDo:
                 yaml_path=tmp_path / "point.yaml",
             )
             assert placement.covered_region == expected
+
+
+@pytest.mark.unit
+class TestAgenticDetermination:
+    """§6.1's load pattern is the only agentic signal any file the checker reads carries.
+
+    Four §9.1 rows turn on it — §5.3's point minimum and accuracy count, §5.7's Offline
+    point, and §9.1's "Offline point present" — so these assert the determination itself
+    and each rule that swings on it.
+    """
+
+    def _agentic(self, concurrency: int = 64) -> PointConfig:
+        return _config(concurrency=concurrency, lp_type="agentic_inference")
+
+    def test_load_pattern_accepted(self, tmp_path: Path) -> None:
+        """§6.1 admits it as a fixed-concurrency pattern; `poisson` and friends stay out."""
+        config = PointConfig.model_validate(
+            {
+                "concurrency": 64,
+                "runtime_settings": {"load_pattern": "agentic_inference", "runtime": {}},
+            },
+            context={"yaml_path": tmp_path / "point.yaml"},
+        )
+        assert not [r for r in config._check_results if r.rule == "load-pattern" and not r.passed]
+        assert config.is_agentic
+
+    @pytest.mark.parametrize("lp", ["concurrency", "offline", "poisson"])
+    def test_other_patterns_are_not_agentic(self, tmp_path: Path, lp: str) -> None:
+        assert not _config(lp_type=lp).is_agentic
+
+    def test_curve_is_agentic_when_every_point_says_so(self, tmp_path: Path) -> None:
+        pts = [(tmp_path / f"p{c}.yaml", self._agentic(c)) for c in (16, 64, 512)]
+        assert _model_ctx(tmp_path, valid_points=pts).is_agentic
+
+    def test_mixed_patterns_are_reported_and_read_as_single_turn(self, tmp_path: Path) -> None:
+        """§8.5 makes one curve one benchmark, so disagreement is an error.
+
+        The curve falls back to non-agentic: that keeps §5.7's Offline requirement in
+        force rather than letting one mislabelled point switch it off.
+        """
+        pts = [
+            (tmp_path / "a.yaml", self._agentic(16)),
+            (tmp_path / "b.yaml", _config(concurrency=64)),
+        ]
+        ctx = _model_ctx(tmp_path, valid_points=pts)
+        assert not ctx.is_agentic
+        assert [
+            r
+            for r in ctx._check_results
+            if r.rule == "benchmark-type-consistency" and r.severity == Severity.ERROR
+        ]
+
+    def test_consistent_curve_passes_the_consistency_rule(self, tmp_path: Path) -> None:
+        pts = [(tmp_path / f"p{c}.yaml", self._agentic(c)) for c in (16, 64)]
+        ctx = _model_ctx(tmp_path, valid_points=pts)
+        assert not [
+            r for r in ctx._check_results if r.rule == "benchmark-type-consistency" and not r.passed
+        ]
+
+    def test_absent_offline_is_correct_for_an_agentic_curve(self, tmp_path: Path) -> None:
+        """§5.7: an agentic submission "neither requires nor may include" one."""
+        pts = [(tmp_path / f"p{c}.yaml", self._agentic(c)) for c in (16, 64)]
+        ctx = _model_ctx(tmp_path, valid_points=pts)
+        hits = [r for r in ctx._check_results if r.rule == "offline-point-present"]
+        assert hits and all(r.passed for r in hits)
+
+    def test_declared_offline_on_an_agentic_curve_errors(self, tmp_path: Path) -> None:
+        """The inversion: presence is the defect, not absence."""
+        offline = _offline_config(concurrency=1024, offline="elected")
+        offline.runtime_settings.load_pattern = "agentic_inference"
+        pts = [(tmp_path / "a.yaml", self._agentic(16)), (tmp_path / "b.yaml", offline)]
+        ctx = _model_ctx(tmp_path, valid_points=pts)
+        assert [
+            r
+            for r in ctx._check_results
+            if r.rule == "offline-point-present" and r.severity == Severity.ERROR
+        ]
+
+    def test_agentic_minimum_is_seven_even_with_a_dedicated_declaration(
+        self, tmp_path: Path
+    ) -> None:
+        """§5.3: agentic is 1 + 3 + 3. A `dedicated` declaration must not lift it to 8 —
+        the declaration is itself the error, reported by offline-point-present."""
+        offline = _offline_config(concurrency=24576)
+        offline.runtime_settings.load_pattern = "agentic_inference"
+        pts = [(tmp_path / "a.yaml", self._agentic(16)), (tmp_path / "b.yaml", offline)]
+        assert _model_ctx(tmp_path, valid_points=pts).min_points == 7
+
+    def test_single_turn_minimum_is_still_eight_with_a_dedicated_run(self, tmp_path: Path) -> None:
+        pts = [
+            (tmp_path / "a.yaml", _config(concurrency=16)),
+            (tmp_path / "b.yaml", _offline_config(concurrency=24576)),
+        ]
+        assert _model_ctx(tmp_path, valid_points=pts).min_points == 8
