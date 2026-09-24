@@ -161,11 +161,11 @@ def load_accuracy_scores(
     """Load accuracy from a ``results.json``'s ``accuracy_scores`` field.
 
     The benchmark writes per-dataset accuracy directly into ``results.json`` under
-    ``accuracy_scores`` (already in the ``AccuracyResult`` schema). This reads that
+    ``accuracy_scores`` (a dataset mapping or native list). This reads that
     field instead of a separate ``accuracy/results.json`` file.
 
     Returns ``(model, check_results, present)``. ``present`` is True when the file
-    contains a non-empty ``accuracy_scores`` mapping (regardless of validity); a
+    contains a non-empty ``accuracy_scores`` value (regardless of validity); a
     missing/invalid ``results.json`` is reported by the result-summary loaders, so
     accuracy is simply treated as absent here. On a validation failure the model is
     None and ``check_results`` holds one entry per error.
@@ -174,10 +174,12 @@ def load_accuracy_scores(
     if load_err or not isinstance(data, dict):
         return None, [], False
     scores = data.get("accuracy_scores")
-    if not isinstance(scores, dict) or not scores:
+    if scores is None or scores == {} or scores == []:
         return None, [], False
     try:
-        instance = AccuracyResult.model_validate(scores, context={"json_path": path})
+        instance = AccuracyResult.model_validate(
+            {"accuracy_scores": scores}, context={"json_path": path}
+        )
         return instance, list(instance._check_results), True
     except ValidationError as exc:
         return None, _validation_errors(exc, "accuracy-valid", path), True

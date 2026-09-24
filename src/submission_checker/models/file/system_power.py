@@ -16,7 +16,7 @@ checker reports which of them the submitter supplied rather than rejecting gaps.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 __all__ = ["ComponentGroup", "SystemPower"]
 
@@ -36,9 +36,25 @@ class ComponentGroup(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    count: float | None = None
-    tdp_per_unit: float | None = None
-    link: str | None = None
+    count: float | None = Field(
+        default=None,
+        validation_alias=AliasChoices("count", "num_cpu", "num_accelerator", "num_switches"),
+    )
+    tdp_per_unit: float | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "tdp_per_unit",
+            "tdp_per_cpu",
+            "tdp_per_cpu_watts",
+            "tdp_per_accelerator",
+            "tdp_per_accelerator_watts",
+            "tdp_per_switch",
+            "tdp_per_switch_watts",
+        ),
+    )
+    link: str | None = Field(
+        default=None, validation_alias=AliasChoices("link", "public_specification")
+    )
 
     @property
     def total_w(self) -> float | None:
@@ -65,7 +81,10 @@ class SystemPower(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    provisioned_power_w: float | None = None
+    provisioned_power_w: float | None = Field(
+        default=None,
+        validation_alias=AliasChoices("provisioned_power_w", "provisioned_power_watts"),
+    )
     cpu: ComponentGroup = Field(default_factory=ComponentGroup)
     accelerator: ComponentGroup = Field(default_factory=ComponentGroup)
     scale_up_network: ComponentGroup = Field(default_factory=ComponentGroup)

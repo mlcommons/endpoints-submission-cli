@@ -637,10 +637,21 @@ class TestCheckerEdgeCases:
         ok_results = [r for r in report.results if r.rule == "model-name-consistency" and r.passed]
         assert ok_results
 
-    def test_model_name_allowed_passes(self, tmp_path):
+    @pytest.mark.parametrize(
+        "model_name",
+        [
+            "llama3.1-8b",
+            "gpt-oss-120b",
+            "deepseek-r1",
+            "kimi-k3",
+            "qwen3.6-35b-a3b",
+            "deepseek-v4.1-flash",
+        ],
+    )
+    def test_model_name_allowed_passes(self, tmp_path, model_name):
         """ok when system_desc.model_name is one of the allowed benchmark models."""
-        desc = {**_SYSTEM_DESC, "model_name": "gpt-oss-120b"}
-        root = _build_submission(tmp_path, system_desc=desc, model="gpt-oss-120b")
+        desc = {**_SYSTEM_DESC, "model_name": model_name}
+        root = _build_submission(tmp_path, system_desc=desc, model=model_name)
         report = _check(root)
         assert not _errors(report, "model-name-valid")
         assert [r for r in report.results if r.rule == "model-name-valid" and r.passed]

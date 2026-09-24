@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+import math
+
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 __all__ = ["PercentileStats", "PointSummary"]
 
@@ -19,6 +21,21 @@ class PercentileStats(BaseModel):
 
     total: float = 0.0
     percentiles: dict[str, float] = Field(default_factory=dict)
+
+    @field_validator("percentiles")
+    @classmethod
+    def _normalize_percentile_keys(cls, values: dict[str, float]) -> dict[str, float]:
+        """Treat native decimal keys and integer keys as the same percentile."""
+        normalized: dict[str, float] = {}
+        for key, value in values.items():
+            percentile = float(key)
+            if not math.isfinite(percentile) or not 0 <= percentile <= 100:
+                raise ValueError(f"Invalid percentile key: {key!r}")
+            canonical = str(int(percentile)) if percentile.is_integer() else str(percentile)
+            if canonical in normalized and normalized[canonical] != value:
+                raise ValueError(f"Conflicting values for percentile {canonical}")
+            normalized[canonical] = value
+        return normalized
 
 
 class PointSummary(BaseModel):

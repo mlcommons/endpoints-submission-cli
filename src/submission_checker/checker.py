@@ -60,18 +60,25 @@ _TPS_UTILIZATION_ABS_TOL = 0.1
 
 # §2 — the only benchmark models accepted this submission round. system_desc.model_name
 # must match one of these exactly.
-_ALLOWED_MODEL_NAMES = ("llama3.1-8b", "gpt-oss-120b", "deepseek-r1")
+_ALLOWED_MODEL_NAMES = (
+    "llama3.1-8b",
+    "gpt-oss-120b",
+    "deepseek-r1",
+    "kimi-k3",
+    "qwen3.6-35b-a3b",
+    "deepseek-v4.1-flash",
+)
 
 
 def _results_has_accuracy_scores(path: Path) -> bool:
-    """True if a results.json carries a non-empty ``accuracy_scores`` mapping."""
+    """True if a results.json carries a non-empty accuracy mapping or native list."""
     try:
         data = json.loads(path.read_text())
     except (OSError, ValueError):
         return False
     return (
         isinstance(data, dict)
-        and isinstance(data.get("accuracy_scores"), dict)
+        and isinstance(data.get("accuracy_scores"), (dict, list))
         and bool(data["accuracy_scores"])
     )
 
