@@ -13,6 +13,14 @@ __all__ = ["ModelContext"]
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from ...accuracy_targets import get_thresholds
+from ...agentic_targets import (
+    INLINE_DATASET,
+    OSL_FULL_RUN_FIELD,
+    SWEBENCH_DATASET,
+    SWEBENCH_MEAN_OF_N,
+    AgenticTargets,
+    get_agentic_targets,
+)
 from ..file.accuracy import AccuracyResult
 from ..file.point_config import (
     LOAD_PATTERN_AGENTIC,
@@ -567,6 +575,221 @@ class ModelContext(BaseModel):
                 )
         return self
 
+    def _dataset_score(self, result: AccuracyResult, dataset: str) -> float | None:
+        """One dataset's scalar score from a point's accuracy results, rescaled to 0–100.
+
+        Agentic scorers report a fraction; the README's thresholds are percentages.
+        Only a value that cannot already be a percentage is rescaled, so a scorer that
+        reports 58.9 and one that reports 0.589 both gate correctly.
+        """
+        scores = result.metric_scores().get(dataset)
+        if not scores:
+            return None
+        value = scores.get("score")
+        if value is None:
+            value = next(iter(scores.values()), None)
+        if value is None:
+            return None
+        return value * 100.0 if 0.0 <= value <= 1.0 else value
+
+    @model_validator(mode="after")
+    def _check_agentic_accuracy(self) -> ModelContext:
+        """The agentic accuracy gates (§3.2, §4.3), which do not reduce to §15's.
+
+        Three quantities, aggregated three different ways — see
+        :mod:`submission_checker.agentic_targets` for why they cannot share the
+        single-turn gate. Runs only for an agentic curve whose model the reference
+        implementation names.
+        """
+        if not self.is_agentic:
+            return self
+        targets = get_agentic_targets(self.model_dir.name)
+        if targets is None:
+            self._check_results.append(
+                warn(
+                    "agentic-accuracy",
+                    f"Agentic curve for model '{self.model_dir.name}', which is not one of"
+                    " the agentic benchmarks the reference implementation publishes"
+                    " thresholds for — no agentic accuracy gate applied",
+                    self.model_dir,
+                    "#3.2",
+                )
+            )
+            return self
+        if not targets.published:
+            self._check_results.append(
+                warn(
+                    "agentic-accuracy",
+                    f"{targets.name}: the reference implementation records its accuracy"
+                    " thresholds and SWE-bench evaluation policy as TBD, so no agentic"
+                    " accuracy gate can be applied to this submission",
+                    self.model_dir,
+                    "#3.2",
+                )
+            )
+            return self
+        self._gate_agentic_inline(targets)
+        self._gate_agentic_swebench(targets)
+        self._gate_agentic_osl(targets)
+        return self
+
+    def _gate_agentic_inline(self, targets: AgenticTargets) -> None:
+        """Inline accuracy, per point: "Every … submitted Pareto point must satisfy"."""
+        assert targets.inline_min is not None
+        seen = False
+        for concurrency in sorted(self.accuracy_by_point):
+            score = self._dataset_score(self.accuracy_by_point[concurrency], INLINE_DATASET)
+            if score is None:
+                continue
+            seen = True
+            if score < targets.inline_min:
+                self._check_results.append(
+                    err(
+                        "agentic-accuracy-inline",
+                        f"r{concurrency}: inline accuracy {score:.2f} <"
+                        f" {targets.inline_min} required for {targets.name}",
+                        self.points_dir,
+                        "#4.3",
+                    )
+                )
+            else:
+                self._check_results.append(
+                    ok(
+                        "agentic-accuracy-inline",
+                        f"r{concurrency}: inline accuracy {score:.2f} ≥ {targets.inline_min}",
+                        self.points_dir,
+                        "#4.3",
+                    )
+                )
+        if not seen:
+            self._check_results.append(
+                warn(
+                    "agentic-accuracy-inline",
+                    f"No point reports a `{INLINE_DATASET}` accuracy score; official"
+                    " agentic submissions set `accuracy_config.eval_method:"
+                    " agentic_inference_inline` on the performance dataset",
+                    self.points_dir,
+                    "#4.3",
+                )
+            )
+
+    def _gate_agentic_swebench(self, targets: AgenticTargets) -> None:
+        """SWE-bench, mean-of-N across points — §4.3's multi-turn branch.
+
+        "The arithmetic mean of the N required accuracy results MUST meet the quality
+        threshold; individual results need not." A short set is still gated, on the
+        mean of what is present, and said to be short: the missing results are
+        ``accuracy-coverage``'s report, and staying silent here would let a submission
+        with three strong points pass unremarked.
+        """
+        assert targets.swebench_min is not None
+        scores = [
+            (c, score)
+            for c in sorted(self.accuracy_by_point)
+            if (score := self._dataset_score(self.accuracy_by_point[c], SWEBENCH_DATASET))
+            is not None
+        ]
+        if not scores:
+            self._check_results.append(
+                warn(
+                    "agentic-accuracy-swebench",
+                    f"No point reports a `{SWEBENCH_DATASET}` accuracy score; official"
+                    " agentic submissions must enable SWE-bench accuracy",
+                    self.points_dir,
+                    "#4.3",
+                )
+            )
+            return
+        mean = sum(score for _, score in scores) / len(scores)
+        n = len(scores)
+        basis = f"mean of {n}" + (
+            f" (§4.3 requires {SWEBENCH_MEAN_OF_N})" if n != SWEBENCH_MEAN_OF_N else ""
+        )
+        if mean < targets.swebench_min:
+            self._check_results.append(
+                err(
+                    "agentic-accuracy-swebench",
+                    f"SWE-bench {basis} = {mean:.2f} < {targets.swebench_min} required for"
+                    f" {targets.name}",
+                    self.points_dir,
+                    "#4.3",
+                )
+            )
+        elif n != SWEBENCH_MEAN_OF_N:
+            self._check_results.append(
+                warn(
+                    "agentic-accuracy-swebench",
+                    f"SWE-bench {basis} = {mean:.2f} ≥ {targets.swebench_min}, but §4.3"
+                    f" averages one result from each of the {SWEBENCH_MEAN_OF_N} mandatory"
+                    " regions",
+                    self.points_dir,
+                    "#4.3",
+                )
+            )
+        else:
+            self._check_results.append(
+                ok(
+                    "agentic-accuracy-swebench",
+                    f"SWE-bench {basis} = {mean:.2f} ≥ {targets.swebench_min}",
+                    self.points_dir,
+                    "#4.3",
+                )
+            )
+
+    def _gate_agentic_osl(self, targets: AgenticTargets) -> None:
+        """OSL per-turn mean, per point, against an inclusive range.
+
+        Read from ``output_sequence_lengths_full_run.output_sequence_lengths.avg`` —
+        the full-run, all-turns mean. The windowed ``output_sequence_lengths`` block
+        has the same shape and a different value, so the field is resolved explicitly
+        rather than falling back to it: a silent fallback would gate the wrong number.
+        """
+        assert targets.osl_range is not None
+        low, high = targets.osl_range
+        missing: list[int] = []
+        for config, summary in self.loaded_points:
+            full_run = getattr(summary, OSL_FULL_RUN_FIELD, None)
+            avg = None
+            if isinstance(full_run, dict):
+                inner = full_run.get("output_sequence_lengths")
+                if isinstance(inner, dict):
+                    avg = inner.get("avg")
+            if not isinstance(avg, (int, float)):
+                missing.append(config.concurrency)
+                continue
+            if low <= avg <= high:
+                self._check_results.append(
+                    ok(
+                        "agentic-osl-range",
+                        f"r{config.concurrency}: full-run OSL per-turn mean {avg:.1f} within"
+                        f" {low:g}–{high:g} tokens",
+                        self.points_dir,
+                        "#4.3",
+                    )
+                )
+            else:
+                self._check_results.append(
+                    err(
+                        "agentic-osl-range",
+                        f"r{config.concurrency}: full-run OSL per-turn mean {avg:.1f} outside"
+                        f" {low:g}–{high:g} tokens required for {targets.name}",
+                        self.points_dir,
+                        "#4.3",
+                    )
+                )
+        if missing:
+            listed = ", ".join(f"r{c}" for c in sorted(missing))
+            self._check_results.append(
+                warn(
+                    "agentic-osl-range",
+                    f"No `{OSL_FULL_RUN_FIELD}.output_sequence_lengths.avg` in"
+                    f" result_summary.json for {listed}; the windowed"
+                    " `output_sequence_lengths` is explicitly not the field to gate",
+                    self.points_dir,
+                    "#4.3",
+                )
+            )
+
     @model_validator(mode="after")
     def _check_accuracy(self) -> ModelContext:
         """§15: every accuracy metric must meet its quality threshold.
@@ -587,6 +810,8 @@ class ModelContext(BaseModel):
             if self.accuracy_dir
             else (self.model_dir / "results.json")
         )
+        if self.is_agentic and get_agentic_targets(self.model_dir.name) is not None:
+            return  # gated by _check_agentic_accuracy, which aggregates differently
         target = get_thresholds(self.model_dir.name)
 
         if target is None:

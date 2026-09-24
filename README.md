@@ -202,7 +202,7 @@ submission root (§9.1).
 | `system-description-present` | §8.2 | Every point has a `system_desc.json` |
 | `system-description-valid` | §8.2 | It parses against the `SystemDescription` schema |
 | `system-description-consistency` | §8.5 | Every point of a curve describes the same system |
-| `model-name-valid` | §2 | `model_name` is one of the round's supported models |
+| `model-name-valid` | §3.2 | `model_name` is one of the round's supported models |
 | `model-name-consistency` | §16 | It matches the results directory name |
 | `max-concurrency-declared` | §7 | `max_supported_concurrency` (C_max) present and > 32 |
 | `tps-utilization` | §8.2 | Equals `system_tps / max(system_tps)` over the point's own curve |
@@ -306,6 +306,10 @@ set published after this release.
 | `accuracy-valid` | §15 | `accuracy_results.json` parses correctly |
 | `accuracy-sample-count` | §15 | Issued sample count meets the model's minimum |
 | `accuracy-gate` | §15 | Score meets the benchmark quality target |
+| `agentic-accuracy` | §3.2 | The agentic model is one the reference implementation publishes thresholds for, and they are not TBD |
+| `agentic-accuracy-inline` | §4.3 | Inline accuracy clears the model's floor at **every** point |
+| `agentic-accuracy-swebench` | §4.3 | The **mean** of the N SWE-bench results clears the model's floor; individual results need not |
+| `agentic-osl-range` | §4.3 | Full-run OSL per-turn mean falls inside the model's range |
 
 ### Agentic benchmarks
 
@@ -327,6 +331,25 @@ A curve is one benchmark (§8.5), so every point must agree; `benchmark-type-con
 reports points that do not, and a curve that disagrees is read as single-turn, which
 keeps the Offline requirement in force rather than letting one mislabelled point switch
 it off.
+
+
+Accuracy is gated differently too. §15's gate folds every dataset of a point into one
+sample-weighted score per metric; the agentic benchmarks gate three quantities that do
+not reduce that way, so for a recognised agentic model it stands down in favour of the
+three rules above:
+
+| Quantity | Source | Aggregation |
+|---|---|---|
+| Inline accuracy | `agentic_combined` in the accuracy results | per point — every point must clear |
+| SWE-bench accuracy | `swe_bench` in the accuracy results | **mean-of-4** across the mandatory regions (§4.3's multi-turn branch) |
+| OSL per-turn mean | `output_sequence_lengths_full_run.output_sequence_lengths.avg` in `result_summary.json` | per point, against a range |
+
+The OSL field is resolved explicitly and never falls back to the windowed
+`output_sequence_lengths` block, which has the same shape and a different value.
+
+Thresholds come from the reference implementation's Agentic Inference example, which
+§3.2 makes the authority. DeepSeek-V4.1-flash is a recognised model whose thresholds
+are still TBD there, so it is reported as ungateable rather than passed silently.
 
 ## Programmatic API
 
