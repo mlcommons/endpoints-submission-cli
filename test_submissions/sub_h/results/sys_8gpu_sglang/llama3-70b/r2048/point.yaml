@@ -10,6 +10,7 @@ max_supported_concurrency: 2048
 model_name: llama3-70b
 model_notes: ''
 model_precision: FP16
+offline: elected
 runtime_settings:
   load_pattern: concurrency
   min_duration_ms: 1200000

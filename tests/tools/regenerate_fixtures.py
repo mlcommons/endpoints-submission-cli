@@ -386,6 +386,14 @@ def _write_point_yaml(
     point.setdefault("dataset_type", _dataset_type(desc.get("dataset_type")))
     point.setdefault("dataset_link", desc.get("dataset_link") or "https://example.com/dataset")
 
+    # §5.7.2 Option 2: elect the C_max point as the Offline result. No separate run is
+    # needed, so the §5.3 minimum stays at 7 and the fixtures keep their point counts.
+    # A curve with no point at C_max gets no declaration and fails offline-point-present,
+    # which is the correct report — §5.3 requires an Offline result either way.
+    c_max = desc.get("max_supported_concurrency")
+    if c_max is not None and concurrency == c_max:
+        point.setdefault("offline", "elected")
+
     # §8.1 fixes both locations, so the pointers are the directory names themselves;
     # a fixture missing one fails required-dir / src-dir, which is the right report.
     point["shared_src"] = layout.SRC_DIR

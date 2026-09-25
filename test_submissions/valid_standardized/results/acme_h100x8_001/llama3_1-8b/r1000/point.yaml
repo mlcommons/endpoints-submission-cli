@@ -10,6 +10,7 @@ max_supported_concurrency: 1000
 model_name: llama3.1-8b
 model_notes: ''
 model_precision: FP16
+offline: elected
 runtime_settings:
   load_pattern: concurrency
   min_duration_ms: 1200000

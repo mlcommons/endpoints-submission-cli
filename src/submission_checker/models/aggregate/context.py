@@ -13,8 +13,21 @@ __all__ = ["ModelContext"]
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from ...accuracy_targets import get_thresholds
+from ...agentic_targets import (
+    INLINE_DATASET,
+    OSL_FULL_RUN_FIELD,
+    SWEBENCH_DATASET,
+    SWEBENCH_MEAN_OF_N,
+    AgenticTargets,
+    get_agentic_targets,
+)
 from ..file.accuracy import AccuracyResult
-from ..file.point_config import OFFLINE_DEDICATED, OFFLINE_ELECTED, PointConfig
+from ..file.point_config import (
+    LOAD_PATTERN_AGENTIC,
+    OFFLINE_DEDICATED,
+    OFFLINE_ELECTED,
+    PointConfig,
+)
 from ..file.point_summary import PointSummary
 from ..file.system import SystemDescription
 from ..regions import ULTRA_LOW_CONCURRENCY_MAX, Regions, covered_region
@@ -71,13 +84,64 @@ class ModelContext(BaseModel):
         return [(path, c) for path, c in self.valid_points if c.is_offline]
 
     @property
+    def is_agentic(self) -> bool:
+        """Whether this curve measures an agentic benchmark (§6.1's load pattern).
+
+        The benchmark type governs four §9.1 rows but §8.3 has no field for it, so it
+        is read from ``runtime_settings.load_pattern``: the reference implementation
+        names its fixed-concurrency agentic scheduler ``agentic_inference``, and that
+        name is the only agentic signal in any file this checker reads.
+
+        A curve is one benchmark (§8.5: "one system, one benchmark model, one
+        dataset"), so this requires unanimity. Points that disagree are reported by
+        ``benchmark-type-consistency`` and the curve is treated as non-agentic — the
+        stricter reading, since it keeps the Offline requirement in force rather than
+        letting one mislabelled point switch it off.
+        """
+        patterns = {c.runtime_settings.load_pattern for _, c in self.valid_points}
+        return patterns == {LOAD_PATTERN_AGENTIC}
+
+    @model_validator(mode="after")
+    def _check_benchmark_type_consistency(self) -> ModelContext:
+        """§8.5: one curve is one benchmark, so its points must agree on the type."""
+        if not self.valid_points:
+            return self
+        patterns = sorted({c.runtime_settings.load_pattern for _, c in self.valid_points})
+        if len(patterns) > 1:
+            self._check_results.append(
+                err(
+                    "benchmark-type-consistency",
+                    "Points disagree on `runtime_settings.load_pattern` ("
+                    + ", ".join(repr(lp) for lp in patterns)
+                    + "); §8.5 defines one result as a single benchmark, and §5.3/§5.7"
+                    " apply differently to agentic and single-turn benchmarks",
+                    self.points_dir,
+                    "#6.1, #8.5",
+                )
+            )
+        else:
+            self._check_results.append(
+                ok(
+                    "benchmark-type-consistency",
+                    f"Benchmark type consistent: {patterns[0]!r}"
+                    f" ({'agentic' if self.is_agentic else 'single-turn'})",
+                    self.points_dir,
+                    "#6.1, #8.5",
+                )
+            )
+        return self
+
+    @property
     def min_points(self) -> int:
         """§5.3's minimum for this curve, which depends on how Offline is satisfied.
 
         A dedicated Offline run is an extra point on top of the seven, so the minimum
         is 8. Electing the C_max point adds no run, so it stays at 7 — as does an
-        agentic benchmark, where §5.7 does not apply.
+        agentic benchmark, where §5.7 does not apply and no Offline point may be
+        present at all.
         """
+        if self.is_agentic:
+            return _MIN_POINTS
         declared = {c.offline for _, c in self.offline_points}
         if OFFLINE_DEDICATED in declared:
             return _MIN_POINTS_WITH_DEDICATED_OFFLINE
@@ -116,14 +180,37 @@ class ModelContext(BaseModel):
     def _check_offline_point_present(self) -> ModelContext:
         """§9.1: exactly one point carries an Offline declaration (§5.7).
 
-        Skipped entirely for agentic benchmarks, where §5.7 does not apply and §9.1
-        requires that *none* is present. This checker has no way to tell an agentic
-        curve from a single-turn one yet — §3 does not surface the distinction in any
-        file it reads — so the absent case is reported as a WARNING rather than an
-        error, and says why. Once the benchmark definition is machine-readable this
-        becomes the ERROR §9.1 specifies for non-agentic submissions.
+        The requirement inverts for agentic benchmarks. §5.7: "An agentic submission
+        neither requires nor may include an Offline point", and §9.1 asks for "exactly
+        one … for non-agentic benchmarks; none is present for agentic benchmarks". So
+        an agentic curve is checked for *absence*, and a declaration on one is an
+        error rather than the thing being required.
+
+        Which branch applies comes from :attr:`is_agentic`.
         """
         declared = self.offline_points
+        if self.is_agentic:
+            if declared:
+                listed = ", ".join(f"r{c.concurrency}" for _, c in declared)
+                self._check_results.append(
+                    err(
+                        "offline-point-present",
+                        f"Agentic benchmark declares an Offline point ({listed}); §5.7 says"
+                        " an agentic submission “neither requires nor may include” one",
+                        self.points_dir,
+                        "#5.7",
+                    )
+                )
+            else:
+                self._check_results.append(
+                    ok(
+                        "offline-point-present",
+                        "Agentic benchmark: no Offline point, as §5.7 requires",
+                        self.points_dir,
+                        "#5.7",
+                    )
+                )
+            return self
         if len(declared) > 1:
             listed = ", ".join(f"r{c.concurrency}" for _, c in declared)
             self._check_results.append(
@@ -137,11 +224,12 @@ class ModelContext(BaseModel):
             return self
         if not declared:
             self._check_results.append(
-                warn(
+                err(
                     "offline-point-present",
-                    "No point declares `offline`. §5.3 requires one for every non-agentic"
-                    " submission; agentic benchmarks must not have one, and the benchmark"
-                    " type is not yet machine-readable here",
+                    "No point declares `offline`; §5.3 requires one for every non-agentic"
+                    " submission. An agentic submission declares"
+                    f" `runtime_settings.load_pattern: {LOAD_PATTERN_AGENTIC}`, which this"
+                    " curve does not",
                     self.points_dir,
                     "#5.7",
                 )
@@ -416,6 +504,11 @@ class ModelContext(BaseModel):
 
         Reported per band rather than as a bare count, because "5 accuracy runs" all
         clustered in one region satisfies a count and not the requirement.
+
+        The four mandatory bands are checked the same way either way; N differs only
+        because the Offline row below iterates ``offline_points``, which an agentic
+        curve has none of. The pass message names the applicable N so a reviewer can
+        see which reading was applied.
         """
         if self.regions is None or not self.valid_points:
             return self
@@ -452,8 +545,9 @@ class ModelContext(BaseModel):
             self._check_results.append(
                 ok(
                     "accuracy-coverage",
-                    f"Accuracy present in all four mandatory bands ({len(self.accuracy_by_point)}"
-                    " point(s) carry results)",
+                    "Accuracy present in all four mandatory bands"
+                    f" ({len(self.accuracy_by_point)} point(s) carry results;"
+                    f" §5.3 N={4 if self.is_agentic else 5})",
                     self.points_dir,
                     "#5.3",
                 )
@@ -481,6 +575,221 @@ class ModelContext(BaseModel):
                 )
         return self
 
+    def _dataset_score(self, result: AccuracyResult, dataset: str) -> float | None:
+        """One dataset's scalar score from a point's accuracy results, rescaled to 0–100.
+
+        Agentic scorers report a fraction; the README's thresholds are percentages.
+        Only a value that cannot already be a percentage is rescaled, so a scorer that
+        reports 58.9 and one that reports 0.589 both gate correctly.
+        """
+        scores = result.metric_scores().get(dataset)
+        if not scores:
+            return None
+        value = scores.get("score")
+        if value is None:
+            value = next(iter(scores.values()), None)
+        if value is None:
+            return None
+        return value * 100.0 if 0.0 <= value <= 1.0 else value
+
+    @model_validator(mode="after")
+    def _check_agentic_accuracy(self) -> ModelContext:
+        """The agentic accuracy gates (§3.2, §4.3), which do not reduce to §15's.
+
+        Three quantities, aggregated three different ways — see
+        :mod:`submission_checker.agentic_targets` for why they cannot share the
+        single-turn gate. Runs only for an agentic curve whose model the reference
+        implementation names.
+        """
+        if not self.is_agentic:
+            return self
+        targets = get_agentic_targets(self.model_dir.name)
+        if targets is None:
+            self._check_results.append(
+                warn(
+                    "agentic-accuracy",
+                    f"Agentic curve for model '{self.model_dir.name}', which is not one of"
+                    " the agentic benchmarks the reference implementation publishes"
+                    " thresholds for — no agentic accuracy gate applied",
+                    self.model_dir,
+                    "#3.2",
+                )
+            )
+            return self
+        if not targets.published:
+            self._check_results.append(
+                warn(
+                    "agentic-accuracy",
+                    f"{targets.name}: the reference implementation records its accuracy"
+                    " thresholds and SWE-bench evaluation policy as TBD, so no agentic"
+                    " accuracy gate can be applied to this submission",
+                    self.model_dir,
+                    "#3.2",
+                )
+            )
+            return self
+        self._gate_agentic_inline(targets)
+        self._gate_agentic_swebench(targets)
+        self._gate_agentic_osl(targets)
+        return self
+
+    def _gate_agentic_inline(self, targets: AgenticTargets) -> None:
+        """Inline accuracy, per point: "Every … submitted Pareto point must satisfy"."""
+        assert targets.inline_min is not None
+        seen = False
+        for concurrency in sorted(self.accuracy_by_point):
+            score = self._dataset_score(self.accuracy_by_point[concurrency], INLINE_DATASET)
+            if score is None:
+                continue
+            seen = True
+            if score < targets.inline_min:
+                self._check_results.append(
+                    err(
+                        "agentic-accuracy-inline",
+                        f"r{concurrency}: inline accuracy {score:.2f} <"
+                        f" {targets.inline_min} required for {targets.name}",
+                        self.points_dir,
+                        "#4.3",
+                    )
+                )
+            else:
+                self._check_results.append(
+                    ok(
+                        "agentic-accuracy-inline",
+                        f"r{concurrency}: inline accuracy {score:.2f} ≥ {targets.inline_min}",
+                        self.points_dir,
+                        "#4.3",
+                    )
+                )
+        if not seen:
+            self._check_results.append(
+                warn(
+                    "agentic-accuracy-inline",
+                    f"No point reports a `{INLINE_DATASET}` accuracy score; official"
+                    " agentic submissions set `accuracy_config.eval_method:"
+                    " agentic_inference_inline` on the performance dataset",
+                    self.points_dir,
+                    "#4.3",
+                )
+            )
+
+    def _gate_agentic_swebench(self, targets: AgenticTargets) -> None:
+        """SWE-bench, mean-of-N across points — §4.3's multi-turn branch.
+
+        "The arithmetic mean of the N required accuracy results MUST meet the quality
+        threshold; individual results need not." A short set is still gated, on the
+        mean of what is present, and said to be short: the missing results are
+        ``accuracy-coverage``'s report, and staying silent here would let a submission
+        with three strong points pass unremarked.
+        """
+        assert targets.swebench_min is not None
+        scores = [
+            (c, score)
+            for c in sorted(self.accuracy_by_point)
+            if (score := self._dataset_score(self.accuracy_by_point[c], SWEBENCH_DATASET))
+            is not None
+        ]
+        if not scores:
+            self._check_results.append(
+                warn(
+                    "agentic-accuracy-swebench",
+                    f"No point reports a `{SWEBENCH_DATASET}` accuracy score; official"
+                    " agentic submissions must enable SWE-bench accuracy",
+                    self.points_dir,
+                    "#4.3",
+                )
+            )
+            return
+        mean = sum(score for _, score in scores) / len(scores)
+        n = len(scores)
+        basis = f"mean of {n}" + (
+            f" (§4.3 requires {SWEBENCH_MEAN_OF_N})" if n != SWEBENCH_MEAN_OF_N else ""
+        )
+        if mean < targets.swebench_min:
+            self._check_results.append(
+                err(
+                    "agentic-accuracy-swebench",
+                    f"SWE-bench {basis} = {mean:.2f} < {targets.swebench_min} required for"
+                    f" {targets.name}",
+                    self.points_dir,
+                    "#4.3",
+                )
+            )
+        elif n != SWEBENCH_MEAN_OF_N:
+            self._check_results.append(
+                warn(
+                    "agentic-accuracy-swebench",
+                    f"SWE-bench {basis} = {mean:.2f} ≥ {targets.swebench_min}, but §4.3"
+                    f" averages one result from each of the {SWEBENCH_MEAN_OF_N} mandatory"
+                    " regions",
+                    self.points_dir,
+                    "#4.3",
+                )
+            )
+        else:
+            self._check_results.append(
+                ok(
+                    "agentic-accuracy-swebench",
+                    f"SWE-bench {basis} = {mean:.2f} ≥ {targets.swebench_min}",
+                    self.points_dir,
+                    "#4.3",
+                )
+            )
+
+    def _gate_agentic_osl(self, targets: AgenticTargets) -> None:
+        """OSL per-turn mean, per point, against an inclusive range.
+
+        Read from ``output_sequence_lengths_full_run.output_sequence_lengths.avg`` —
+        the full-run, all-turns mean. The windowed ``output_sequence_lengths`` block
+        has the same shape and a different value, so the field is resolved explicitly
+        rather than falling back to it: a silent fallback would gate the wrong number.
+        """
+        assert targets.osl_range is not None
+        low, high = targets.osl_range
+        missing: list[int] = []
+        for config, summary in self.loaded_points:
+            full_run = getattr(summary, OSL_FULL_RUN_FIELD, None)
+            avg = None
+            if isinstance(full_run, dict):
+                inner = full_run.get("output_sequence_lengths")
+                if isinstance(inner, dict):
+                    avg = inner.get("avg")
+            if not isinstance(avg, (int, float)):
+                missing.append(config.concurrency)
+                continue
+            if low <= avg <= high:
+                self._check_results.append(
+                    ok(
+                        "agentic-osl-range",
+                        f"r{config.concurrency}: full-run OSL per-turn mean {avg:.1f} within"
+                        f" {low:g}–{high:g} tokens",
+                        self.points_dir,
+                        "#4.3",
+                    )
+                )
+            else:
+                self._check_results.append(
+                    err(
+                        "agentic-osl-range",
+                        f"r{config.concurrency}: full-run OSL per-turn mean {avg:.1f} outside"
+                        f" {low:g}–{high:g} tokens required for {targets.name}",
+                        self.points_dir,
+                        "#4.3",
+                    )
+                )
+        if missing:
+            listed = ", ".join(f"r{c}" for c in sorted(missing))
+            self._check_results.append(
+                warn(
+                    "agentic-osl-range",
+                    f"No `{OSL_FULL_RUN_FIELD}.output_sequence_lengths.avg` in"
+                    f" result_summary.json for {listed}; the windowed"
+                    " `output_sequence_lengths` is explicitly not the field to gate",
+                    self.points_dir,
+                    "#4.3",
+                )
+            )
+
     @model_validator(mode="after")
     def _check_accuracy(self) -> ModelContext:
         """§15: every accuracy metric must meet its quality threshold.
@@ -501,6 +810,8 @@ class ModelContext(BaseModel):
             if self.accuracy_dir
             else (self.model_dir / "results.json")
         )
+        if self.is_agentic and get_agentic_targets(self.model_dir.name) is not None:
+            return  # gated by _check_agentic_accuracy, which aggregates differently
         target = get_thresholds(self.model_dir.name)
 
         if target is None:

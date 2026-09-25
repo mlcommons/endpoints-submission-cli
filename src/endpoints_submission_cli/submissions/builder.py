@@ -31,6 +31,7 @@ import re
 import tarfile
 import tempfile
 import warnings
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +67,8 @@ def build_submission_folder(
     availability: str,
     work_dir: Path,
     submission_id: str | None = None,
+    shared_src_dirs: Sequence[Path] = (),
+    shared_docs_dirs: Sequence[Path] = (),
 ) -> Path:
     """Assemble a submission directory from a list of run archives.
 
@@ -78,6 +81,10 @@ def build_submission_folder(
             beneath the organization. Defaults to :data:`PENDING_SUBMISSION_ID`
             for callers that only learn the id after the bundle is built; use
             :func:`set_submission_id` to rename it afterwards.
+        shared_src_dirs: Local directories whose *contents* are added to the shared
+            ``src/`` tree, so each holds one or more ``<implementation>/`` folders.
+        shared_docs_dirs: Local directories whose *contents* are added to the shared
+            ``docs/`` tree.
 
     Returns:
         Path to the assembled org-level submission directory (the parent of the
@@ -140,8 +147,8 @@ def build_submission_folder(
     # The shared trees are written first: a point's shared_src / shared_docs must
     # resolve to a directory that exists (§9.1), and _write_point_dirs validates or
     # fills in those pointers as it copies each disclosure.
-    _write_src(submission_dir, run_data)
-    _write_documentation(submission_dir, run_data)
+    _write_src(submission_dir, run_data, shared_src_dirs)
+    _write_documentation(submission_dir, run_data, shared_docs_dirs)
     shared_src = _sole_implementation_path(submission_dir)
 
     # tps_utilization normalises each point against the peak of its own Pareto curve —
@@ -753,8 +760,17 @@ def _write_accuracy_results(point_dir: Path, accuracy_run: dict[str, Any]) -> No
     (point_dir / "accuracy_results.json").write_bytes(truncate_responses(content))
 
 
-def _write_documentation(submission_dir: Path, run_data: list[dict[str, Any]]) -> None:
-    """Merge documentation files from all runs into submission_dir/docs/."""
+def _write_documentation(
+    submission_dir: Path,
+    run_data: list[dict[str, Any]],
+    extra_dirs: Sequence[Path] = (),
+) -> None:
+    """Merge documentation files from all runs into submission_dir/docs/.
+
+    *extra_dirs* are local directories supplied by the caller (``--shared-docs``),
+    merged in after the runs: their contents land in ``docs/``, not under the
+    directory's own name.
+    """
     doc_dir = submission_dir / "docs"
     doc_dir.mkdir(exist_ok=True)
     for run in run_data:
@@ -764,9 +780,43 @@ def _write_documentation(submission_dir: Path, run_data: list[dict[str, Any]]) -
             dest = doc_dir / Path(rel).relative_to("documentation")
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(content)
+    for extra in extra_dirs:
+        _merge_tree(extra, doc_dir, "--shared-docs")
 
 
-def _write_src(submission_dir: Path, run_data: list[dict[str, Any]]) -> None:
+def _merge_tree(source: Path, dest_root: Path, flag: str) -> None:
+    """Copy every file under *source* into *dest_root*, refusing to clobber.
+
+    A run archive and a caller-supplied directory can both carry the same path. Taking
+    either side silently would put a file in the bundle that its source does not
+    contain, so a collision is a build failure unless the bytes already agree.
+
+    Raises:
+        SubmissionBuildError: If *source* is not a directory, or if a file already
+            written by a run differs from the one *source* supplies.
+    """
+    if not source.is_dir():
+        raise SubmissionBuildError(f"{flag} path is not a directory: {source}")
+    for path in sorted(source.rglob("*")):
+        if not path.is_file():
+            continue
+        content = path.read_bytes()
+        dest = dest_root / path.relative_to(source)
+        if dest.exists() and dest.read_bytes() != content:
+            raise SubmissionBuildError(
+                f"{flag} would overwrite {dest.relative_to(dest_root.parent)} with different"
+                f" content from {path}. A run archive already supplies that file; remove it"
+                " from one side or make them identical."
+            )
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(content)
+
+
+def _write_src(
+    submission_dir: Path,
+    run_data: list[dict[str, Any]],
+    extra_dirs: Sequence[Path] = (),
+) -> None:
     """Populate the shared ``src/`` tree from the runs' ``src/`` folders.
 
     ``src/`` is shared across the whole submission and holds one directory per
@@ -790,6 +840,13 @@ def _write_src(submission_dir: Path, run_data: list[dict[str, Any]]) -> None:
             dest = src_dir / Path(rel).relative_to("src")
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(content)
+
+    # Merged into src/ rather than nested under the directory's own name, so a
+    # --shared-src path is a tree *of* implementations — whatever shape it has is the
+    # shape the bundle gets. _validate_src still holds every resulting
+    # `src/<implementation>/` to §2.2.1's README requirement.
+    for extra in extra_dirs:
+        _merge_tree(extra, src_dir, "--shared-src")
 
     _validate_src(src_dir)
 

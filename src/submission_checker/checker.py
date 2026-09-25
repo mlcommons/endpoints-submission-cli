@@ -58,9 +58,24 @@ _TPS_TOLERANCE = 0.01
 _TPS_UTILIZATION_ABS_TOL = 0.1
 
 
-# §2 — the only benchmark models accepted this submission round. system_desc.model_name
-# must match one of these exactly.
-_ALLOWED_MODEL_NAMES = ("llama3.1-8b", "gpt-oss-120b", "deepseek-r1")
+# §3.2 — the benchmark models accepted this submission round. system_desc.model_name
+# must match one of these exactly. The agentic three come from the reference
+# implementation's Agentic Inference example, which §3.2 makes the authority:
+# "The set of supported benchmark models is defined per submission round and
+# maintained in the MLPerf Endpoints reference repository."
+#
+# That sentence also says this list does not belong in a release: §3.2 publishes it
+# "at least 6 weeks before the submission round opens", so a new round should not need
+# a new checker. `data/seed_sets.yaml` and `data/approved_drafters.yaml` are the
+# pattern to follow when that is worth doing.
+_ALLOWED_MODEL_NAMES = (
+    "llama3.1-8b",
+    "gpt-oss-120b",
+    "deepseek-r1",
+    "kimi-k3",
+    "qwen3.6-35b-a3b",
+    "deepseek-v4.1-flash",
+)
 
 
 def _results_has_accuracy_scores(path: Path) -> bool:

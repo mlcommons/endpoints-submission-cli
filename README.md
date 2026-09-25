@@ -71,7 +71,7 @@ endpoints-submission-cli runs create --path /results/llama3_h100_c4
 # → Run created: d5d9873e-5eca-4f8d-a487-4be1cb8b440c
 RUN_ID=d5d9873e-5eca-4f8d-a487-4be1cb8b440c
 
-# 3. Create a submission (assembles, checks, uploads, opens PR)
+# 3. Create a submission (assembles, checks, uploads, hands to review)
 endpoints-submission-cli submissions create \
   --division standardized \
   --availability available \
@@ -82,6 +82,45 @@ SUB_ID=a1b2c3d4-e5f6-7890-abcd-ef1234567890
 # 4. Withdraw if needed
 endpoints-submission-cli submissions withdraw --submission-id $SUB_ID
 ```
+
+### Adding shared `src/` and `docs/` content
+
+`src/` and `docs/` are shared across a whole submission (§8.1), and are normally
+assembled from each run folder's own `src/` and `documentation/`. Where the content
+lives outside the runs, pass it on the command line:
+
+```bash
+endpoints-submission-cli submissions create \
+  --division standardized --availability available --run-ids $RUN_ID \
+  --shared-src ./implementations \
+  --shared-docs ./disclosures
+```
+
+Both flags merge **contents**, so whatever shape the directory has is the shape the
+bundle gets:
+
+```
+./implementations/        →   src/
+├── trtllm/                   ├── trtllm/
+│   └── README.md             │   └── README.md
+└── vllm/                     └── vllm/
+    └── README.md                 └── README.md
+```
+
+Both are repeatable, and both are **additive**: whatever the run archives supply is
+still written, and the flags add to it. A file supplied by both a run and a flag is a
+build error unless the bytes are identical — silently taking either side would put a
+file in the bundle that neither source contains.
+
+Everything else is unchanged, which is worth knowing for two cases:
+
+- Every resulting `src/<implementation>/` must contain a `README.md` (§2.2.1),
+  including the ones a flag added.
+- Adding a second implementation makes `shared_src` ambiguous, so each `point.yaml`
+  must then declare which one produced it. The builder will not guess.
+
+`submissions create-local` has no equivalent flags: it takes an already-assembled tree,
+so `src/` and `docs/` are already in it.
 
 ## Command reference
 
@@ -202,7 +241,7 @@ submission root (§9.1).
 | `system-description-present` | §8.2 | Every point has a `system_desc.json` |
 | `system-description-valid` | §8.2 | It parses against the `SystemDescription` schema |
 | `system-description-consistency` | §8.5 | Every point of a curve describes the same system |
-| `model-name-valid` | §2 | `model_name` is one of the round's supported models |
+| `model-name-valid` | §3.2 | `model_name` is one of the round's supported models |
 | `model-name-consistency` | §16 | It matches the results directory name |
 | `max-concurrency-declared` | §7 | `max_supported_concurrency` (C_max) present and > 32 |
 | `tps-utilization` | §8.2 | Equals `system_tps / max(system_tps)` over the point's own curve |
@@ -223,13 +262,14 @@ not satisfy High Concurrency coverage.
 | `region-declared` | §8.3 | Declared `region` is one of the spec's values |
 | `region-placement` | §8.3 | Declared region matches the computed one (warn) |
 | `offline-declared` | §5.7 | `offline` is `dedicated`, `elected`, or `none` |
-| `offline-point-present` | §5.7 | Exactly one Offline point; `elected` sits on the C_max point |
+| `offline-point-present` | §5.7 | Exactly one Offline point, `elected` sitting on the C_max point — or **none at all** for an agentic benchmark, which §5.7 says "neither requires nor may include" one |
 | `offline-ordering` | §5.7.2 | Offline beats C_max on throughput (2% tolerance) and concurrency (warn) |
 | `ultra-low-concurrency-coverage` | §5.4 | At least one point at concurrency ≤ 32 |
 | `low-concurrency-coverage` | §9.1 | At least one point in the Low Concurrency region |
 | `med-concurrency-coverage` | §9.1 | At least one point in the Medium Concurrency region |
 | `high-concurrency-coverage` | §9.1 | At least one point in the High Concurrency region |
-| `point-count` | §5.3 | 7–32 measurement points; 8 with a dedicated Offline run |
+| `point-count` | §5.3 | 7–32 measurement points; 8 with a dedicated Offline run; 7 for an agentic benchmark |
+| `benchmark-type-consistency` | §6.1, §8.5 | Every point on a curve declares the same `load_pattern`, since one curve is one benchmark |
 | `point-cap` | §2, §8 | Point count does not exceed 32 |
 
 ### Measurement points (§8.3, §6)
@@ -238,7 +278,7 @@ not satisfy High Concurrency coverage.
 |------|------|-------------|
 | `point-config-valid` | §8.3 | `point.yaml` parses against the `PointConfig` schema |
 | `point-disclosure-complete` | §8.3 | Every required §8.3 disclosure field is present |
-| `load-pattern` | §6.1 | `load_pattern` is `concurrency` with a positive level |
+| `load-pattern` | §6.1 | `load_pattern` is `concurrency` or `agentic_inference`, with a positive level |
 | `streaming-config` | §6.5 | `stream_all_chunks` is `True` |
 | `point-duration` | §6.2 | Steady-state window's issue-time span meets the region minimum (warn) |
 | `steady-state-valid` | §4.4 | `status`, `verdict` and gating `state` use the spec's vocabulary |
@@ -301,10 +341,54 @@ set published after this release.
 | Rule | Spec | Description |
 |------|------|-------------|
 | `accuracy-present` | §15 | At least one model in the submission carries accuracy results |
-| `accuracy-coverage` | §5.3 | Accuracy at each of the four mandatory bands, plus the Offline point |
+| `accuracy-coverage` | §5.3 | Accuracy at each of the four mandatory bands, plus the Offline point (N=5; N=4 for an agentic benchmark, which has none) |
 | `accuracy-valid` | §15 | `accuracy_results.json` parses correctly |
 | `accuracy-sample-count` | §15 | Issued sample count meets the model's minimum |
 | `accuracy-gate` | §15 | Score meets the benchmark quality target |
+| `agentic-accuracy` | §3.2 | The agentic model is one the reference implementation publishes thresholds for, and they are not TBD |
+| `agentic-accuracy-inline` | §4.3 | Inline accuracy clears the model's floor at **every** point |
+| `agentic-accuracy-swebench` | §4.3 | The **mean** of the N SWE-bench results clears the model's floor; individual results need not |
+| `agentic-osl-range` | §4.3 | Full-run OSL per-turn mean falls inside the model's range |
+
+### Agentic benchmarks
+
+§5.3, §5.7 and §9.1 apply differently to agentic benchmarks: the point minimum is 7
+rather than 8, accuracy is required at 4 points rather than 5, and an agentic
+submission "neither requires nor may include" an Offline point (§5.7).
+
+§8.3 has no field naming the benchmark type. The checker reads it from §6.1's load
+pattern instead — the reference implementation names its fixed-concurrency agentic
+scheduler `agentic_inference`, and that is the only agentic signal in any file a
+submission carries:
+
+```yaml
+runtime_settings:
+  load_pattern: agentic_inference
+```
+
+A curve is one benchmark (§8.5), so every point must agree; `benchmark-type-consistency`
+reports points that do not, and a curve that disagrees is read as single-turn, which
+keeps the Offline requirement in force rather than letting one mislabelled point switch
+it off.
+
+
+Accuracy is gated differently too. §15's gate folds every dataset of a point into one
+sample-weighted score per metric; the agentic benchmarks gate three quantities that do
+not reduce that way, so for a recognised agentic model it stands down in favour of the
+three rules above:
+
+| Quantity | Source | Aggregation |
+|---|---|---|
+| Inline accuracy | `agentic_combined` in the accuracy results | per point — every point must clear |
+| SWE-bench accuracy | `swe_bench` in the accuracy results | **mean-of-4** across the mandatory regions (§4.3's multi-turn branch) |
+| OSL per-turn mean | `output_sequence_lengths_full_run.output_sequence_lengths.avg` in `result_summary.json` | per point, against a range |
+
+The OSL field is resolved explicitly and never falls back to the windowed
+`output_sequence_lengths` block, which has the same shape and a different value.
+
+Thresholds come from the reference implementation's Agentic Inference example, which
+§3.2 makes the authority. DeepSeek-V4.1-flash is a recognised model whose thresholds
+are still TBD there, so it is reported as ungateable rather than passed silently.
 
 ## Programmatic API
 
