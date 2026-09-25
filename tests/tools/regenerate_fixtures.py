@@ -215,24 +215,25 @@ def _write_system_power(system_dir: Path, desc: dict[str, Any], *, dry_run: bool
     accel = accelerators[0] if isinstance(accelerators[0], dict) else {}
     node_count = int(desc.get("system_node_ensemble_total") or 1)
 
+    # §4.5.2's own field names, so the corpus exercises what a submitter writes.
+    # No overhead_fraction: §4.5.2 derives it from the cooling method, which §8.2's
+    # system description already declares, and the checker reads it from there.
     power = {
         "cpu": {
-            "count": int(node.get("host_processors_per_node") or 2) * node_count,
-            "tdp_per_unit": 350,
-            "link": "https://example.com/cpu-spec",
+            "num_cpu": int(node.get("host_processors_per_node") or 2) * node_count,
+            "tdp_per_cpu": 350,
+            "public_specification": "https://example.com/cpu-spec",
         },
         "accelerator": {
-            "count": int(accel.get("accelerators_per_node") or 8) * node_count,
-            "tdp_per_unit": 700,
-            "link": "https://example.com/accelerator-spec",
+            "num_accelerator": int(accel.get("accelerators_per_node") or 8) * node_count,
+            "tdp_per_accelerator": 700,
+            "public_specification": "https://example.com/accelerator-spec",
         },
         "scale_up_network": {
-            "count": node_count,
-            "tdp_per_unit": 3500,
-            "link": "https://example.com/switch-spec",
+            "num_switches": node_count,
+            "tdp_per_switch": 3500,
+            "public_specification": "https://example.com/switch-spec",
         },
-        # §4.5.2: 0.30 liquid-cooled, 0.50 air-cooled.
-        "overhead_fraction": 0.30 if "liquid" in str(node.get("cooling", "")).lower() else 0.50,
     }
     return _write_json(path, power, dry_run=dry_run)
 

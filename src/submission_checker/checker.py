@@ -37,6 +37,7 @@ from .models import (
 from .models import err as _err
 from .models import ok as _ok
 from .models import warn as _warn
+from .models.file.system_power import overhead_for_cooling
 from .models.loader import (
     load_accuracy_result,
     load_accuracy_scores,
@@ -382,6 +383,45 @@ class SubmissionChecker:
 
         return results
 
+    def _declared_cooling(self, system_dir: Path) -> str | None:
+        """§8.2's ``cooling`` for this system, read from any one of its points.
+
+        The system description is per point since policies PR #119, but §8.2 describes
+        one system, and ``system-description-consistency`` already reports points of a
+        curve that disagree. So the first readable one answers the question.
+
+        §8.2's table lists ``cooling`` as a system field while §8.2.1's template nests
+        it under ``node_types`` — the same table/template disjointness §8.2 has
+        elsewhere — so both placements are read.
+
+        A system whose node types are cooled differently resolves to the *air-cooled*
+        fraction. §4.5.2 says estimation "is done conservatively" and air is the larger
+        overhead, so the mixed case takes the bigger denominator rather than the one
+        that flatters the result.
+        """
+        for desc_path in sorted(system_dir.glob(f"*/r*/{layout.SYSTEM_DESC_JSON}")):
+            try:
+                data = json.loads(desc_path.read_text())
+            except (OSError, ValueError):
+                continue
+            if not isinstance(data, dict):
+                continue
+            declared: list[str] = []
+            top = data.get("cooling")
+            if isinstance(top, str) and top.strip():
+                declared.append(top)
+            for node in data.get("node_types") or []:
+                value = node.get("cooling") if isinstance(node, dict) else None
+                if isinstance(value, str) and value.strip():
+                    declared.append(value)
+            fractions = {overhead_for_cooling(value) for value in declared}
+            fractions.discard(None)
+            if len(fractions) > 1:
+                return "air-cooled (mixed node cooling; §4.5.2 estimates conservatively)"
+            if declared:
+                return declared[0]
+        return None
+
     def _load_system_power(self, system_dir: Path) -> tuple[SystemPower | None, list[CheckResult]]:
         """§9.1 "Power descriptor": every system must ship a `system_power.json`.
 
@@ -409,13 +449,23 @@ class SubmissionChecker:
         if power is None:
             return None, results
 
+        # §4.5.2 fixes the overhead fraction by cooling method, and §8.2 already
+        # carries `cooling` — so a submitter should not have to restate it here.
+        # A value declared in system_power.json wins; this only fills a gap.
+        if power.cooling is None and power.overhead_fraction is None:
+            cooling = self._declared_cooling(system_dir)
+            if cooling is not None:
+                power = power.model_copy(update={"cooling": cooling})
+
         kw = power.provisioned_power_kw
         if kw is None:
             results.append(
                 _err(
                     "power-descriptor",
-                    f"{layout.SYSTEM_POWER_JSON} states no provisioned power and no component"
-                    " group it could be derived from (§4.5.2)",
+                    f"{layout.SYSTEM_POWER_JSON} states no provisioned power §4.5.2 could be"
+                    f" derived from: {', '.join(power.missing_groups) or 'no component groups'}."
+                    " Declare provisioned_power_w, the §4.5.2.1 rack-scaling values, or the"
+                    " component groups plus a cooling method",
                     path,
                     "#4.5.2",
                 )
