@@ -206,8 +206,40 @@ submission root (§9.1).
 | `model-name-consistency` | §16 | It matches the results directory name |
 | `max-concurrency-declared` | §7 | `max_supported_concurrency` (C_max) present and > 32 |
 | `tps-utilization` | §8.2 | Equals `system_tps / max(system_tps)` over the point's own curve |
-| `power-descriptor` | §4.5.2 | `system_power.json` present per system and states a derivable power |
+| `power-descriptor` | §4.5.2 | `system_power.json` present per system and states a power §4.5.2 can derive |
 | `power-estimated` | §4.5.2 | Flags component groups left for MLCommons to auto-populate (warn) |
+
+§4.5.2's power model:
+
+```
+System Power     = Major_components + Other_components
+Major_components = CPU_power + Accelerator_power + Network_scale_up_power
+Other_components = overhead_fraction × Major_components
+overhead_fraction = 0.30 liquid-cooled, 0.50 air-cooled
+```
+
+`system_power.json` is read with §4.5.2's own field names — `num_cpu`, `tdp_per_cpu`,
+`num_accelerator`, `tdp_per_accelerator`, `num_switches`, `tdp_per_switch`,
+`public_specification` — and with the generic `count` / `tdp_per_unit` / `link`
+spellings, since §4.5.2 publishes names but no JSON schema.
+
+Three details are easy to get wrong:
+
+- **Scale-out network is not a major component.** §4.5.2 defines `Other_components` as
+  "scale-out networking, storage, power-supply overhead, and cooling", so a declared
+  scale-out group is already inside the overhead fraction. It is read and reported but
+  never summed into the total, which would count it twice.
+- **`overhead_fraction` comes from the cooling method**, not from the submitter. §8.2's
+  system description already declares `cooling`, so the checker reads it from there
+  (system level or `node_types[]`), and a system with mixed node cooling takes the
+  air-cooled fraction — §4.5.2 estimates conservatively. Where no cooling method can be
+  established and none is declared, that is an **error**, not an assumed zero: dropping
+  `Other_components` shrinks the denominator by 23–33 % and inflates `system_tps_per_kw`.
+- **Three paths give the total**, in §4.5.2's own order of precedence: a declared
+  `provisioned_power_w`, then §4.5.2.1 rack-level node scaling
+  (`rack_power_w × submitted_nodes / rack_nodes`), then the component formula. A
+  combined `compute` group stands in for CPU + accelerator where a vendor publishes
+  them as one figure.
 
 ### Regions (§5)
 

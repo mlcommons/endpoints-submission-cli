@@ -1,18 +1,17 @@
 {
   "cpu": {
-    "count": 1,
-    "tdp_per_unit": 350,
-    "link": "https://example.com/cpu-spec"
+    "num_cpu": 1,
+    "tdp_per_cpu": 350,
+    "public_specification": "https://example.com/cpu-spec"
   },
   "accelerator": {
-    "count": 8,
-    "tdp_per_unit": 700,
-    "link": "https://example.com/accelerator-spec"
+    "num_accelerator": 8,
+    "tdp_per_accelerator": 700,
+    "public_specification": "https://example.com/accelerator-spec"
   },
   "scale_up_network": {
-    "count": 1,
-    "tdp_per_unit": 3500,
-    "link": "https://example.com/switch-spec"
-  },
-  "overhead_fraction": 0.5
+    "num_switches": 1,
+    "tdp_per_switch": 3500,
+    "public_specification": "https://example.com/switch-spec"
+  }
 }
