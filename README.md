@@ -71,7 +71,7 @@ endpoints-submission-cli runs create --path /results/llama3_h100_c4
 # → Run created: d5d9873e-5eca-4f8d-a487-4be1cb8b440c
 RUN_ID=d5d9873e-5eca-4f8d-a487-4be1cb8b440c
 
-# 3. Create a submission (assembles, checks, uploads, opens PR)
+# 3. Create a submission (assembles, checks, uploads, hands to review)
 endpoints-submission-cli submissions create \
   --division standardized \
   --availability available \
@@ -82,6 +82,45 @@ SUB_ID=a1b2c3d4-e5f6-7890-abcd-ef1234567890
 # 4. Withdraw if needed
 endpoints-submission-cli submissions withdraw --submission-id $SUB_ID
 ```
+
+### Adding shared `src/` and `docs/` content
+
+`src/` and `docs/` are shared across a whole submission (§8.1), and are normally
+assembled from each run folder's own `src/` and `documentation/`. Where the content
+lives outside the runs, pass it on the command line:
+
+```bash
+endpoints-submission-cli submissions create \
+  --division standardized --availability available --run-ids $RUN_ID \
+  --shared-src ./implementations \
+  --shared-docs ./disclosures
+```
+
+Both flags merge **contents**, so whatever shape the directory has is the shape the
+bundle gets:
+
+```
+./implementations/        →   src/
+├── trtllm/                   ├── trtllm/
+│   └── README.md             │   └── README.md
+└── vllm/                     └── vllm/
+    └── README.md                 └── README.md
+```
+
+Both are repeatable, and both are **additive**: whatever the run archives supply is
+still written, and the flags add to it. A file supplied by both a run and a flag is a
+build error unless the bytes are identical — silently taking either side would put a
+file in the bundle that neither source contains.
+
+Everything else is unchanged, which is worth knowing for two cases:
+
+- Every resulting `src/<implementation>/` must contain a `README.md` (§2.2.1),
+  including the ones a flag added.
+- Adding a second implementation makes `shared_src` ambiguous, so each `point.yaml`
+  must then declare which one produced it. The builder will not guess.
+
+`submissions create-local` has no equivalent flags: it takes an already-assembled tree,
+so `src/` and `docs/` are already in it.
 
 ## Command reference
 

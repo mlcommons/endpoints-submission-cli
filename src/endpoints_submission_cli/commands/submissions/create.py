@@ -62,6 +62,27 @@ __all__ = ["submissions_create"]
     help="Run UUID(s) to include. Repeatable.",
 )
 @click.option(
+    "--shared-src",
+    "shared_src_dirs",
+    multiple=True,
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    help=(
+        "Directory whose contents are added to the submission's shared src/ tree. "
+        "Merged in, not nested, so pass a directory holding one or more "
+        "<implementation>/ folders. Repeatable."
+    ),
+)
+@click.option(
+    "--shared-docs",
+    "shared_docs_dirs",
+    multiple=True,
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    help=(
+        "Directory whose contents are added to the submission's shared docs/ tree. "
+        "Merged in, not nested. Repeatable."
+    ),
+)
+@click.option(
     "--provisional",
     is_flag=True,
     default=False,
@@ -112,6 +133,8 @@ def submissions_create(
     scenario: str,
     availability: str,
     run_ids: tuple[str, ...],
+    shared_src_dirs: tuple[Path, ...],
+    shared_docs_dirs: tuple[Path, ...],
     provisional: bool,
     assume_yes: bool,
     publication_cycle: str | None,
@@ -166,7 +189,12 @@ def submissions_create(
         _console.print("[cyan]Assembling submission folder…[/cyan]")
         try:
             submission_dir = build_submission_folder(
-                archives, division, availability, tmp_path / "bundle"
+                archives,
+                division,
+                availability,
+                tmp_path / "bundle",
+                shared_src_dirs=shared_src_dirs,
+                shared_docs_dirs=shared_docs_dirs,
             )
         except SubmissionBuildError as exc:
             _console.print(f"[bold red]Build error:[/bold red] {exc}")

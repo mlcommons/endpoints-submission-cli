@@ -881,6 +881,132 @@ class TestSubmissionsCreate:
         assert meta["command"] == "create"
         assert "cli_version" in meta and "created_at" in meta
 
+    def test_shared_tree_flags_reach_the_builder(self, tmp_path: Path) -> None:
+        """``--shared-src`` / ``--shared-docs`` are passed through as given, repeatably."""
+        import contextlib
+
+        fake_archive = _make_fake_archive(tmp_path)
+        fake_sub_dir = tmp_path / "sub"
+        fake_sub_dir.mkdir()
+        (fake_sub_dir / PENDING_SUBMISSION_ID).mkdir()
+        fake_bundle = tmp_path / "bundle.tar.gz"
+        fake_bundle.write_bytes(b"bundle")
+        impl_a = tmp_path / "vllm"
+        impl_b = tmp_path / "sglang"
+        docs = tmp_path / "shared_docs"
+        for d in (impl_a, impl_b, docs):
+            d.mkdir()
+
+        with contextlib.ExitStack() as stack:
+            patches = [
+                patch("endpoints_submission_cli._http.get_token", return_value=TOKEN),
+                patch(
+                    "endpoints_submission_cli.runs.api.download_run_archive",
+                    return_value=fake_archive,
+                ),
+                patch(
+                    "endpoints_submission_cli.commands.submissions.create._run_submission_checker"
+                ),
+                patch(
+                    "endpoints_submission_cli.submissions.api.create_submission",
+                    return_value=SUBMISSION_OUT,
+                ),
+                patch(
+                    "endpoints_submission_cli.commands.submissions.create.create_bundle_archive",
+                    return_value=fake_bundle,
+                ),
+                patch("endpoints_submission_cli.submissions.api.upload_submission_archive"),
+                patch("endpoints_submission_cli.submissions.api.update_submission"),
+            ]
+            for pt in patches:
+                stack.enter_context(pt)
+            mock_build = stack.enter_context(
+                patch(
+                    "endpoints_submission_cli.commands.submissions.create.build_submission_folder",
+                    return_value=fake_sub_dir,
+                )
+            )
+            _run_app(
+                "submissions",
+                "create",
+                "--division",
+                "standardized",
+                "--scenario",
+                "cop",
+                "--availability",
+                "available",
+                "--run-ids",
+                RUN_ID,
+                "--shared-src",
+                str(impl_a),
+                "--shared-src",
+                str(impl_b),
+                "--shared-docs",
+                str(docs),
+                *_TOKEN_ARGS,
+            )
+
+        kwargs = mock_build.call_args.kwargs
+        assert list(kwargs["shared_src_dirs"]) == [impl_a, impl_b]
+        assert list(kwargs["shared_docs_dirs"]) == [docs]
+
+    def test_shared_tree_flags_default_to_empty(self, tmp_path: Path) -> None:
+        """Omitting them must not change how the builder is called."""
+        import contextlib
+
+        fake_archive = _make_fake_archive(tmp_path)
+        fake_sub_dir = tmp_path / "sub"
+        fake_sub_dir.mkdir()
+        (fake_sub_dir / PENDING_SUBMISSION_ID).mkdir()
+        fake_bundle = tmp_path / "bundle.tar.gz"
+        fake_bundle.write_bytes(b"bundle")
+
+        with contextlib.ExitStack() as stack:
+            for pt in [
+                patch("endpoints_submission_cli._http.get_token", return_value=TOKEN),
+                patch(
+                    "endpoints_submission_cli.runs.api.download_run_archive",
+                    return_value=fake_archive,
+                ),
+                patch(
+                    "endpoints_submission_cli.commands.submissions.create._run_submission_checker"
+                ),
+                patch(
+                    "endpoints_submission_cli.submissions.api.create_submission",
+                    return_value=SUBMISSION_OUT,
+                ),
+                patch(
+                    "endpoints_submission_cli.commands.submissions.create.create_bundle_archive",
+                    return_value=fake_bundle,
+                ),
+                patch("endpoints_submission_cli.submissions.api.upload_submission_archive"),
+                patch("endpoints_submission_cli.submissions.api.update_submission"),
+            ]:
+                stack.enter_context(pt)
+            mock_build = stack.enter_context(
+                patch(
+                    "endpoints_submission_cli.commands.submissions.create.build_submission_folder",
+                    return_value=fake_sub_dir,
+                )
+            )
+            _run_app(
+                "submissions",
+                "create",
+                "--division",
+                "standardized",
+                "--scenario",
+                "cop",
+                "--availability",
+                "available",
+                "--run-ids",
+                RUN_ID,
+                *_TOKEN_ARGS,
+            )
+
+        kwargs = mock_build.call_args.kwargs
+        assert tuple(kwargs["shared_src_dirs"]) == ()
+        assert tuple(kwargs["shared_docs_dirs"]) == ()
+
     def test_create_test_flag_sets_is_test(self, tmp_path: Path) -> None:
         import contextlib
 

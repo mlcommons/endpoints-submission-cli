@@ -1385,3 +1385,143 @@ class TestSystemPowerDescriptor:
             build_submission_folder(
                 [("run-001", a), ("run-002", b)], "standardized", "available", tmp_path / "sub"
             )
+
+
+@pytest.mark.unit
+class TestSharedTreeFlags:
+    """``--shared-src`` / ``--shared-docs``: local trees added to the shared folders.
+
+    Both merge *contents*: whatever shape the directory has is the shape the bundle
+    gets, so a ``--shared-src`` path holds one or more ``<implementation>/`` folders
+    rather than being one itself.
+    """
+
+    def _src_tree(self, tmp_path: Path, *names: str, readme: str | None = None) -> Path:
+        """A directory holding one implementation folder per name in *names*."""
+        root = tmp_path / ("extra_src_" + "_".join(names))
+        for name in names:
+            impl = root / name
+            impl.mkdir(parents=True)
+            (impl / "README.md").write_text(readme if readme is not None else f"# {name}\n")
+            (impl / "serve.sh").write_text("#!/bin/sh\necho serve\n")
+        return root
+
+    def _docs(self, tmp_path: Path, **files: str) -> Path:
+        docs = tmp_path / "extra_docs"
+        docs.mkdir()
+        for name, content in (files or {"software_disclosure.md": "# Disclosure\n"}).items():
+            (docs / name).write_text(content)
+        return docs
+
+    def _build(self, run_archive: Path, tmp_path: Path, **kwargs) -> Path:
+        return build_submission_folder(
+            [("run-001", run_archive)], "standardized", "available", tmp_path / "sub", **kwargs
+        )
+
+    def test_src_contents_are_merged_not_nested(self, run_archive: Path, tmp_path: Path) -> None:
+        tree = self._src_tree(tmp_path, "vllm")
+        org = self._build(run_archive, tmp_path, shared_src_dirs=[tree])
+        sub = next(org.iterdir())
+        assert (sub / "src" / "vllm" / "README.md").read_text() == "# vllm\n"
+        assert (sub / "src" / "vllm" / "serve.sh").exists()
+        assert not (sub / "src" / tree.name).exists()
+
+    def test_run_supplied_src_is_kept_alongside(self, run_archive: Path, tmp_path: Path) -> None:
+        """Additive, not a replacement — the run's own src/trtllm/ must survive."""
+        org = self._build(run_archive, tmp_path, shared_src_dirs=[self._src_tree(tmp_path, "vllm")])
+        sub = next(org.iterdir())
+        assert (sub / "src" / "trtllm" / "README.md").exists()
+        assert (sub / "src" / "vllm" / "README.md").exists()
+
+    def test_docs_contents_are_merged_not_nested(self, run_archive: Path, tmp_path: Path) -> None:
+        org = self._build(run_archive, tmp_path, shared_docs_dirs=[self._docs(tmp_path)])
+        sub = next(org.iterdir())
+        assert (sub / "docs" / "software_disclosure.md").exists()
+        assert not (sub / "docs" / "extra_docs").exists()
+        # The run's own documentation/ still lands.
+        assert (sub / "docs" / "calibration.adoc").exists()
+
+    def test_several_implementations_are_all_added(self, run_archive: Path, tmp_path: Path) -> None:
+        org = self._build(
+            run_archive, tmp_path, shared_src_dirs=[self._src_tree(tmp_path, "vllm", "sglang")]
+        )
+        sub = next(org.iterdir())
+        assert {d.name for d in (sub / "src").iterdir()} == {"trtllm", "vllm", "sglang"}
+
+    def test_several_shared_src_dirs_are_all_merged(
+        self, run_archive: Path, tmp_path: Path
+    ) -> None:
+        a = self._src_tree(tmp_path, "vllm")
+        b = self._src_tree(tmp_path, "sglang")
+        org = self._build(run_archive, tmp_path, shared_src_dirs=[a, b])
+        sub = next(org.iterdir())
+        assert {d.name for d in (sub / "src").iterdir()} == {"trtllm", "vllm", "sglang"}
+
+    def test_an_implementation_without_a_readme_still_fails(
+        self, run_archive: Path, tmp_path: Path
+    ) -> None:
+        """§2.2.1's README requirement applies to every implementation the flag adds,
+        not only to the ones a run archive supplied."""
+        root = tmp_path / "extra_src"
+        (root / "vllm").mkdir(parents=True)
+        (root / "vllm" / "serve.sh").write_text("#!/bin/sh\n")
+        with pytest.raises(SubmissionBuildError, match=r"README\.md"):
+            self._build(run_archive, tmp_path, shared_src_dirs=[root])
+
+    def test_conflicting_content_is_a_build_error(self, run_archive: Path, tmp_path: Path) -> None:
+        """A collision must not silently pick a side — the bundle would then contain a
+        file neither source supplies."""
+        clash = self._src_tree(tmp_path, "trtllm", readme="# a different trtllm\n")
+        with pytest.raises(SubmissionBuildError, match="would overwrite"):
+            self._build(run_archive, tmp_path, shared_src_dirs=[clash])
+
+    def test_identical_content_is_allowed(self, run_archive: Path, tmp_path: Path) -> None:
+        """Re-supplying the same bytes is not a conflict."""
+        same = self._src_tree(
+            tmp_path,
+            "trtllm",
+            readme="# trtllm\n\nBuild the SUT, then reproduce a point.\n",
+        )
+        (same / "trtllm" / "serve.sh").unlink()
+        org = self._build(run_archive, tmp_path, shared_src_dirs=[same])
+        assert (next(org.iterdir()) / "src" / "trtllm" / "README.md").exists()
+
+    def test_missing_directory_is_reported_with_the_flag_name(
+        self, run_archive: Path, tmp_path: Path
+    ) -> None:
+        with pytest.raises(SubmissionBuildError, match="--shared-docs path is not a directory"):
+            self._build(run_archive, tmp_path, shared_docs_dirs=[tmp_path / "nope"])
+
+    def test_default_is_unchanged(self, run_archive: Path, tmp_path: Path) -> None:
+        """Passing neither flag builds exactly what it built before."""
+        org = self._build(run_archive, tmp_path)
+        sub = next(org.iterdir())
+        assert {d.name for d in (sub / "src").iterdir()} == {"trtllm"}
+
+    def test_a_declared_shared_src_is_still_honoured(
+        self, run_archive: Path, tmp_path: Path
+    ) -> None:
+        """Adding an implementation must not disturb a pointer the submitter declared."""
+        org = self._build(run_archive, tmp_path, shared_src_dirs=[self._src_tree(tmp_path, "vllm")])
+        sub = next(org.iterdir())
+        point = next(sub.rglob("point.yaml"))
+        assert yaml.safe_load(point.read_text())["shared_src"] == "src"
+
+    def test_added_implementation_makes_an_undeclared_shared_src_ambiguous(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
+        """Two implementations and no declared shared_src is the existing hard error —
+        the flag must not paper over which one produced a point."""
+        import shutil
+
+        folder = tmp_path / "nodecl"
+        shutil.copytree(run_folder, folder)
+        point = yaml.safe_load((folder / "point.yaml").read_text())
+        point.pop("shared_src", None)
+        (folder / "point.yaml").write_text(yaml.dump(point))
+        archive = tmp_path / "nodecl.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(folder, arcname="nodecl")
+
+        with pytest.raises(SubmissionBuildError, match="more than one implementation"):
+            self._build(archive, tmp_path, shared_src_dirs=[self._src_tree(tmp_path, "vllm")])
