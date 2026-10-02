@@ -23,6 +23,7 @@ from .models import (
     PointConfig,
     PointResult,
     PointSummary,
+    PowerComputation,
     RegionPlacement,
     Regions,
     Report,
@@ -31,13 +32,12 @@ from .models import (
     SrcDir,
     SubmissionDir,
     SystemDescription,
-    SystemPower,
     compute_regions,
 )
 from .models import err as _err
 from .models import ok as _ok
 from .models import warn as _warn
-from .models.file.system_power import overhead_for_cooling
+from .models.file.system_power import AIR_COOLED_OVERHEAD, overhead_for_cooling
 from .models.loader import (
     load_accuracy_result,
     load_accuracy_scores,
@@ -117,6 +117,22 @@ class _LoadedPoint:
     point_dir: Path
     yaml_path: Path
     config: PointConfig
+
+
+@dataclass
+class _SystemFacts:
+    """What the power descriptor is checked against from §8.2's system description.
+
+    Attributes:
+        overhead: The overhead fraction §8.2's ``cooling`` implies, or ``None`` where it
+            names neither liquid nor air.
+        cores: ``host_processor_core_count`` per ``system_node_ensemble_id``, for D.2.
+        ensembles: Every ``system_node_ensemble_id`` the description declares.
+    """
+
+    overhead: float | None
+    cores: dict[int, int]
+    ensembles: set[int]
 
 
 def _system_desc_identity(data: dict[str, object]) -> dict[str, object]:
@@ -410,21 +426,17 @@ class SubmissionChecker:
 
         return results
 
-    def _declared_cooling(self, system_dir: Path) -> str | None:
-        """§8.2's ``cooling`` for this system, read from any one of its points.
+    def _system_facts(self, system_dir: Path) -> _SystemFacts:
+        """What Appendix E needs from §8.2's description of this system.
 
         The system description is per point since policies PR #119, but §8.2 describes
         one system, and ``system-description-consistency`` already reports points of a
         curve that disagree. So the first readable one answers the question.
 
         §8.2's table lists ``cooling`` as a system field while §8.2.1's template nests
-        it under ``node_types`` — the same table/template disjointness §8.2 has
-        elsewhere — so both placements are read.
-
-        A system whose node types are cooled differently resolves to the *air-cooled*
-        fraction. §4.5.2 says estimation "is done conservatively" and air is the larger
-        overhead, so the mixed case takes the bigger denominator rather than the one
-        that flatters the result.
+        it under ``node_types``, so both placements are read. Node types cooled
+        differently resolve to the *air-cooled* fraction: §4.5.2 says estimation "is
+        done conservatively", and air is the larger overhead.
         """
         for desc_path in sorted(system_dir.glob(f"*/r*/{layout.SYSTEM_DESC_JSON}")):
             try:
@@ -437,24 +449,43 @@ class SubmissionChecker:
             top = data.get("cooling")
             if isinstance(top, str) and top.strip():
                 declared.append(top)
+            cores: dict[int, int] = {}
+            ensembles: set[int] = set()
             for node in data.get("node_types") or []:
-                value = node.get("cooling") if isinstance(node, dict) else None
+                if not isinstance(node, dict):
+                    continue
+                value = node.get("cooling")
                 if isinstance(value, str) and value.strip():
                     declared.append(value)
+                ensemble = node.get("system_node_ensemble_id")
+                if isinstance(ensemble, str) and ensemble.strip().isdigit():
+                    ensemble = int(ensemble)  # as NodeType coerces it
+                if isinstance(ensemble, int):
+                    ensembles.add(ensemble)
+                    count = node.get("host_processor_core_count")
+                    if isinstance(count, int):
+                        cores[ensemble] = count
             fractions = {overhead_for_cooling(value) for value in declared}
             fractions.discard(None)
             if len(fractions) > 1:
-                return "air-cooled (mixed node cooling; §4.5.2 estimates conservatively)"
-            if declared:
-                return declared[0]
-        return None
+                overhead: float | None = AIR_COOLED_OVERHEAD
+            else:
+                overhead = next(iter(fractions), None)
+            return _SystemFacts(overhead=overhead, cores=cores, ensembles=ensembles)
+        return _SystemFacts(overhead=None, cores={}, ensembles=set())
 
-    def _load_system_power(self, system_dir: Path) -> tuple[SystemPower | None, list[CheckResult]]:
-        """§9.1 "Power descriptor": every system must ship a `system_power.json`.
+    def _load_system_power(
+        self, system_dir: Path
+    ) -> tuple[PowerComputation | None, list[CheckResult]]:
+        """§9.1 "Power descriptor": a `system_power.json` per system, valid under E.7.
 
         Per *system*, not per point — §4.5.3 makes provisioned power a property of the
-        system, constant across its whole curve. It is the one per-system file in
-        §8.1's tree, which policies PR #119 had otherwise emptied.
+        system, constant across its whole curve.
+
+        The structure is checked when the file loads; this adds the E.7 rules that need
+        the system description, and reports what :meth:`SystemPower.compute` found.
+        Every E.7 finding is a rejection, so each is its own error rather than one
+        summary line.
         """
         results: list[CheckResult] = []
         path = system_dir / layout.SYSTEM_POWER_JSON
@@ -476,56 +507,67 @@ class SubmissionChecker:
         if power is None:
             return None, results
 
-        # §4.5.2 fixes the overhead fraction by cooling method, and §8.2 already
-        # carries `cooling` — so a submitter should not have to restate it here.
-        # A value declared in system_power.json wins; this only fills a gap.
-        if power.cooling is None and power.overhead_fraction is None:
-            cooling = self._declared_cooling(system_dir)
-            if cooling is not None:
-                power = power.model_copy(update={"cooling": cooling})
-
-        kw = power.provisioned_power_kw
-        if kw is None:
+        facts = self._system_facts(system_dir)
+        if facts.overhead is not None and facts.overhead != power.overhead_fraction:
             results.append(
                 _err(
                     "power-descriptor",
-                    f"{layout.SYSTEM_POWER_JSON} states no provisioned power §4.5.2 could be"
-                    f" derived from: {', '.join(power.missing_groups) or 'no component groups'}."
-                    " Declare provisioned_power_w, the §4.5.2.1 rack-scaling values, or the"
-                    " component groups plus a cooling method",
+                    f"cooling is {power.cooling!r}, but {layout.SYSTEM_DESC_JSON} describes a"
+                    f" system whose overhead fraction is {facts.overhead:g}; E.2 requires"
+                    " them to agree",
                     path,
                     "#4.5.2",
                 )
             )
-            return power, results
+        unknown = sorted({s.system_node_ensemble_id for s in power.node_sets} - facts.ensembles)
+        if facts.ensembles and unknown:
+            results.append(
+                _warn(
+                    "power-descriptor",
+                    f"node_sets name system_node_ensemble_id {unknown}, which"
+                    f" {layout.SYSTEM_DESC_JSON} does not describe",
+                    path,
+                    "#4.5.2",
+                )
+            )
 
-        missing = power.missing_groups
-        if missing:
+        computation = power.compute(facts.cores)
+        for problem in computation.problems:
+            results.append(_err("power-descriptor", problem, path, "#4.5.2"))
+        for warning in computation.warnings:
+            results.append(_warn("power-descriptor", warning, path, "#4.5.2"))
+        kw = computation.provisioned_power_kw
+        if kw is None:
+            return None, results
+
+        if computation.estimated:
             results.append(
                 _warn(
                     "power-estimated",
-                    f"{', '.join(missing)} left for MLCommons to auto-populate; §4.5.2"
-                    " triggers the estimated-power tag when a value is not supplied",
+                    "MLC Estimated Power: "
+                    + "; ".join(computation.estimated)
+                    + " — Appendix D values reach provisioned_power_kw",
                     path,
                     "#4.5.2",
                 )
             )
-        results.append(
-            _ok(
-                "power-descriptor",
-                f"Provisioned power {kw:.3f} kW",
-                path,
-                "#4.5.2",
+        if not computation.problems:
+            results.append(
+                _ok(
+                    "power-descriptor",
+                    f"Provisioned power {kw:.2f} kW",
+                    path,
+                    "#4.5.2",
+                )
             )
-        )
-        return power, results
+        return computation, results
 
     # ------------------------------------------------------------------
     # Per benchmark-model orchestration
     # ------------------------------------------------------------------
 
     def _check_model(
-        self, system_id: str, model_dir: Path, power: SystemPower | None = None
+        self, system_id: str, model_dir: Path, power: PowerComputation | None = None
     ) -> list[CheckResult]:
         """Run every check scoped to one Pareto curve (§8.5: one system, one model).
 
@@ -851,7 +893,7 @@ class SubmissionChecker:
         point: _LoadedPoint,
         regions: Regions | None,
         loaded_points: list[tuple[PointConfig, PointSummary]],
-        power: SystemPower | None = None,
+        power: PowerComputation | None = None,
     ) -> list[CheckResult]:
         """Run the per-point rules that need the curve's regions or its result summary.
 
@@ -895,7 +937,7 @@ class SubmissionChecker:
         return results
 
     def _check_tps_per_kw(
-        self, point: _LoadedPoint, summary: PointSummary, power: SystemPower | None
+        self, point: _LoadedPoint, summary: PointSummary, power: PowerComputation | None
     ) -> list[CheckResult]:
         """§4.5.3: ``system_tps_per_kw = system_tps / provisioned_power_kw``.
 

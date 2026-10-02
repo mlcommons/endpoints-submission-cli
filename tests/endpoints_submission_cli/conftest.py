@@ -263,10 +263,44 @@ _POINT = {
 
 #: §4.5.2 provisioned power. Submitter-authored, one per system.
 _SYSTEM_POWER = {
-    "cpu": {"count": 2, "tdp_per_unit": 350, "link": "https://example.com/cpu"},
-    "accelerator": {"count": 8, "tdp_per_unit": 700, "link": "https://example.com/gpu"},
-    "scale_up_network": {"count": 1, "tdp_per_unit": 3500, "link": "https://example.com/sw"},
-    "overhead_fraction": 0.5,
+    "system_desc_id": "test_system",
+    "cooling": "air",
+    "node_sets": [
+        {
+            "node_set_id": 0,
+            "system_node_ensemble_id": 0,
+            "nodes_provisioned": 1,
+            "power_method": "component_sum",
+            "components": {
+                "cpu": {
+                    "count_per_node": 2,
+                    "tdp_per_unit": {
+                        "value_w": 350,
+                        "source_type": "vendor_spec",
+                        "source": "https://example.com/cpu",
+                    },
+                },
+                "accelerator": {
+                    "count_per_node": 8,
+                    "tdp_per_unit": {
+                        "value_w": 700,
+                        "source_type": "vendor_spec",
+                        "source": "https://example.com/gpu",
+                    },
+                },
+                "scale_up_network": {
+                    "method": "declared_tdp",
+                    "switch_count": 1,
+                    "tdp_per_switch": {
+                        "value_w": 3500,
+                        "source_type": "vendor_spec",
+                        "source": "https://example.com/sw",
+                    },
+                },
+            },
+        }
+    ],
+    "scale_out": {"present": False},
 }
 
 

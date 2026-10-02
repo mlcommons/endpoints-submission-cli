@@ -12,7 +12,7 @@ from .system import (
     SystemAvailabilityStatus,
     SystemDescription,
 )
-from .system_power import ComponentGroup, SystemPower
+from .system_power import PowerComputation, SystemPower
 
 __all__ = [
     "AccuracyResult",
@@ -26,7 +26,7 @@ __all__ = [
     "PointSummary",
     "SteadyState",
     "SteadyStateWindow",
-    "ComponentGroup",
+    "PowerComputation",
     "SystemPower",
     "RuntimeSettings",
     "SystemDescription",

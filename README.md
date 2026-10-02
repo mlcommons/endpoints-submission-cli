@@ -246,8 +246,8 @@ submission root (§9.1).
 | `model-name-consistency` | §8.1 | It is exactly the results directory name |
 | `max-concurrency-declared` | §7 | `max_supported_concurrency` (C_max) present and > 32 |
 | `tps-utilization` | §8.2 | Equals `system_tps / max(system_tps)` over the point's own curve |
-| `power-descriptor` | §4.5.2 | `system_power.json` present per system and states a power §4.5.2 can derive |
-| `power-estimated` | §4.5.2 | Flags component groups left for MLCommons to auto-populate (warn) |
+| `power-descriptor` | §4.5.2, App. E | `system_power.json` present per system and valid under Appendix E.7 |
+| `power-estimated` | §4.5.2, App. D | "MLC Estimated Power": an Appendix D value reaches the total (warn) |
 
 > The benchmark model name is read from **`point.yaml`** (§8.3), and from nowhere else.
 > Policies PR #130 removed `model_name` from §8.2's `system_desc.json` table and template,
@@ -260,37 +260,47 @@ submission root (§9.1).
 > `llama3_1-8b`, `gpt-oss-120b` or `deepseek-r1`. The checker does not rewrite it, so
 > `llama3.1-8b` fails `model-name-valid`, and the error names the spelling to use.
 
-§4.5.2's power model:
+`system_power.json` follows **Appendix E** (policies PR #126): one entry per set of
+identical nodes, and every power figure written as a sourced value —
+`{"value_w": 1100, "source_type": "vendor_spec", "source": "https://..."}`. The source
+types are `vendor_spec`, `publication`, `public_statement` and `mlc_default`; a
+submitter's own assertion is not one, and fails to load.
+
+§4.5.2's power model, as Appendix E.5 computes it:
 
 ```
-System Power     = Major_components + Other_components
-Major_components = CPU_power + Accelerator_power + Network_scale_up_power
-Other_components = overhead_fraction × Major_components
-overhead_fraction = 0.30 liquid-cooled, 0.50 air-cooled
+System Power = Major + Other + Published_node_power + Scale_out_switch_power
+Major        = Σ component_sum sets: nodes × (CPU + Accelerator + Scale-up)
+               + scale-out NICs, where counted
+Other        = overhead_fraction × Major      (0.30 liquid, 0.50 air — from `cooling`)
+Published    = Σ published_system sets: nodes × published node power
+               + Σ node_scaling sets: P_rack × (Y / N)
 ```
 
-`system_power.json` is read with §4.5.2's own field names — `num_cpu`, `tdp_per_cpu`,
-`num_accelerator`, `tdp_per_accelerator`, `num_switches`, `tdp_per_switch`,
-`public_specification` — and with the generic `count` / `tdp_per_unit` / `link`
-spellings, since §4.5.2 publishes names but no JSON schema.
+Details that are easy to get wrong:
 
-Three details are easy to get wrong:
-
-- **Scale-out network is not a major component.** §4.5.2 defines `Other_components` as
-  "scale-out networking, storage, power-supply overhead, and cooling", so a declared
-  scale-out group is already inside the overhead fraction. It is read and reported but
-  never summed into the total, which would count it twice.
-- **`overhead_fraction` comes from the cooling method**, not from the submitter. §8.2's
-  system description already declares `cooling`, so the checker reads it from there
-  (system level or `node_types[]`), and a system with mixed node cooling takes the
-  air-cooled fraction — §4.5.2 estimates conservatively. Where no cooling method can be
-  established and none is declared, that is an **error**, not an assumed zero: dropping
-  `Other_components` shrinks the denominator by 23–33 % and inflates `system_tps_per_kw`.
-- **Three paths give the total**, in §4.5.2's own order of precedence: a declared
-  `provisioned_power_w`, then §4.5.2.1 rack-level node scaling
-  (`rack_power_w × submitted_nodes / rack_nodes`), then the component formula. A
-  combined `compute` group stands in for CPU + accelerator where a vendor publishes
-  them as one figure.
+- **Two terms sit outside the overhead base.** A published node figure already carries
+  that node's cooling and power-supply overhead, and rack switch power is wall power.
+  Scale-out **NICs**, by contrast, are major components and take the overhead.
+- **NICs are counted exactly when node power comes from the formula.** The formula has
+  no NIC term, so a multi-node `component_sum` system must set `nics.counted`; a
+  published node figure is assumed to include them, and counting them again is an
+  error unless `excluded_from_published_power` evidences the exclusion.
+- **A declared figure governs, and only its own sourcing tags the result.**
+  `declared_provisioned_power` replaces the computed total; the component block beneath
+  it is a cross-check, so its defaults do not set "MLC Estimated Power" and its gaps do
+  not reject it.
+- **Absent values are filled from Appendix D where one can be chosen mechanically**:
+  accelerator TDP by model (D.3), CPU TDP by architecture and core count (D.2, with the
+  cores read from §8.2's `node_types`), and scale-out NICs and reference switches by
+  cabling (D.4). Scale-up has no fallback, because D.1's two references depend on the
+  link protocol. Anything filled in sets the estimated tag; anything with no default,
+  where it reaches the total, is an error.
+- **`cooling` must agree with §8.2's.** A system description whose node types are
+  cooled differently counts as air-cooled, the conservative reading.
+- **A submitter's `computed` block is checked, not trusted.** Where it disagrees with
+  the recomputation, E.7 rejects the descriptor rather than silently correcting it.
+  `provisioned_power_kw` is rounded once, to two decimal places.
 
 ### Regions (§5)
 
