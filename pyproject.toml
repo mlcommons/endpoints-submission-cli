@@ -20,6 +20,7 @@ dependencies = [
 
 [project.scripts]
 endpoints-submission-cli = "endpoints_submission_cli.main:main"
+endpoints-submission-mcp = "endpoints_submission_cli.mcp_server:main"
 
 [project.optional-dependencies]
 dev = [
@@ -29,11 +30,17 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.10",
     "types-PyYAML",
+    # So CI type-checks and tests the MCP server; users get it from the mcp extra.
+    "mcp>=2.0,<3",
 ]
 docs = [
     "sphinx>=7.0",
     "sphinx-autodoc-typehints>=2.0",
     "furo>=2024.1",
+]
+# The MCP server (endpoints-submission-mcp). Written against mcp 2.x's MCPServer.
+mcp = [
+    "mcp>=2.0,<3",
 ]
 
 [tool.setuptools_scm]
@@ -59,6 +66,7 @@ packages = [
 # The published seed sets (§4.6) ship as data so a newly published set can be
 # supplied without a checker release; see submission_checker.seed_sets.
 submission_checker = ["data/*.yaml"]
+endpoints_submission_cli = ["skills/*/SKILL.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

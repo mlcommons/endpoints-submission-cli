@@ -123,6 +123,8 @@ Everything else is unchanged, which is worth knowing for two cases:
 
 ```
 endpoints-submission-cli
+├── check-submission  Validate a submission folder (§9.1)
+├── install-skill     Install the Claude Code skill (see below)
 ├── runs
 │   ├── list        List all runs
 │   ├── create      Register a run from a local folder
@@ -144,6 +146,53 @@ Use `--help` on any command for full flag details:
 ```bash
 endpoints-submission-cli submissions create --help
 ```
+
+## Using with Claude
+
+Two ways to let Claude drive the CLI. Both ship in the package.
+
+**Claude Code skill.** Teaches Claude the commands, to use `--json`, and to confirm
+every write (upload, create, withdraw, delete) with you first. It runs the CLI through
+Claude Code's shell:
+
+```bash
+endpoints-submission-cli install-skill            # ~/.claude/skills/mlperf-submissions/
+endpoints-submission-cli install-skill --project  # ./.claude/skills/ for this project only
+```
+
+The skill is versioned with the CLI. After upgrading, run `install-skill --force` to
+replace the installed copy with the matching version. Without `--force` it refuses to
+overwrite a copy you have edited.
+
+**MCP server.** For any MCP client, including ones without a shell. Every command is
+a tool:
+
+| Tool | Command | Annotated |
+|---|---|---|
+| `check_submission` | `check-submission` | read-only |
+| `list_runs`, `get_run` | `runs list`, `runs get` | read-only |
+| `list_submissions`, `get_submission` | `submissions list`, `submissions get` | read-only |
+| `download_run`, `download_submission` | `runs get` / `submissions get --download-to` | writes a local file |
+| `install_skill` | `install-skill` | writes a local file |
+| `create_run`, `pin_run`, `unpin_run` | `runs create`, `runs pin`, `runs unpin` | changes PRISM |
+| `create_submission` | `submissions create` | changes PRISM |
+| `update_submission`, `remove_run_from_submission` | `submissions update`, `submissions remove-run` | destructive |
+| `withdraw_submission`, `delete_run` | `submissions withdraw`, `runs delete` | destructive, irreversible |
+
+Clients use the annotations to decide what to confirm with you. `create_run` and
+`create_submission` take `dry_run`. A provisional submission also needs
+`confirm_public_provisional=true`, which stands in for the CLI's own yes/no prompt.
+Auth comes from the server's environment, so no tool takes a token. A test fails if
+the CLI gains a command or option that no tool reaches.
+
+```bash
+claude mcp add mlperf -e PRISM_USER_API_TOKEN=mlc_... \
+  -- uvx --from 'endpoints-submission-cli[mcp]' endpoints-submission-mcp
+```
+
+Or install the extra yourself with `pip install 'endpoints-submission-cli[mcp]'` and
+run `endpoints-submission-mcp`, which serves over stdio. Each tool runs the installed
+CLI with `--json`, so it returns exactly what the CLI prints.
 
 ---
 
