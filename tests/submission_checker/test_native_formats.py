@@ -80,6 +80,10 @@ def test_native_accuracy_reads_each_dataset_and_preserves_file(tmp_path, embedde
         [{"dataset_name": "  ", "score": 1}],
         [{"dataset_name": "missing-score", "total_samples": 200}],
         [{"dataset_name": "conflict", "score": 1, "unit_samples": 200, "num_samples": 100}],
+        [
+            {"dataset_name": "performance", "score": 1, "dataset_type": "performance"},
+            {"dataset_name": "perf-2", "score": 0, "dataset_type": "performance"},
+        ],
         ["not-an-entry"],
         "not-a-list-or-mapping",
     ],

@@ -536,7 +536,7 @@ three rules above:
 
 | Quantity | Source | Aggregation |
 |---|---|---|
-| Inline accuracy | `agentic_combined` in the accuracy results | per point — every point must clear |
+| Inline accuracy | the `dataset_type: performance` entry in the accuracy results (named `performance` by the client) | per point — every point must clear |
 | SWE-bench accuracy | `swe_bench` in the accuracy results | **mean-of-4** across the mandatory regions (§4.3's multi-turn branch) |
 | OSL per-turn mean | `output_sequence_lengths_full_run.output_sequence_lengths.avg` in `result_summary.json` | per point, against a range |
 

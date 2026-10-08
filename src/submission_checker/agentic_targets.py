@@ -13,7 +13,9 @@ gated differently, not merely valued differently. That module folds every datase
 point into one sample-weighted score per metric and gates each point against it. The
 agentic benchmarks gate three quantities that do not reduce that way:
 
-* **Inline accuracy** — per point, from the ``agentic_combined`` performance dataset.
+* **Inline accuracy** — per point, from the entry the client scores on the performance
+  run (``dataset_type: performance``; see
+  :meth:`~submission_checker.models.AccuracyResult.performance_dataset`).
 * **SWE-bench accuracy** — **mean-of-N across points**, not per point: "average one
   SWE-bench accuracy result from each of the four mandatory regions (``N = 4``), then
   compare that mean with the model-specific SWE-bench threshold". This is §4.3's
@@ -33,17 +35,12 @@ import re
 from dataclasses import dataclass
 
 __all__ = [
-    "INLINE_DATASET",
     "OSL_FULL_RUN_FIELD",
     "SWEBENCH_DATASET",
     "SWEBENCH_MEAN_OF_N",
     "AgenticTargets",
     "get_agentic_targets",
 ]
-
-#: Performance dataset carrying the inline accuracy score
-#: (``accuracy_config.eval_method: agentic_inference_inline``).
-INLINE_DATASET = "agentic_combined"
 
 #: Accuracy dataset scored by ``swe_bench_scorer``.
 SWEBENCH_DATASET = "swe_bench"
