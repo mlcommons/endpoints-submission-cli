@@ -656,7 +656,11 @@ class ModelContext(BaseModel):
         return self
 
     def _gate_agentic_inline(self, targets: AgenticTargets) -> None:
-        """Inline accuracy, per point: "Every … submitted Pareto point must satisfy".
+        """Inline accuracy, at each point that reports it.
+
+        "Every … submitted Pareto point must satisfy" applies to the results submitted.
+        Points without one are skipped; that one result per mandatory region exists is
+        ``accuracy-coverage``'s check.
 
         Read from the entry scored on the performance run, which the client names
         ``performance`` rather than after the performance dataset.

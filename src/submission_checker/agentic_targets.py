@@ -13,9 +13,11 @@ gated differently, not merely valued differently. That module folds every datase
 point into one sample-weighted score per metric and gates each point against it. The
 agentic benchmarks gate three quantities that do not reduce that way:
 
-* **Inline accuracy** — per point, from the entry the client scores on the performance
-  run (``dataset_type: performance``; see
-  :meth:`~submission_checker.models.AccuracyResult.performance_dataset`).
+* **Inline accuracy** — each result on its own, from the entry the client scores on
+  the performance run (``dataset_type: performance``; see
+  :meth:`~submission_checker.models.AccuracyResult.performance_dataset`). Every point
+  that carries one must clear; only one per mandatory region is required
+  (``accuracy-coverage``).
 * **SWE-bench accuracy** — **mean-of-N across points**, not per point: "average one
   SWE-bench accuracy result from each of the four mandatory regions (``N = 4``), then
   compare that mean with the model-specific SWE-bench threshold". This is §4.3's
@@ -65,7 +67,7 @@ class AgenticTargets:
 
     #: Model name as §3.2 publishes it, for messages.
     name: str
-    #: Inline accuracy floor, per point, on a 0–100 scale.
+    #: Inline accuracy floor, for each point that reports one, on a 0–100 scale.
     inline_min: float | None
     #: SWE-bench floor for the mean of the N results, on a 0–100 scale.
     swebench_min: float | None
