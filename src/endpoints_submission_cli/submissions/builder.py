@@ -315,6 +315,10 @@ def _load_system_desc(base: Path, run_id: str, division: str, availability: str)
     for legacy in ("system_availability_status", "availability_status"):
         raw.pop(legacy, None)
     raw["publication_status"] = availability
+    # The pipeline assigns the submission ID (§8.5) and the bundle records it as the
+    # <submission_id>/ directory (§8.1), so a value in the submitter's file — usually
+    # left over from a v0.7 template — is stale. Drop it rather than publish it.
+    raw.pop("submission_id", None)
     try:
         sd = SystemDescription.model_validate(raw)
     except ValidationError as exc:
