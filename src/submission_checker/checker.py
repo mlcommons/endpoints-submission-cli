@@ -42,6 +42,7 @@ from .models import (
 from .models import err as _err
 from .models import ok as _ok
 from .models import warn as _warn
+from .models.file.system import PIPELINE_ASSIGNED_FIELDS
 from .models.file.system_power import AIR_COOLED_OVERHEAD, overhead_for_cooling
 from .models.loader import (
     load_accuracy_result,
@@ -129,10 +130,10 @@ _PER_POINT_SYSTEM_DESC_FIELDS = frozenset(
 )
 
 #: Keys of ``system_desc.json`` that are not §8.2 fields and are never compared.
-#: ``submission_id`` is assigned by the pipeline (§8.5) and lives in the
-#: ``<submission_id>/`` directory name (§8.1); a copy left in a submitter's file from
-#: a v0.7 template says nothing about the system, so differing copies are not flagged.
-_IGNORED_SYSTEM_DESC_FIELDS = frozenset({"submission_id"})
+#: The pipeline assigns the submission ID and dates (§8.2); a copy left in a
+#: submitter's file from a v0.7 template says nothing about the system, so differing
+#: copies are not flagged.
+_IGNORED_SYSTEM_DESC_FIELDS = frozenset(PIPELINE_ASSIGNED_FIELDS)
 
 #: §4.5 scope: "Power normalization applies to all Standardized division submissions
 #: … RDI submissions MAY report normalized throughput but are not required to", and
