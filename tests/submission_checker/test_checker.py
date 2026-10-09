@@ -420,6 +420,20 @@ class TestCheckerEdgeCases:
         report = _check(root)
         assert not _errors(report, "system-description-consistency")
 
+    @pytest.mark.parametrize("leftover", ["v07-submission-abc", 1234])
+    def test_leftover_submission_id_is_not_flagged(self, tmp_path, leftover):
+        """§8.5: the pipeline assigns the submission ID, so a stale copy is ignored.
+
+        Covers both ways it used to fail: a v0.7 numeric id was a schema error, and
+        points carrying different ids failed the consistency check.
+        """
+        root = _build_submission(tmp_path, system_desc={**_SYSTEM_DESC, "submission_id": leftover})
+        changed = root / "results" / "test-sys" / "llama3-70b" / "r88" / "system_desc.json"
+        changed.write_text(json.dumps({**_SYSTEM_DESC, "submission_id": "another-id"}))
+        report = _check(root)
+        assert not _errors(report, "system-description-consistency")
+        assert not _errors(report, "system-description-valid")
+
     def test_empty_system_results_dir(self, tmp_path):
         """benchmark-model-dir error when results/<system>/ has no subdirectories."""
         (tmp_path / "results" / "test-sys").mkdir(parents=True)
