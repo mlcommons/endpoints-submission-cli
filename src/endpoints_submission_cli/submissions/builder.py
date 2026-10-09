@@ -40,6 +40,7 @@ from pydantic import ValidationError
 
 from submission_checker import layout
 from submission_checker.models.file import SystemDescription
+from submission_checker.models.file.system import PIPELINE_ASSIGNED_FIELDS
 
 from ..exceptions import SubmissionBuildError
 from ..truncation import truncate_responses
@@ -315,6 +316,11 @@ def _load_system_desc(base: Path, run_id: str, division: str, availability: str)
     for legacy in ("system_availability_status", "availability_status"):
         raw.pop(legacy, None)
     raw["publication_status"] = availability
+    # The pipeline assigns the submission ID and dates (§8.2), so a value in the
+    # submitter's file — usually left over from a v0.7 template — is stale. Drop it
+    # rather than publish it.
+    for assigned in PIPELINE_ASSIGNED_FIELDS:
+        raw.pop(assigned, None)
     try:
         sd = SystemDescription.model_validate(raw)
     except ValidationError as exc:

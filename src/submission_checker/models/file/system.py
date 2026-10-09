@@ -23,6 +23,7 @@ __all__ = [
     "DatasetAccuracyScores",
     "Division",
     "NodeType",
+    "PIPELINE_ASSIGNED_FIELDS",
     "SystemAvailabilityStatus",
     "SystemDescription",
 ]
@@ -53,6 +54,18 @@ _ACCELERATOR_FIELDS = (
     "accelerator_interconnect",
     "accelerator_host_interconnect",
 )
+
+#: Keys v0.7's system description carried that the submission pipeline now assigns,
+#: so they are not §8.2 fields. The submission ID (§8.5) is the ``<submission_id>/``
+#: directory (§8.1); the submission and publication dates are set when the bundle is
+#: submitted and published.
+#:
+#: :class:`SystemDescription` does not declare them. Declaring them made
+#: ``model_dump`` write each one as ``null`` into every bundled system_desc.json, and
+#: typed them as strings, so a v0.7 numeric id failed validation. Left undeclared,
+#: ``extra="allow"`` still parses a leftover key of any type; the builder drops them
+#: and the consistency check ignores them.
+PIPELINE_ASSIGNED_FIELDS = ("submission_id", "submission_date", "publish_date")
 
 
 class AcceleratorInfo(BaseModel):
@@ -190,13 +203,12 @@ class SystemDescription(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    # Org / submission metadata. §8.2 moved these out of the system description in
-    # v1.0; still read when present because the existing corpus carries them.
+    # Org metadata. §8.2 moved these out of the system description in v1.0; still read
+    # when present because the existing corpus carries them.
+    #
+    # :data:`PIPELINE_ASSIGNED_FIELDS` are deliberately not declared: see there.
     submitter_org_names: str | None = None
     submitter_contact: str | None = None
-    submission_id: str | None = None
-    submission_date: str | None = None
-    publish_date: str | None = None
 
     # System metadata
     system_name: str
