@@ -458,7 +458,9 @@ The approved list ships as data (`src/submission_checker/data/approved_drafters.
 transcribed from the agentic reference README's "Approved Checkpoints and
 Speculative-Decoding Heads" (mlcommons/endpoints `examples/10_Agentic_Inference`): the
 Kimi K3 DSpark heads, and the native heads of the approved DeepSeek-V4.1-Flash and
-Qwen3.6-35B-A3B checkpoints. Each is weight-identified by its Hugging Face revision
+Qwen3.6-35B-A3B checkpoints. It also carries the native MTP heads of the approved
+DeepSeek-R1 checkpoints and the GPT-OSS-120B EAGLE3 head, carried over from legacy
+submissions. Each is weight-identified by its Hugging Face revision
 (`weight_checksum: git-sha1:<revision>`), which a point's `speculative_decoding` block must
 declare to match. A benchmark with no entry has no approved drafter, so speculative
 decoding stays disallowed for it (§2.9.4). Point `--approved-drafters FILE` or
@@ -469,7 +471,9 @@ README published them on 2026-09-10 (endpoints#494) and 2026-09-30 (endpoints#51
 the `2026-10-C0` publication, and §2.9.4 records an approval against the cohort in which the
 list is published. (Counted from the next publication date instead, the DeepSeek-V4.1-Flash
 entry would be `2026-10-C0`.) The two-cohort approval lead time makes their earliest eligible
-target cohort `2026-10-C1`.
+target cohort `2026-10-C1`. The DeepSeek-R1 and GPT-OSS-120B heads, carried over from
+legacy submissions, are recorded with them in `2026-09-C1`, so they are also eligible from
+`2026-10-C1`.
 Approval cohorts are recorded per drafter, so future additions can carry later
 cohorts in the same registry.
 

@@ -70,8 +70,10 @@ def _errors(binding: DrafterBinding, rule: str) -> list:
 @pytest.mark.unit
 class TestDrafterList:
     #: The approved heads in mlcommons/endpoints examples/10_Agentic_Inference/README.md,
-    #: "Approved Checkpoints and Speculative-Decoding Heads": benchmark -> {model_id: revision}.
-    #: Qwen and DeepSeek-V4.1-Flash heads are native to their approved checkpoints.
+    #: "Approved Checkpoints and Speculative-Decoding Heads", plus the DeepSeek-R1 and
+    #: GPT-OSS-120B heads carried over from legacy submissions: benchmark -> {model_id:
+    #: revision}. Qwen, DeepSeek-V4.1-Flash and DeepSeek-R1 heads are native to their
+    #: approved checkpoints.
     _REFERENCE_HEADS = {
         "kimi-k3": {
             "RadixArk/Kimi-K3-DSpark": "3c5bac301d9cf392706189d82ed947feca6c2f0f",
@@ -84,6 +86,13 @@ class TestDrafterList:
             "Qwen/Qwen3.6-35B-A3B": "995ad96eacd98c81ed38be0c5b274b04031597b0",
             "Qwen/Qwen3.6-35B-A3B-FP8": "95a723d08a9490559dae23d0cff1d9466213d989",
             "nvidia/Qwen3.6-35B-A3B-NVFP4": "1355db6a052410cfd62085d94b58866fd0f2c3c5",
+        },
+        "deepseek-r1": {
+            "deepseek-ai/DeepSeek-R1": "56d4cbbb4d29f4355bab4b9a39ccb717a14ad5ad",
+            "centml/DeepSeek-R1-NVFP4-v2-mlpinf": "93947a0d7bd04f73ff98636f6b18ff5839e7aaf9",
+        },
+        "gpt-oss-120b": {
+            "nvidia/gpt-oss-120b-Eagle3-long-context": "633caf45f31288cbb70ee237f7c939db707ecc94",
         },
     }
 
@@ -99,10 +108,12 @@ class TestDrafterList:
         }
 
     def test_bundled_heads_record_the_2026_09_c1_cohort(self) -> None:
-        """The README published every head before the 2026-10-C0 publication.
+        """Every head shares the initial 2026-09-C1 approval cohort.
 
-        Qwen and Kimi on 2026-09-10 (endpoints#494), DeepSeek-V4.1-Flash on 2026-09-30
-        (endpoints#519): no earlier than each entry's own publication cohort.
+        Qwen and Kimi were published on 2026-09-10 (endpoints#494) and DeepSeek-V4.1-Flash on
+        2026-09-30 (endpoints#519), before the 2026-10-C0 publication. The DeepSeek-R1 and
+        GPT-OSS-120B heads are carried over from legacy submissions and recorded with them, so
+        that 2026-10-C1 submissions can use them.
         """
         cohorts = {
             d.model_id: d.approved_cohort for ds in load_approved_drafters().values() for d in ds

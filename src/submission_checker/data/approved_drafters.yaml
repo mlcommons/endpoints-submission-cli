@@ -4,7 +4,8 @@
 # published in the reference repository and versioned per submission round. The
 # agentic benchmarks' list is published in mlcommons/endpoints
 # examples/10_Agentic_Inference/README.md, "Approved Checkpoints and
-# Speculative-Decoding Heads"; the entries below transcribe it. A benchmark absent
+# Speculative-Decoding Heads"; the entries below transcribe it. The DeepSeek-R1 and
+# gpt-oss-120b entries are carried over from legacy submissions. A benchmark absent
 # here still has no approved drafter, so speculative decoding stays disallowed for it.
 #
 # Override with `--approved-drafters FILE` or $MLPERF_ENDPOINTS_APPROVED_DRAFTERS
@@ -41,6 +42,11 @@
 #   2026-10-C0. The two-cohort approval lead time makes these entries eligible starting
 #   with target cohort 2026-10-C1.
 #   Future entries record their own approval cohorts alongside these entries.
+# - The DeepSeek-R1 and gpt-oss-120b entries are carried over from legacy submissions
+#   as task-force seed entries (§2.9.4: "the benchmark task force seeds the list with
+#   ≥ 1 approved head/drafter per benchmark model"). They are recorded with the other
+#   initial approvals in 2026-09-C1, so they are eligible starting with target cohort
+#   2026-10-C1.
 
 drafters:
   # Kimi K3: separately published DSpark heads (endpoints#494).
@@ -72,3 +78,23 @@ drafters:
     approved_cohort: 2026-09-C1
     model_id: nvidia/Qwen3.6-35B-A3B-NVFP4
     weight_checksum: git-sha1:1355db6a052410cfd62085d94b58866fd0f2c3c5
+
+  # DeepSeek-R1: the native MTP head (layer 61) in each approved checkpoint, carried
+  # over from legacy submissions. The NVFP4 checkpoint is post-training quantized on the
+  # MLPerf Inference deepseek-r1 calibration set and keeps the MTP layer.
+  - benchmark: deepseek-r1
+    approved_cohort: 2026-09-C1
+    model_id: deepseek-ai/DeepSeek-R1
+    weight_checksum: git-sha1:56d4cbbb4d29f4355bab4b9a39ccb717a14ad5ad
+  - benchmark: deepseek-r1
+    approved_cohort: 2026-09-C1
+    model_id: centml/DeepSeek-R1-NVFP4-v2-mlpinf
+    weight_checksum: git-sha1:93947a0d7bd04f73ff98636f6b18ff5839e7aaf9
+
+  # gpt-oss-120b: a separately published EAGLE3 head, carried over from legacy
+  # submissions. This is the repository nvidia/gpt-oss-120b-Eagle3 redirects to; the
+  # head is unquantized (hf_quant_config.json quant_algo: null).
+  - benchmark: gpt-oss-120b
+    approved_cohort: 2026-09-C1
+    model_id: nvidia/gpt-oss-120b-Eagle3-long-context
+    weight_checksum: git-sha1:633caf45f31288cbb70ee237f7c939db707ecc94
