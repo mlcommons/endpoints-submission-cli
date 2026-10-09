@@ -192,9 +192,15 @@ class SystemDescription(BaseModel):
 
     # Org / submission metadata. §8.2 moved these out of the system description in
     # v1.0; still read when present because the existing corpus carries them.
+    #
+    # ``submission_id`` is deliberately not declared. The submission pipeline assigns
+    # it (§8.5) and the bundle records it only as the ``<submission_id>/`` directory
+    # (§8.1). Declaring it made ``model_dump`` write ``"submission_id": null`` into
+    # every bundled system_desc.json, and typed it so a v0.7 numeric id failed
+    # validation. Left undeclared, ``extra="allow"`` still parses a leftover key of
+    # any type; the builder drops it and the consistency check ignores it.
     submitter_org_names: str | None = None
     submitter_contact: str | None = None
-    submission_id: str | None = None
     submission_date: str | None = None
     publish_date: str | None = None
 
