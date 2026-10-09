@@ -115,11 +115,12 @@ class TestBuildSubmissionFolder:
         assert data["division"] == "Standardized"
         assert "node_types" in data
 
-    @pytest.mark.parametrize("leftover", [None, "v07-submission-abc", 1234])
-    def test_system_desc_carries_no_submission_id(
-        self, run_folder: Path, tmp_path: Path, leftover: object
+    @pytest.mark.parametrize("field", ["submission_id", "submission_date", "publish_date"])
+    @pytest.mark.parametrize("leftover", [None, "v07-leftover", 1234])
+    def test_system_desc_carries_no_pipeline_assigned_field(
+        self, run_folder: Path, tmp_path: Path, field: str, leftover: object
     ) -> None:
-        """§8.5: the id is the <submission_id>/ directory, never a system_desc.json key.
+        """§8.2: the pipeline assigns these, so they are never system_desc.json keys.
 
         ``None`` means the run's file has no key at all: the builder must not add one.
         Otherwise a leftover from a v0.7 template is dropped rather than published.
@@ -127,7 +128,7 @@ class TestBuildSubmissionFolder:
         if leftover is not None:
             sd_path = run_folder / "system_desc.json"
             sd = json.loads(sd_path.read_text())
-            sd_path.write_text(json.dumps({**sd, "submission_id": leftover}))
+            sd_path.write_text(json.dumps({**sd, field: leftover}))
         archive = tmp_path / "run.tar.gz"
         with tarfile.open(archive, "w:gz") as tar:
             tar.add(run_folder, arcname=run_folder.name)
@@ -137,7 +138,7 @@ class TestBuildSubmissionFolder:
             )
         )
         (written,) = sub_dir.rglob("system_desc.json")
-        assert "submission_id" not in json.loads(written.read_text())
+        assert field not in json.loads(written.read_text())
 
     def test_point_yaml_created(self, run_archive: Path, tmp_path: Path) -> None:
         sub_dir = build_submission_folder(
