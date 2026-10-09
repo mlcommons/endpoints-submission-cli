@@ -128,6 +128,12 @@ _PER_POINT_SYSTEM_DESC_FIELDS = frozenset(
     }
 )
 
+#: Keys of ``system_desc.json`` that are not §8.2 fields and are never compared.
+#: ``submission_id`` is assigned by the pipeline (§8.5) and lives in the
+#: ``<submission_id>/`` directory name (§8.1); a copy left in a submitter's file from
+#: a v0.7 template says nothing about the system, so differing copies are not flagged.
+_IGNORED_SYSTEM_DESC_FIELDS = frozenset({"submission_id"})
+
 #: §4.5 scope: "Power normalization applies to all Standardized division submissions
 #: … RDI submissions MAY report normalized throughput but are not required to", and
 #: Serviced normalisation "will be introduced in a later version".
@@ -185,7 +191,11 @@ class _SystemFacts:
 
 def _system_desc_identity(data: dict[str, object]) -> dict[str, object]:
     """Strip the fields that legitimately vary between points of the same curve."""
-    return {k: v for k, v in data.items() if k not in _PER_POINT_SYSTEM_DESC_FIELDS}
+    return {
+        k: v
+        for k, v in data.items()
+        if k not in _PER_POINT_SYSTEM_DESC_FIELDS and k not in _IGNORED_SYSTEM_DESC_FIELDS
+    }
 
 
 def _read_json(path: Path) -> dict[str, object] | None:
