@@ -533,6 +533,12 @@ keeps the Offline requirement in force rather than letting one mislabelled point
 it off.
 
 
+Accuracy is **required** once per mandatory region, not at every point:
+`accuracy-coverage` asks for one result in each of the four mandatory bands (plus the
+Offline point for a non-agentic benchmark), and a band with several points needs only
+one of them to carry accuracy. The gates below then judge whatever results a submission
+includes, so every result present must clear.
+
 Accuracy is gated differently too. §15's gate folds every dataset of a point into one
 sample-weighted score per metric; the agentic benchmarks gate three quantities that do
 not reduce that way, so for a recognised agentic model it stands down in favour of the
@@ -540,7 +546,7 @@ three rules above:
 
 | Quantity | Source | Aggregation |
 |---|---|---|
-| Inline accuracy | `agentic_combined` in the accuracy results | per point — every point must clear |
+| Inline accuracy | the `dataset_type: performance` entry in the accuracy results (named `performance` by the client) | each result on its own — every point that carries one must clear. Only one accuracy run per mandatory region is required (`accuracy-coverage`); points without one are not gated |
 | SWE-bench accuracy | `swe_bench` in the accuracy results | **mean-of-4** across the mandatory regions (§4.3's multi-turn branch) |
 | OSL per-turn mean | `output_sequence_lengths_full_run.output_sequence_lengths.avg` in `result_summary.json` | per point, against a range |
 

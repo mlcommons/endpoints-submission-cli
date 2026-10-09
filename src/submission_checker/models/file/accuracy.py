@@ -10,9 +10,14 @@ from pydantic import PrivateAttr, RootModel, model_validator
 from ...messages import Invalid
 from ..results import CheckResult, err
 
-__all__ = ["AccuracyResult"]
+__all__ = ["PERFORMANCE_DATASET_TYPE", "AccuracyResult"]
 
 _log = logging.getLogger(__name__)
+
+#: ``dataset_type`` of the entry the client scores inline on the performance run
+#: (``accuracy_config`` on the performance dataset). The client also names that entry
+#: ``performance``, whatever the performance dataset is called in ``config.yaml``.
+PERFORMANCE_DATASET_TYPE = "performance"
 
 
 class AccuracyResult(RootModel[dict[str, dict[str, Any]]]):
@@ -78,6 +83,33 @@ class AccuracyResult(RootModel[dict[str, dict[str, Any]]]):
         if not self.root:
             self._check_results.append(err("accuracy-valid", "fail", None))
         return self
+
+    @model_validator(mode="after")
+    def _check_one_performance_entry(self) -> AccuracyResult:
+        """The client scores the performance run once, so it writes one such entry."""
+        typed = [
+            name
+            for name, entry in self.root.items()
+            if entry.get("dataset_type") == PERFORMANCE_DATASET_TYPE
+        ]
+        if len(typed) > 1:
+            raise Invalid("accuracy-valid", "performance-duplicate", names=", ".join(typed))
+        return self
+
+    def performance_dataset(self) -> str | None:
+        """Name of the entry scored inline on the performance run, or ``None``.
+
+        Found by ``dataset_type``, as the client asks of consumers: an accuracy dataset
+        may itself be named ``performance``. Clients that predate ``dataset_type``
+        wrote the name alone, so an untyped ``performance`` entry still counts.
+        """
+        for name, entry in self.root.items():
+            if entry.get("dataset_type") == PERFORMANCE_DATASET_TYPE:
+                return name
+        legacy = self.root.get(PERFORMANCE_DATASET_TYPE)
+        if legacy is not None and "dataset_type" not in legacy:
+            return PERFORMANCE_DATASET_TYPE
+        return None
 
     #: Per-entry bookkeeping keys that are not accuracy metrics.
     _META_KEYS = frozenset(

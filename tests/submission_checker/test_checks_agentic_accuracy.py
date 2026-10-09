@@ -38,7 +38,11 @@ def _accuracy(
     scale = 1.0 if raw else 0.01
     root: dict[str, dict[str, object]] = {}
     if inline is not None:
-        root["agentic_combined"] = {"score": inline * scale, "num_samples": 613}
+        root["performance"] = {
+            "score": inline * scale,
+            "num_samples": 613,
+            "dataset_type": "performance",
+        }
     if swebench is not None:
         root["swe_bench"] = {"score": swebench * scale, "num_samples": 200}
     return AccuracyResult(root)
@@ -180,6 +184,48 @@ class TestInlineAccuracy:
         ctx = _ctx(tmp_path, accuracy_by_point={16: _accuracy(swebench=95.0)})
         hits = _hits(ctx, "agentic-accuracy-inline")
         assert hits and hits[0].severity == Severity.WARNING
+
+
+@pytest.mark.unit
+class TestInlineEntry:
+    """Which accuracy entry carries the inline score."""
+
+    def test_native_client_report_is_gated(self, tmp_path: Path) -> None:
+        """The client's own shape: a list entry named and typed ``performance``."""
+        report = AccuracyResult.model_validate(
+            {
+                "accuracy_scores": [
+                    {"dataset_name": "swe_bench", "score": 0.715, "dataset_type": "accuracy"},
+                    {"dataset_name": "performance", "score": 0.50, "dataset_type": "performance"},
+                ]
+            }
+        )
+        ctx = _ctx(tmp_path, model_name="qwen3_6-35b-a3b", accuracy_by_point={16: report})
+        errors = _errors(ctx, "agentic-accuracy-inline")
+        assert errors and "50.00 <" in errors[0].message
+
+    def test_found_by_type_not_name(self, tmp_path: Path) -> None:
+        report = AccuracyResult({"agentic_coding": {"score": 0.50, "dataset_type": "performance"}})
+        ctx = _ctx(tmp_path, accuracy_by_point={16: report})
+        assert _errors(ctx, "agentic-accuracy-inline")
+
+    def test_untyped_performance_entry_is_read(self, tmp_path: Path) -> None:
+        """Clients that predate ``dataset_type`` wrote the name alone."""
+        report = AccuracyResult({"performance": {"score": 0.50}})
+        ctx = _ctx(tmp_path, accuracy_by_point={16: report})
+        assert _errors(ctx, "agentic-accuracy-inline")
+
+    def test_accuracy_dataset_named_performance_is_not_inline(self, tmp_path: Path) -> None:
+        report = AccuracyResult({"performance": {"score": 0.50, "dataset_type": "accuracy"}})
+        ctx = _ctx(tmp_path, accuracy_by_point={16: report})
+        hits = _hits(ctx, "agentic-accuracy-inline")
+        assert [h.severity for h in hits] == [Severity.WARNING]
+
+    def test_untyped_entry_under_another_name_is_not_inline(self, tmp_path: Path) -> None:
+        report = AccuracyResult({"agentic_combined": {"score": 0.50}})
+        ctx = _ctx(tmp_path, accuracy_by_point={16: report})
+        hits = _hits(ctx, "agentic-accuracy-inline")
+        assert [h.severity for h in hits] == [Severity.WARNING]
 
 
 @pytest.mark.unit

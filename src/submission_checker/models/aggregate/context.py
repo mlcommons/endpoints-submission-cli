@@ -13,14 +13,13 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from ...accuracy_targets import get_thresholds
 from ...agentic_targets import (
-    INLINE_DATASET,
     OSL_FULL_RUN_FIELD,
     SWEBENCH_DATASET,
     SWEBENCH_MEAN_OF_N,
     AgenticTargets,
     get_agentic_targets,
 )
-from ..file.accuracy import AccuracyResult
+from ..file.accuracy import PERFORMANCE_DATASET_TYPE, AccuracyResult
 from ..file.point_config import (
     LOAD_PATTERN_AGENTIC,
     OFFLINE_DEDICATED,
@@ -657,11 +656,22 @@ class ModelContext(BaseModel):
         return self
 
     def _gate_agentic_inline(self, targets: AgenticTargets) -> None:
-        """Inline accuracy, per point: "Every … submitted Pareto point must satisfy"."""
+        """Inline accuracy, at each point that reports it.
+
+        "Every … submitted Pareto point must satisfy" applies to the results submitted.
+        Points without one are skipped; that one result per mandatory region exists is
+        ``accuracy-coverage``'s check.
+
+        Read from the entry scored on the performance run, which the client names
+        ``performance`` rather than after the performance dataset.
+        """
         assert targets.inline_min is not None
         seen = False
         for concurrency in sorted(self.accuracy_by_point):
-            score = self._dataset_score(concurrency, INLINE_DATASET, "agentic-accuracy-inline")
+            dataset = self.accuracy_by_point[concurrency].performance_dataset()
+            if dataset is None:
+                continue
+            score = self._dataset_score(concurrency, dataset, "agentic-accuracy-inline")
             if score is None:
                 continue
             seen = True
@@ -694,7 +704,7 @@ class ModelContext(BaseModel):
                     "agentic-accuracy-inline",
                     "warn",
                     self.points_dir,
-                    inline_dataset=INLINE_DATASET,
+                    performance_dataset_type=PERFORMANCE_DATASET_TYPE,
                 )
             )
 

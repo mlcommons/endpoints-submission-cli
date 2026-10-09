@@ -114,6 +114,8 @@ accuracy-valid:
     entry-not-mapping: each accuracy_scores entry must be an object
     entry-unnamed: each accuracy_scores entry needs a non-empty dataset_name
     dataset-duplicate: dataset {name!r} appears more than once
+    performance-duplicate: 'more than one entry has dataset_type: performance ({names}); the client scores
+      the performance run once'
     score-missing: dataset {name!r} has no score
     alias-conflict:
       text: dataset {name!r} gives {native} and {canonical} different values
@@ -130,8 +132,9 @@ agentic-accuracy-inline:
   title: Agentic accuracy inline
   spec: §4.3
   messages:
-    warn: 'No point reports a `{inline_dataset}` accuracy score; official agentic submissions set `accuracy_config.eval_method:
-      agentic_inference_inline` on the performance dataset'
+    warn: 'No point reports an inline accuracy score (an accuracy entry with `dataset_type: {performance_dataset_type}`);
+      official agentic submissions set `accuracy_config.eval_method: agentic_inference_inline` on the performance
+      dataset'
     fail: 'r{concurrency}: inline accuracy {score:.2f} < {inline_min} required for {targets_name}'
     pass: 'r{concurrency}: inline accuracy {score:.2f} ≥ {inline_min}'
 agentic-accuracy-swebench:
