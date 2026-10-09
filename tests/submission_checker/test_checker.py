@@ -420,16 +420,17 @@ class TestCheckerEdgeCases:
         report = _check(root)
         assert not _errors(report, "system-description-consistency")
 
-    @pytest.mark.parametrize("leftover", ["v07-submission-abc", 1234])
-    def test_leftover_submission_id_is_not_flagged(self, tmp_path, leftover):
-        """§8.5: the pipeline assigns the submission ID, so a stale copy is ignored.
+    @pytest.mark.parametrize("field", ["submission_id", "submission_date", "publish_date"])
+    @pytest.mark.parametrize("leftover", ["v07-leftover", 1234])
+    def test_leftover_pipeline_assigned_field_is_not_flagged(self, tmp_path, field, leftover):
+        """§8.2: the pipeline assigns these, so a stale copy is ignored.
 
-        Covers both ways it used to fail: a v0.7 numeric id was a schema error, and
-        points carrying different ids failed the consistency check.
+        Covers both ways it used to fail: a v0.7 numeric value was a schema error, and
+        points carrying different values failed the consistency check.
         """
-        root = _build_submission(tmp_path, system_desc={**_SYSTEM_DESC, "submission_id": leftover})
+        root = _build_submission(tmp_path, system_desc={**_SYSTEM_DESC, field: leftover})
         changed = root / "results" / "test-sys" / "llama3-70b" / "r88" / "system_desc.json"
-        changed.write_text(json.dumps({**_SYSTEM_DESC, "submission_id": "another-id"}))
+        changed.write_text(json.dumps({**_SYSTEM_DESC, field: "another-value"}))
         report = _check(root)
         assert not _errors(report, "system-description-consistency")
         assert not _errors(report, "system-description-valid")
