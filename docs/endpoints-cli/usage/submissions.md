@@ -105,7 +105,9 @@ when it is created, with `--publication-mode`. The mode cannot be changed afterw
 
 The mode and embargo are checked before anything is downloaded, and the embargo must be
 in the future. It can be moved later with `submissions update --embargo-date`, but not
-removed, and it cannot be added to a `confidential` submission.
+removed, and a submission created without one cannot gain one (Submission Rules §4.2).
+A `provisional` embargo also cannot be moved once it has lifted, since the result is
+then public.
 
 There is no publication-cycle flag. Nobody picks a cycle at submit time: the lifecycle manager publishes a finalized submission on the first publication date after it is finalized, later if it is under embargo or carries non-response penalties, and records the cycle it published in.
 
@@ -266,7 +268,7 @@ endpoints-submission-cli submissions update \
 | `--token TOKEN` | no | API key. |
 | `--run-ids RUN_ID` | no (repeatable) | Replace the complete run list. Pass once per run. Runs not listed are removed. |
 | `--target-availability-date DATE` | no | Target availability date (`YYYY-MM-DD`). |
-| `--embargo-date DATETIME` | no | Move the embargo, ISO 8601 with a UTC offset. Only for a `confidential_embargoed` or `provisional` submission; a confidential submission cannot gain one, because the publication mode is fixed at submission. |
+| `--embargo-date DATETIME` | no | Move the embargo declared at submission, ISO 8601 with a UTC offset. A submission created without one cannot gain one, and a `provisional` embargo cannot be moved once it has lifted. |
 
 Providing no flags prints a warning and makes no API call.
 

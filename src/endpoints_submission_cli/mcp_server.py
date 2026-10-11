@@ -399,8 +399,9 @@ def update_submission(
         submission_id: The submission's UUID.
         run_ids: Replaces the submission's whole run list.
         target_availability_date: ``YYYY-MM-DD``.
-        embargo_date: Move the embargo, ISO 8601 with a UTC offset. Only for a submission
-            ``confidential_embargoed`` or ``provisional``; a confidential one cannot gain one.
+        embargo_date: Move the embargo declared at submission, ISO 8601 with a UTC offset.
+            A submission created without one cannot gain one, and a ``provisional``
+            submission's embargo cannot be moved once it has lifted.
     """
     return _run_text(
         "submissions",

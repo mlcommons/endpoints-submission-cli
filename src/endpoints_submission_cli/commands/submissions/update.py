@@ -52,9 +52,9 @@ def _rollback_update(token: str, submission_id: str, original_run_ids: list[str]
     "--embargo-date",
     default=None,
     help=(
-        "Move the embargo, ISO 8601 with a UTC offset (no offset = UTC). Only for a "
-        "confidential_embargoed or provisional submission: the publication mode is fixed "
-        "at submission, so a confidential submission cannot gain one."
+        "Move the embargo declared at submission, ISO 8601 with a UTC offset (no offset = "
+        "UTC). A submission created without one cannot gain one, and a provisional "
+        "submission's embargo cannot be moved once it has lifted (its result is public)."
     ),
 )
 def submissions_update(
