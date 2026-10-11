@@ -21,9 +21,12 @@ from ...submissions.builder import (
     set_submission_id,
 )
 from ..common import (
+    PUBLICATION_MODES,
+    _check_publication_mode,
     _confirm_provisional,
     _console,
     _get_token,
+    _normalize_embargo,
     _run_submission_checker,
     _write_cli_metadata,
 )
@@ -83,12 +86,16 @@ __all__ = ["submissions_create"]
     ),
 )
 @click.option(
-    "--provisional",
-    is_flag=True,
-    default=False,
+    "--publication-mode",
+    type=click.Choice(PUBLICATION_MODES),
+    default="confidential",
+    show_default=True,
     help=(
-        "Request provisional publication: results become publicly viewable on the "
-        "visualizer during the next cohort with a 'peer review pending' disclaimer."
+        "Submission Rules §6.2, fixed once submitted. confidential: public only after "
+        "review. confidential_embargoed: public only after review, and not before "
+        "--embargo-date (required). provisional: public during review with a 'peer "
+        "review pending' disclaimer, once automated compliance passes or from "
+        "--embargo-date if given; asks for confirmation."
     ),
 )
 @click.option(
@@ -97,7 +104,7 @@ __all__ = ["submissions_create"]
     "assume_yes",
     is_flag=True,
     default=False,
-    help="Skip the --provisional confirmation prompt (for non-interactive use).",
+    help="Skip the provisional publication confirmation prompt (for non-interactive use).",
 )
 @click.option(
     "--target-availability-date",
@@ -107,7 +114,12 @@ __all__ = ["submissions_create"]
 @click.option(
     "--embargo-date",
     default=None,
-    help="Embargo datetime in ISO 8601 format (e.g. 2025-12-01T00:00:00).",
+    help=(
+        "Embargo, ISO 8601 with a UTC offset (e.g. 2026-12-01T16:00:00Z; no offset = UTC). "
+        "Required for confidential_embargoed, where the finalized result is not published "
+        "before it (Submission Rules §6.2.2). Optional for provisional, where the "
+        "provisional result is not public before it (§6.2.3). Not allowed for confidential."
+    ),
 )
 @click.option(
     "--dry-run",
@@ -130,7 +142,7 @@ def submissions_create(
     run_ids: tuple[str, ...],
     shared_src_dirs: tuple[Path, ...],
     shared_docs_dirs: tuple[Path, ...],
-    provisional: bool,
+    publication_mode: str,
     assume_yes: bool,
     target_availability_date: str | None,
     embargo_date: str | None,
@@ -147,9 +159,18 @@ def submissions_create(
       5. Upload the submission bundle.
     """
     run_ids_list = list(run_ids)
-    # Ask before any downloads — a declined prompt should cost nothing.
-    if provisional and not dry_run:
-        _confirm_provisional(assume_yes)
+    # Validate and ask before any downloads — a typo or a declined prompt should cost nothing.
+    _check_publication_mode(publication_mode, embargo_date)
+    if embargo_date:
+        embargo_date = _normalize_embargo(embargo_date, require_future=True)
+    if publication_mode == "provisional" and not dry_run:
+        _confirm_provisional(assume_yes, embargo_date)
+    elif publication_mode == "confidential_embargoed":
+        _console.print(
+            "[cyan]Publication mode: confidential review with embargoed publication. "
+            "Results stay confidential during review and are not published before "
+            f"{embargo_date}.[/cyan]"
+        )
     resolved_token = _get_token(token)
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -218,8 +239,7 @@ def submissions_create(
             "availability": availability,
             "run_ids": run_ids_list,
             "is_test": is_test,
-            # Wire field is still early_publish — the API schema has not been renamed.
-            "early_publish": provisional,
+            "publication_mode": publication_mode,
         }
         if target_availability_date:
             payload["target_availability_date"] = target_availability_date

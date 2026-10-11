@@ -20,6 +20,7 @@ from ...submissions.formatters import print_submission_detail
 from ..common import (
     _console,
     _get_token,
+    _normalize_embargo,
     _run_submission_checker,
     _write_cli_metadata,
 )
@@ -50,7 +51,11 @@ def _rollback_update(token: str, submission_id: str, original_run_ids: list[str]
 @click.option(
     "--embargo-date",
     default=None,
-    help="Embargo datetime in ISO 8601 format (e.g. 2025-12-01T00:00:00).",
+    help=(
+        "Move the embargo, ISO 8601 with a UTC offset (no offset = UTC). Only for a "
+        "confidential_embargoed or provisional submission: the publication mode is fixed "
+        "at submission, so a confidential submission cannot gain one."
+    ),
 )
 def submissions_update(
     submission_id: str,
@@ -69,6 +74,9 @@ def submissions_update(
     would add one is rejected.
     """
     resolved_token = _get_token(token)
+    if embargo_date is not None:
+        # A past date is allowed here: moving the embargo up is how a submitter lifts it.
+        embargo_date = _normalize_embargo(embargo_date, require_future=False)
 
     if not run_ids and target_availability_date is None and embargo_date is None:
         _console.print("[yellow]Nothing to update — provide at least one field.[/yellow]")

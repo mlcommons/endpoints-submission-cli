@@ -51,7 +51,7 @@ after they agree.
 | Delete a run | `runs delete --run-id <uuid>` | Irreversible: deletes the stored archive |
 | Pin / unpin a run | `runs pin --run-id <uuid>` / `runs unpin --run-id <uuid>` | |
 
-Never add `--yes` to `submissions create --provisional` on the user's behalf: it skips
+Never add `--yes` to `submissions create --publication-mode provisional` on the user's behalf: it skips
 the confirmation that provisional results become publicly viewable.
 
 Use `--test` on `runs create` and `submissions create` when the user is trying things

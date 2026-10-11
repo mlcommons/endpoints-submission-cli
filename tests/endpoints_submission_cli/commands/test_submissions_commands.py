@@ -30,6 +30,11 @@ _PR_NUMBER = 42
 _runner = CliRunner()
 
 
+def _flat(output: str) -> str:
+    """Output with whitespace collapsed, so Rich's line wrapping doesn't split a phrase."""
+    return " ".join(output.split())
+
+
 def _run_app(*args: str) -> None:
     """Invoke the app and assert exit code 0."""
     result = _runner.invoke(app, list(args))
@@ -1042,6 +1047,8 @@ class TestSubmissionsRemoveRun:
 
 
 _PROMPT_TEXT = "Would you like to continue?"
+_PROVISIONAL = ["--publication-mode", "provisional"]
+_EMBARGOED = ["--publication-mode", "confidential_embargoed"]
 _WARNING_TEXT = "publicly viewable on the visualizer"
 
 
@@ -1085,7 +1092,7 @@ def _patched_create(tmp_path: Path):
 
 @pytest.mark.unit
 class TestProvisionalConfirmation:
-    """`--provisional` must be confirmed before anything is submitted."""
+    """`--publication-mode provisional` must be confirmed before anything is submitted."""
 
     _CREATE_ARGS = [
         "submissions",
@@ -1106,11 +1113,12 @@ class TestProvisionalConfirmation:
             result = _runner.invoke(app, self._CREATE_ARGS)
         assert result.exit_code == 0, result.output
         assert _PROMPT_TEXT not in result.output
-        assert mock_create.call_args[0][1]["early_publish"] is False
+        assert mock_create.call_args[0][1]["publication_mode"] == "confidential"
+        assert "early_publish" not in mock_create.call_args[0][1]
 
     def test_declining_prompt_exits_1_without_downloading(self, tmp_path: Path) -> None:
         with _patched_create(tmp_path) as mock_create:
-            result = _runner.invoke(app, [*self._CREATE_ARGS, "--provisional"], input="n\n")
+            result = _runner.invoke(app, [*self._CREATE_ARGS, *_PROVISIONAL], input="n\n")
         assert result.exit_code == 1
         assert _WARNING_TEXT in result.output
         assert "peer review pending" in result.output
@@ -1118,32 +1126,160 @@ class TestProvisionalConfirmation:
 
     def test_accepting_prompt_sets_flag(self, tmp_path: Path) -> None:
         with _patched_create(tmp_path) as mock_create:
-            result = _runner.invoke(app, [*self._CREATE_ARGS, "--provisional"], input="y\n")
+            result = _runner.invoke(app, [*self._CREATE_ARGS, *_PROVISIONAL], input="y\n")
         assert result.exit_code == 0, result.output
         assert _PROMPT_TEXT in result.output
-        assert mock_create.call_args[0][1]["early_publish"] is True
+        assert "as soon as the automated compliance checks pass" in _flat(result.output)
+        assert mock_create.call_args[0][1]["publication_mode"] == "provisional"
 
     def test_empty_answer_declines(self, tmp_path: Path) -> None:
         """The prompt defaults to "no" — a bare Enter must not publish."""
         with _patched_create(tmp_path) as mock_create:
-            result = _runner.invoke(app, [*self._CREATE_ARGS, "--provisional"], input="\n")
+            result = _runner.invoke(app, [*self._CREATE_ARGS, *_PROVISIONAL], input="\n")
         assert result.exit_code == 1
         mock_create.assert_not_called()
 
     def test_yes_flag_skips_prompt(self, tmp_path: Path) -> None:
         with _patched_create(tmp_path) as mock_create:
-            result = _runner.invoke(app, [*self._CREATE_ARGS, "--provisional", "--yes"])
+            result = _runner.invoke(app, [*self._CREATE_ARGS, *_PROVISIONAL, "--yes"])
         assert result.exit_code == 0, result.output
         assert _PROMPT_TEXT not in result.output
         assert _WARNING_TEXT in result.output
-        assert mock_create.call_args[0][1]["early_publish"] is True
+        assert mock_create.call_args[0][1]["publication_mode"] == "provisional"
 
     def test_dry_run_skips_prompt(self, tmp_path: Path) -> None:
         with _patched_create(tmp_path) as mock_create:
-            result = _runner.invoke(app, [*self._CREATE_ARGS, "--provisional", "--dry-run"])
+            result = _runner.invoke(app, [*self._CREATE_ARGS, *_PROVISIONAL, "--dry-run"])
         assert result.exit_code == 0, result.output
         assert _PROMPT_TEXT not in result.output
         mock_create.assert_not_called()
+
+
+@pytest.mark.unit
+class TestPublicationMode:
+    """--publication-mode declares one of the three modes of rules §6.2; the embargo must fit it."""
+
+    _CREATE_ARGS = TestProvisionalConfirmation._CREATE_ARGS
+    _FUTURE = "2099-01-06T16:00:00Z"
+
+    def test_embargo_alone_is_confidential_embargoed(self, tmp_path: Path) -> None:
+        with _patched_create(tmp_path) as mock_create:
+            result = _runner.invoke(
+                app, [*self._CREATE_ARGS, *_EMBARGOED, "--embargo-date", self._FUTURE]
+            )
+        assert result.exit_code == 0, result.output
+        assert _PROMPT_TEXT not in result.output
+        assert "not published before 2099-01-06T16:00:00+00:00" in _flat(result.output)
+        payload = mock_create.call_args[0][1]
+        assert payload["publication_mode"] == "confidential_embargoed"
+        assert payload["embargo_date"] == "2099-01-06T16:00:00+00:00"
+
+    def test_provisional_with_embargo(self, tmp_path: Path) -> None:
+        with _patched_create(tmp_path) as mock_create:
+            result = _runner.invoke(
+                app,
+                [*self._CREATE_ARGS, *_PROVISIONAL, "--embargo-date", self._FUTURE],
+                input="y\n",
+            )
+        assert result.exit_code == 0, result.output
+        assert "from the embargo date, 2099-01-06T16:00:00+00:00" in _flat(result.output)
+        payload = mock_create.call_args[0][1]
+        assert payload["publication_mode"] == "provisional"
+
+    def test_embargo_without_offset_is_sent_as_utc(self, tmp_path: Path) -> None:
+        with _patched_create(tmp_path) as mock_create:
+            result = _runner.invoke(
+                app, [*self._CREATE_ARGS, *_EMBARGOED, "--embargo-date", "2099-01-06T16:00:00"]
+            )
+        assert result.exit_code == 0, result.output
+        assert "taking it as UTC" in _flat(result.output)
+        assert mock_create.call_args[0][1]["embargo_date"] == "2099-01-06T16:00:00+00:00"
+
+    def test_embargo_offset_is_kept(self, tmp_path: Path) -> None:
+        with _patched_create(tmp_path) as mock_create:
+            result = _runner.invoke(
+                app,
+                [*self._CREATE_ARGS, *_EMBARGOED, "--embargo-date", "2099-01-06T08:00:00-08:00"],
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_create.call_args[0][1]["embargo_date"] == "2099-01-06T08:00:00-08:00"
+
+    @pytest.mark.parametrize(
+        ("value", "message"),
+        [("next tuesday", "Invalid --embargo-date"), ("2020-01-01T00:00:00Z", "not in the future")],
+    )
+    def test_bad_embargo_exits_before_downloading(
+        self, tmp_path: Path, value: str, message: str
+    ) -> None:
+        with _patched_create(tmp_path) as mock_create:
+            with patch("endpoints_submission_cli.runs.api.download_run_archive") as mock_download:
+                result = _runner.invoke(
+                    app, [*self._CREATE_ARGS, *_EMBARGOED, "--embargo-date", value]
+                )
+        assert result.exit_code == 1
+        assert message in _flat(result.output)
+        mock_download.assert_not_called()
+        mock_create.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("args", "message"),
+        [
+            (["--embargo-date", "2099-01-06T16:00:00Z"], "--embargo-date needs"),
+            (_EMBARGOED, "requires --embargo-date"),
+        ],
+        ids=["confidential-with-embargo", "embargoed-without-embargo"],
+    )
+    def test_embargo_must_fit_mode(self, tmp_path: Path, args: list[str], message: str) -> None:
+        with _patched_create(tmp_path) as mock_create:
+            with patch("endpoints_submission_cli.runs.api.download_run_archive") as mock_download:
+                result = _runner.invoke(app, [*self._CREATE_ARGS, *args])
+        assert result.exit_code == 1
+        assert message in _flat(result.output)
+        mock_download.assert_not_called()
+        mock_create.assert_not_called()
+
+    def test_provisional_flag_is_gone(self, tmp_path: Path) -> None:
+        """Replaced by --publication-mode provisional; no alias is kept."""
+        with _patched_create(tmp_path) as mock_create:
+            result = _runner.invoke(app, [*self._CREATE_ARGS, "--provisional"])
+        assert result.exit_code == 2
+        mock_create.assert_not_called()
+
+    def test_update_normalizes_embargo_and_allows_past(self) -> None:
+        """Moving the embargo up, even into the past, is how a submitter lifts it."""
+        with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
+            with patch(
+                "endpoints_submission_cli.submissions.api.update_submission",
+                return_value=SUBMISSION_OUT,
+            ) as mock_patch:
+                _run_app(
+                    "submissions",
+                    "update",
+                    "--submission-id",
+                    SUBMISSION_ID,
+                    "--embargo-date",
+                    "2020-01-01T00:00:00",
+                    *_TOKEN_ARGS,
+                )
+        assert mock_patch.call_args[0][2] == {"embargo_date": "2020-01-01T00:00:00+00:00"}
+
+    def test_update_rejects_unparseable_embargo(self) -> None:
+        with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
+            with patch("endpoints_submission_cli.submissions.api.update_submission") as mock_patch:
+                result = _runner.invoke(
+                    app,
+                    [
+                        "submissions",
+                        "update",
+                        "--submission-id",
+                        SUBMISSION_ID,
+                        "--embargo-date",
+                        "soon",
+                        *_TOKEN_ARGS,
+                    ],
+                )
+        assert result.exit_code == 1
+        mock_patch.assert_not_called()
 
 
 class TestNoPublicationCycleFlag:

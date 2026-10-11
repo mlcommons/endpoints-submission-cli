@@ -252,26 +252,46 @@ review (`REVIEW_PENDING`) on its next run.
 ```bash
 endpoints-submission-cli submissions create \
   --division    DIVISION \
+  --scenario    SCENARIO \
   --availability AVAILABILITY \
   --run-ids     RUN_ID_1 \
   --run-ids     RUN_ID_2 \
   [--token TOKEN] \
-  [--provisional] \
+  [--publication-mode MODE] \
   [--yes] \
-  [--target-availability-date DATE]
+  [--target-availability-date DATE] \
+  [--embargo-date DATETIME] \
+  [--dry-run]
 ```
 
 | Flag | Required | Description |
 |------|----------|-------------|
 | `--division` | yes | `standardized`, `serviced`, or `rdi` |
+| `--scenario` | yes | `cop` (Client-on-Premises) or `con` (Client-over-Network) |
 | `--availability` | yes | `available`, `preview`, or `rdi` |
 | `--run-ids RUN_ID` | yes (repeatable) | Run UUID(s) to include; pass the flag once per run |
 | `--token TOKEN` | no | API token |
-| `--provisional` | no | Request provisional publication (default: false). Results become publicly viewable on the visualizer during the next cohort with a `peer review pending` disclaimer. Prompts for confirmation before submitting |
-| `--yes`, `-y` | no | Skip the `--provisional` confirmation prompt (for non-interactive use) |
+| `--publication-mode MODE` | no | `confidential` (default), `confidential_embargoed` or `provisional`; Submission Rules §6.2, fixed once submitted. `provisional` asks for confirmation first. See [Publication modes](#publication-modes). |
+| `--yes`, `-y` | no | Skip the provisional publication confirmation prompt (for non-interactive use) |
 | `--target-availability-date DATE` | no | `YYYY-MM-DD`; required when availability is `preview` |
-| `--embargo-date DATETIME` | no | Embargo datetime in ISO 8601 format (e.g. `2025-12-01T00:00:00`) |
+| `--embargo-date DATETIME` | no | Embargo, ISO 8601 with a UTC offset (e.g. `2026-12-01T16:00:00Z`; no offset is taken as UTC). Required for `confidential_embargoed`, optional for `provisional`, not allowed for `confidential`. |
 | `--dry-run` | no | Assemble folder, run checker, print layout — exit without submitting |
+
+#### Publication modes
+
+Every submission declares one of the three publication modes of Submission Rules §6.2
+when it is created, with `--publication-mode`. The mode cannot be changed afterwards, and
+`submissions get` shows it as `Publication Mode`.
+
+| `--publication-mode` | `--embargo-date` | Public during review | Finalized result published |
+|---|---|---|---|
+| `confidential` (default) | not allowed | No | First publication date after finalization |
+| `confidential_embargoed` | required | No | Not before the embargo date |
+| `provisional` | optional | Yes, tagged `peer review pending`: from the embargo date, or once automated compliance passes if there is none | First publication date after finalization |
+
+The mode and embargo are checked before anything is downloaded, and the embargo must be
+in the future. It can be moved later with `submissions update --embargo-date`, but not
+removed, and it cannot be added to a `confidential` submission.
 
 **If the final status PATCH fails** the submission record and uploaded bundle still
 exist; the failure is a warning, not a fatal error. The CLI does not open the review
@@ -292,14 +312,15 @@ endpoints-submission-cli submissions get \
 
 ### submissions update
 
-Update the run list or target availability date on an existing submission.
+Update the run list, target availability date or embargo date of an existing submission.
 
 ```bash
 endpoints-submission-cli submissions update \
   --submission-id SUB_ID \
   [--token TOKEN] \
   [--run-ids RUN_ID] \
-  [--target-availability-date DATE]
+  [--target-availability-date DATE] \
+  [--embargo-date DATETIME]
 ```
 
 | Flag | Description |
@@ -308,7 +329,7 @@ endpoints-submission-cli submissions update \
 | `--token TOKEN` | API token |
 | `--run-ids RUN_ID` | Set the complete run UUID list. Repeatable — pass once per run. Runs not listed are removed. |
 | `--target-availability-date DATE` | Target availability date (`YYYY-MM-DD`) |
-| `--embargo-date DATETIME` | Embargo datetime in ISO 8601 format (e.g. `2025-12-01T00:00:00`) |
+| `--embargo-date DATETIME` | Move the embargo, ISO 8601 with a UTC offset. Only for a `confidential_embargoed` or `provisional` submission; a confidential submission cannot gain one, because the publication mode is fixed at submission. |
 
 **When `--run-ids` is provided** the command runs a full rebuild:
 

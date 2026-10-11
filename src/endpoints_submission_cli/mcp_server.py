@@ -324,7 +324,9 @@ def create_submission(
     run_ids: list[str],
     shared_src: list[str] | None = None,
     shared_docs: list[str] | None = None,
-    provisional: bool = False,
+    publication_mode: Literal[
+        "confidential", "confidential_embargoed", "provisional"
+    ] = "confidential",
     confirm_public_provisional: bool = False,
     target_availability_date: str | None = None,
     embargo_date: str | None = None,
@@ -341,21 +343,25 @@ def create_submission(
         shared_src: Local directories merged into the bundle's shared ``src/``, each
             holding one or more ``<implementation>/`` folders.
         shared_docs: Local directories merged into the bundle's shared ``docs/``.
-        provisional: Request provisional publication: the results become publicly
-            viewable on the visualizer during the next cohort, with a "peer review
-            pending" disclaimer.
+        publication_mode: Rules §6.2, fixed once submitted. ``confidential``: public
+            only after review. ``confidential_embargoed``: public only after review and
+            not before ``embargo_date`` (required). ``provisional``: publicly viewable on
+            the visualizer during review, with a "peer review pending" disclaimer, once
+            automated compliance passes or from ``embargo_date``.
         confirm_public_provisional: Must be true with ``provisional``. Set it only after
             the user has agreed to their results being made public before review.
         target_availability_date: ``YYYY-MM-DD``. Required for ``preview``.
-        embargo_date: Embargo in ISO 8601 (e.g. ``2025-12-01T00:00:00``).
+        embargo_date: Embargo in ISO 8601 with a UTC offset (e.g. ``2026-12-01T16:00:00Z``;
+            no offset is taken as UTC). Required for ``confidential_embargoed``, optional
+            for ``provisional``, not allowed for ``confidential``.
         dry_run: Assemble the bundle and run the checker, without submitting.
         test: Mark it a test submission, not a real results entry.
     """
-    if provisional and not confirm_public_provisional:
+    if publication_mode == "provisional" and not confirm_public_provisional:
         # The CLI asks this on a terminal; here the caller has to have asked it.
         raise CliError(
             "provisional publication makes these results publicly viewable on the"
-            " visualizer during the next cohort, before peer review. Ask the user, and"
+            " visualizer before peer review is complete. Ask the user, and"
             " call again with confirm_public_provisional=true only if they agree."
         )
     return _run_text(
@@ -371,7 +377,9 @@ def create_submission(
         *_repeat("--shared-src", shared_src),
         *_repeat("--shared-docs", shared_docs),
         # --yes answers the CLI's own prompt, which confirm_public_provisional stands for.
-        *(["--provisional", "--yes"] if provisional else []),
+        "--publication-mode",
+        publication_mode,
+        *(["--yes"] if publication_mode == "provisional" else []),
         *_optional("--target-availability-date", target_availability_date),
         *_optional("--embargo-date", embargo_date),
         *_switch("--dry-run", dry_run),
@@ -391,7 +399,8 @@ def update_submission(
         submission_id: The submission's UUID.
         run_ids: Replaces the submission's whole run list.
         target_availability_date: ``YYYY-MM-DD``.
-        embargo_date: Embargo in ISO 8601 (e.g. ``2025-12-01T00:00:00``).
+        embargo_date: Move the embargo, ISO 8601 with a UTC offset. Only for a submission
+            ``confidential_embargoed`` or ``provisional``; a confidential one cannot gain one.
     """
     return _run_text(
         "submissions",
