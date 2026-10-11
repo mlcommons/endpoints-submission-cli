@@ -198,6 +198,23 @@ def test_fields_moved_to_point_yaml_are_optional(field):
     assert getattr(sd, field) is None
 
 
+#: v0.7 system-description keys the submission pipeline now assigns (§8.2).
+_PIPELINE_ASSIGNED = ("submission_id", "submission_date", "publish_date")
+
+
+@pytest.mark.parametrize("field", _PIPELINE_ASSIGNED)
+def test_pipeline_assigned_field_is_not_added_to_the_system_description(field):
+    """§8.2: the pipeline assigns these; a dump must not invent them."""
+    assert field not in SystemDescription(**_BASE_FLAT).model_dump(mode="json")
+
+
+@pytest.mark.parametrize("field", _PIPELINE_ASSIGNED)
+@pytest.mark.parametrize("leftover", ["v07-leftover", 1234, None])
+def test_leftover_pipeline_assigned_field_of_any_type_parses(field, leftover):
+    """A v0.7 template's copy is not a §8.2 field, so its type is not checked."""
+    SystemDescription(**{**_BASE_FLAT, field: leftover})
+
+
 @pytest.mark.parametrize("field", ["model_id", "model_name"])
 def test_fields_the_rules_dropped_are_no_longer_declared(field):
     """Policies PR #130 removed these from §8.2 entirely, so nothing reads them.
