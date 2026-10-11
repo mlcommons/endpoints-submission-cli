@@ -447,7 +447,7 @@ SUBMISSION_OUT = {
     "division": "standardized",
     "scenario": "cop",
     "availability": "available",
-    "early_publish": False,
+    "publication_mode": "confidential",
     "is_test": False,
     "publication_cycle": None,
     "target_availability_date": None,

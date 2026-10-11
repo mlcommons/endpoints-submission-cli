@@ -21,6 +21,8 @@ from ..exceptions import AuthError, SubmissionCheckError
 __all__ = [
     "_confirm_provisional",
     "_console",
+    "_check_publication_mode",
+    "PUBLICATION_MODES",
     "_get_token",
     "_SEVERITY_STYLE",
     "_run_submission_checker",
@@ -31,17 +33,48 @@ __all__ = [
 
 _PROVISIONAL_WARNING = (
     "WARNING: This will make these results publicly viewable on the visualizer "
-    "during the next cohort with a 'peer review pending' disclaimer."
+    "with a 'peer review pending' disclaimer, before peer review is complete, "
+    "{when}."
 )
 
 
-def _confirm_provisional(assume_yes: bool) -> None:
+# Submission Rules §6.2. Declared at creation; the API rejects any later change.
+PUBLICATION_MODES = ("confidential", "confidential_embargoed", "provisional")
+
+
+def _check_publication_mode(publication_mode: str, embargo_date: str | None) -> None:
+    """Exit 1 unless the embargo fits the mode, as the API would require.
+
+    confidential_embargoed needs an embargo, which is what holds its finalized result
+    (§6.2.2); provisional may have one (§6.2.3); confidential must not. Checked before
+    any download, so a mismatch costs nothing.
+    """
+    if publication_mode == "confidential" and embargo_date:
+        _console.print(
+            "[bold red]--embargo-date needs --publication-mode confidential_embargoed "
+            "or provisional.[/bold red]"
+        )
+        sys.exit(1)
+    if publication_mode == "confidential_embargoed" and not embargo_date:
+        _console.print(
+            "[bold red]--publication-mode confidential_embargoed requires --embargo-date."
+            "[/bold red]"
+        )
+        sys.exit(1)
+
+
+def _confirm_provisional(assume_yes: bool, embargo_date: str | None = None) -> None:
     """Confirm provisional publication before submitting; exit 1 if declined.
 
     Opting in publishes unreviewed results, so the submitter has to say yes out loud.
     ``--yes`` is the escape hatch for non-interactive use, where there is no one to ask.
     """
-    _console.print(f"[bold yellow]{_PROVISIONAL_WARNING}[/bold yellow]")
+    when = (
+        f"from the embargo date, {embargo_date}"
+        if embargo_date
+        else "as soon as the automated compliance checks pass"
+    )
+    _console.print(f"[bold yellow]{_PROVISIONAL_WARNING.format(when=when)}[/bold yellow]")
     if assume_yes:
         _console.print("[dim]--yes given: continuing with provisional publication.[/dim]")
         return

@@ -71,7 +71,7 @@ endpoints-submission-cli submissions create \
   --run-ids RUN_ID \
   [--run-ids RUN_ID ...] \
   [--token TOKEN] \
-  [--provisional] \
+  [--publication-mode MODE] \
   [--yes] \
   [--target-availability-date DATE] \
   [--embargo-date DATETIME] \
@@ -85,11 +85,28 @@ endpoints-submission-cli submissions create \
 | `--availability` | yes | `available`, `preview`, or `rdi`. |
 | `--run-ids RUN_ID` | yes (repeatable) | Run UUID to include. Pass the flag once per run. |
 | `--token TOKEN` | no | API key. |
-| `--provisional` | no | Request provisional publication (default: false). Results become publicly viewable on the visualizer during the next cohort with a `peer review pending` disclaimer. Prompts for confirmation before submitting. |
-| `--yes`, `-y` | no | Skip the `--provisional` confirmation prompt (for non-interactive use). |
+| `--publication-mode MODE` | no | `confidential` (default), `confidential_embargoed` or `provisional`; Submission Rules §6.2, fixed once submitted. `provisional` asks for confirmation first. See [Publication modes](#publication-modes). |
+| `--yes`, `-y` | no | Skip the provisional publication confirmation prompt (for non-interactive use). |
 | `--target-availability-date DATE` | no | Target availability date (`YYYY-MM-DD`). Required when `--availability preview`. |
-| `--embargo-date DATETIME` | no | Embargo datetime in ISO 8601 format, e.g. `2025-12-01T00:00:00`. |
+| `--embargo-date DATETIME` | no | Embargo datetime in ISO 8601 format (e.g. `2026-12-01T16:00:00Z`). Required for `confidential_embargoed`, optional for `provisional`, not allowed for `confidential`. |
 | `--dry-run` | no | Assemble folder and run checker, then print the folder layout and exit without creating the submission or PR. |
+
+### Publication modes
+
+Every submission declares one of the three publication modes of Submission Rules §6.2
+when it is created, with `--publication-mode`. The mode cannot be changed afterwards, and
+`submissions get` shows it as `Publication Mode`.
+
+| `--publication-mode` | `--embargo-date` | Public during review | Finalized result published |
+|---|---|---|---|
+| `confidential` (default) | not allowed | No | First publication date after finalization |
+| `confidential_embargoed` | required | No | Not before the embargo date |
+| `provisional` | optional | Yes, tagged `peer review pending`: from the embargo date, or once automated compliance passes if there is none | First publication date after finalization |
+
+The mode and embargo are checked against each other before anything is downloaded. The
+embargo can be moved later with `submissions update --embargo-date`, but not removed, and
+a submission created without one cannot gain one (Submission Rules §4.2). A `provisional`
+embargo also cannot be moved once it has lifted, since the result is then public.
 
 There is no publication-cycle flag. Nobody picks a cycle at submit time: the lifecycle manager publishes a finalized submission on the first publication date after it is finalized, later if it is under embargo or carries non-response penalties, and records the cycle it published in.
 
@@ -250,7 +267,7 @@ endpoints-submission-cli submissions update \
 | `--token TOKEN` | no | API key. |
 | `--run-ids RUN_ID` | no (repeatable) | Replace the complete run list. Pass once per run. Runs not listed are removed. |
 | `--target-availability-date DATE` | no | Target availability date (`YYYY-MM-DD`). |
-| `--embargo-date DATETIME` | no | Embargo datetime in ISO 8601 format. |
+| `--embargo-date DATETIME` | no | Move the embargo declared at submission, ISO 8601. A submission created without one cannot gain one, and a `provisional` embargo cannot be moved once it has lifted. |
 
 Providing no flags prints a warning and makes no API call.
 
@@ -294,7 +311,7 @@ endpoints-submission-cli submissions update \
 # Update the embargo date
 endpoints-submission-cli submissions update \
   --submission-id a1b2c3d4-… \
-  --embargo-date 2025-12-01T00:00:00
+  --embargo-date 2026-12-01T16:00:00Z
 
 # Combine run list update with metadata update
 endpoints-submission-cli submissions update \

@@ -50,7 +50,11 @@ def _rollback_update(token: str, submission_id: str, original_run_ids: list[str]
 @click.option(
     "--embargo-date",
     default=None,
-    help="Embargo datetime in ISO 8601 format (e.g. 2025-12-01T00:00:00).",
+    help=(
+        "Move the embargo declared at submission, ISO 8601. A submission created without "
+        "one cannot gain one, and a provisional submission's embargo cannot be moved once "
+        "it has lifted (its result is public)."
+    ),
 )
 def submissions_update(
     submission_id: str,

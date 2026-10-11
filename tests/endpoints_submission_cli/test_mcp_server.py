@@ -115,7 +115,7 @@ class TestTextCommands:
             "scenario": "cop",
             "availability": "available",
             "run_ids": ["r-1"],
-            "provisional": True,
+            "publication_mode": "provisional",
         }
         with pytest.raises(CliError, match="confirm_public_provisional"):
             mcp_server.create_submission(**args)
@@ -123,7 +123,8 @@ class TestTextCommands:
 
         mcp_server.create_submission(**args, confirm_public_provisional=True)
         argv = run.call_args.args[0]
-        assert "--provisional" in argv and "--yes" in argv
+        assert argv[argv.index("--publication-mode") + 1] == "provisional"
+        assert "--yes" in argv
 
     def test_create_run_dry_run_returns_the_payload(self, endpoints_run_folder: Path) -> None:
         """Real subprocess: --dry-run prints JSON, though the command has no --json."""
@@ -178,7 +179,7 @@ _COVERAGE: dict[tuple[str, ...], list[tuple[Callable[..., Any], dict[str, Any]]]
                 "run_ids": ["r1", "r2"],
                 "shared_src": ["s"],
                 "shared_docs": ["d"],
-                "provisional": True,
+                "publication_mode": "provisional",
                 "confirm_public_provisional": True,
                 "target_availability_date": "2026-01-01",
                 "embargo_date": "2026-01-01T00:00:00",

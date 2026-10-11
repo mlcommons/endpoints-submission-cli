@@ -72,7 +72,7 @@ def print_submission_detail(submission: dict[str, Any]) -> None:
         ("Division", fmt_str(submission.get("division"))),
         ("Scenario", fmt_str(submission.get("scenario"))),
         ("Availability", fmt_str(submission.get("availability"))),
-        ("Early Publish", fmt_bool(submission.get("early_publish"))),
+        ("Publication Mode", fmt_str(submission.get("publication_mode"))),
         ("Test Submission", fmt_bool(submission.get("is_test"))),
         # Stamped by the lifecycle manager at publication; nothing assigns it
         # earlier, so it stays — until the submission is actually published.
