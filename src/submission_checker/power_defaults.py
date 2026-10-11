@@ -4,7 +4,10 @@
 
 These are what the checker falls back on when ``system_power.json`` leaves a value
 absent (Appendix E.1): "a figure asserted without a public source is treated as
-absent, the default applies, and the result is tagged 'MLC Estimated Power'".
+absent, the default applies, and the result is tagged 'MLC Estimated Power'". They
+are also what a value the descriptor itself sources as ``mlc_default`` is held to: a
+default is "its own reference", so it has to be the figure Appendix D states, cited
+from the subsection that states it (:data:`SUBSECTIONS`).
 
 Only the defaults that can be selected mechanically are here. D.1's two scale-up
 references depend on the link protocol, which the descriptor does not declare, so an
@@ -21,9 +24,14 @@ import re
 from dataclasses import dataclass
 
 __all__ = [
+    "ETHERNET_SWITCH_TBPS_PER_DIRECTION",
+    "ETHERNET_SWITCH_W",
+    "NVLINK_PJ_PER_BIT",
+    "SUBSECTIONS",
     "PowerDefault",
     "accelerator_default",
     "cpu_default",
+    "cpu_default_candidates",
     "nic_default",
     "switch_default",
 ]
@@ -36,6 +44,26 @@ class PowerDefault:
     watts: float
     source: str
 
+
+#: The Appendix D subsection that defines each E.3.1 / E.4 field's default — E.1's
+#: ``mlc_default`` source is "the Appendix D subsection the value came from". A field
+#: not listed (published node or rack power, a combined CPU + accelerator figure,
+#: ``declared_provisioned_power``) has no Appendix D default at all.
+SUBSECTIONS: dict[str, str] = {
+    "scale_up_network.tdp_per_switch": "D.1",
+    "scale_up_network.energy_per_bit_pj": "D.1",
+    "cpu.tdp_per_unit": "D.2",
+    "accelerator.tdp_per_unit": "D.3",
+    "scale_out.switches.power_per_switch": "D.4",
+    "scale_out.nics.tdp_per_nic": "D.4",
+}
+
+# D.1 — the NVLink default is an energy per bit, "applied as bandwidth × 5 pJ/bit";
+# the Ethernet one is a power at a stated bandwidth, "applied proportionally to the
+# switch's actual bandwidth" (C.7). Only the first is an ``energy_per_bit_pj``.
+NVLINK_PJ_PER_BIT = 5.0
+ETHERNET_SWITCH_W = 3500.0
+ETHERNET_SWITCH_TBPS_PER_DIRECTION = 10.8
 
 # D.2 — (architecture, max cores inclusive or None for "above the previous row").
 _X86_SMALL = PowerDefault(350.0, "D.2")
@@ -99,6 +127,35 @@ def cpu_default(model: str | None, cores: int | None) -> PowerDefault | None:
     if _X86_WORDS.search(text):
         return _X86_SMALL if cores <= _X86_CORE_SPLIT else _X86_LARGE
     return None
+
+
+def cpu_default_candidates(model: str | None, cores: int | None) -> tuple[PowerDefault, ...]:
+    """Every D.2 row that could apply to this CPU, given what can be read about it.
+
+    The one row :func:`cpu_default` chooses where it can; none for ARM above 128
+    cores, which D.2 leaves undefined; otherwise each row an unknown architecture or
+    core count leaves open. That tells a misquoted D.2 default from one that cannot be
+    confirmed.
+    """
+    exact = cpu_default(model, cores)
+    if exact is not None:
+        return (exact,)
+    text = (model or "").lower()
+    if cores is None:
+        match = _CORES_IN_NAME.search(text)
+        cores = int(match.group(1)) if match else None
+    arm: tuple[PowerDefault, ...] = (
+        (_ARM_SMALL,) if cores is None or cores <= _ARM_CORE_LIMIT else ()
+    )
+    if cores is None:
+        x86: tuple[PowerDefault, ...] = (_X86_SMALL, _X86_LARGE)
+    else:
+        x86 = (_X86_SMALL if cores <= _X86_CORE_SPLIT else _X86_LARGE,)
+    if _ARM_WORDS.search(text):
+        return arm
+    if _X86_WORDS.search(text):
+        return x86
+    return x86 + arm
 
 
 def accelerator_default(model: str | None) -> PowerDefault | None:

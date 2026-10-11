@@ -32,6 +32,7 @@ value — and does the E.5 arithmetic. The E.7 rules that need the system descri
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
@@ -40,9 +41,14 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ...messages import Invalid, fragment
 from ...power_defaults import (
+    ETHERNET_SWITCH_TBPS_PER_DIRECTION,
+    ETHERNET_SWITCH_W,
+    NVLINK_PJ_PER_BIT,
+    SUBSECTIONS,
     PowerDefault,
     accelerator_default,
     cpu_default,
+    cpu_default_candidates,
     nic_default,
     switch_default,
 )
@@ -351,14 +357,33 @@ class _Tally:
         self.estimated: list[str] = []
         self.gaps: list[str] = []
         self.problems: list[str] = []
+        # mlc_default values Appendix D does not state, and ones it may state but
+        # which the descriptor carries too little to confirm. Like gaps, they matter
+        # only where they reach the total (E.1, E.6.2).
+        self.misquoted: list[str] = []
+        self.unconfirmed: list[str] = []
 
     def watts(
-        self, label: str, value: SourcedValue | None, fallback: PowerDefault | None = None
+        self,
+        label: str,
+        value: SourcedValue | None,
+        fallback: PowerDefault | None = None,
+        *,
+        kind: str | None = None,
+        defaults: tuple[PowerDefault, ...] | None = (),
+        determined: bool = True,
+        subject: str = "",
     ) -> float | None:
         """*value* in watts, or the Appendix D *fallback* where it is absent.
 
         A value present but given in pJ is a problem, not a gap: it names no power. An
         absent value with no fallback is a gap — fatal only where it reaches the total.
+
+        A value sourced as ``mlc_default`` is held to Appendix D (:meth:`appendix_d`):
+        *kind* is its :data:`~submission_checker.power_defaults.SUBSECTIONS` key, or
+        ``None`` where Appendix D has no default for the field, and *defaults* the rows
+        that could apply to *subject* — ``determined`` where exactly one does — or
+        ``None`` where the descriptor cannot pin the default to one figure.
         """
         if value is not None:
             watts = value.watts
@@ -369,12 +394,97 @@ class _Tally:
                 return None
             if value.is_default:
                 self.estimated.append(f"{label} ({value.source} default)")
+                self.appendix_d(
+                    label,
+                    value,
+                    watts,
+                    kind=kind,
+                    expected=None if defaults is None else tuple(d.watts for d in defaults),
+                    determined=determined,
+                    subject=subject,
+                )
             return watts
         if fallback is not None:
             self.estimated.append(f"{label} (absent; auto-populated from {fallback.source})")
             return fallback.watts
         self.gaps.append(fragment("power-descriptor", "absent-appendix-d-has", label=label))
         return None
+
+    def appendix_d(
+        self,
+        label: str,
+        value: SourcedValue,
+        amount: float,
+        *,
+        kind: str | None,
+        expected: tuple[float, ...] | None,
+        determined: bool = True,
+        subject: str = "",
+        unit: str = "W",
+    ) -> None:
+        """Hold an ``mlc_default`` *value* to the Appendix D figure it claims to be.
+
+        E.1 makes the default "its own reference", so it must come from the
+        subsection Appendix D defines for the field and equal that subsection's
+        figure for this component. *expected* of ``None`` checks the subsection only,
+        for a default the descriptor cannot pin to one figure.
+        """
+        subsection = SUBSECTIONS.get(kind) if kind is not None else None
+        if subsection is None:
+            self.misquoted.append(
+                fragment("power-descriptor", "mlc-default-no-subsection", label=label)
+            )
+            return
+        if value.source != subsection:
+            self.misquoted.append(
+                fragment(
+                    "power-descriptor",
+                    "mlc-default-wrong-subsection",
+                    label=label,
+                    source=value.source,
+                    subsection=subsection,
+                )
+            )
+            return
+        if expected is None:
+            return
+        if not expected:
+            self.misquoted.append(
+                fragment(
+                    "power-descriptor",
+                    "mlc-default-no-row",
+                    label=label,
+                    subsection=subsection,
+                    subject=subject,
+                )
+            )
+            return
+        if not any(math.isclose(amount, e, rel_tol=1e-9, abs_tol=1e-6) for e in expected):
+            self.misquoted.append(
+                fragment(
+                    "power-descriptor",
+                    "mlc-default-value",
+                    label=label,
+                    value=amount,
+                    unit=unit,
+                    subsection=subsection,
+                    expected=" or ".join(f"{e:g} {unit}" for e in expected),
+                    subject=subject,
+                )
+            )
+            return
+        if not determined:
+            self.unconfirmed.append(
+                fragment(
+                    "power-descriptor",
+                    "mlc-default-unconfirmed",
+                    label=label,
+                    value=amount,
+                    unit=unit,
+                    subsection=subsection,
+                    subject=subject,
+                )
+            )
 
 
 class SystemPower(_Open):
@@ -452,18 +562,28 @@ class SystemPower(_Open):
         declared = self.declared_provisioned_power
         if declared is not None:
             # The declared figure governs, so the component block beneath it is only a
-            # cross-check: its defaults do not tag the result and its gaps do not
-            # reject it (E.1, E.6.2).
+            # cross-check: its defaults do not tag the result, and its gaps and
+            # misquoted defaults do not reject it (E.1, E.6.2).
             out.declared = True
+            out.warnings.extend(tally.misquoted)
             watts = declared.watts
             if watts is None:
                 out.problems.append(fragment("power-descriptor", "declared-provisioned-power-give"))
             else:
                 out.provisioned_power_kw = round(watts / _W_PER_KW, 2)
                 if declared.is_default:
-                    out.estimated.append("declared_provisioned_power (mlc_default)")
+                    # Appendix D has no system-level figure to default to.
+                    out.problems.append(
+                        fragment(
+                            "power-descriptor",
+                            "mlc-default-no-subsection",
+                            label="declared_provisioned_power",
+                        )
+                    )
         else:
             out.problems.extend(tally.gaps)
+            out.problems.extend(tally.misquoted)
+            out.warnings.extend(tally.unconfirmed)
             out.estimated.extend(tally.estimated)
             if not out.problems:
                 out.provisioned_power_kw = round(out.total_system_power_w / _W_PER_KW, 2)
@@ -544,13 +664,25 @@ class SystemPower(_Open):
                     fragment("power-descriptor", "needs-cpu-accelerator-combined", label=label)
                 )
                 return None
+            cpu_fallback = cpu_default(cpu.model, cores)
             cpu_w = tally.watts(
-                f"{label}.cpu.tdp_per_unit", cpu.tdp_per_unit, cpu_default(cpu.model, cores)
+                f"{label}.cpu.tdp_per_unit",
+                cpu.tdp_per_unit,
+                cpu_fallback,
+                kind="cpu.tdp_per_unit",
+                defaults=cpu_default_candidates(cpu.model, cores),
+                determined=cpu_fallback is not None,
+                subject=(cpu.model or "an unnamed CPU")
+                + (f" with {cores} cores" if cores is not None else ""),
             )
+            acc_fallback = accelerator_default(acc.model)
             acc_w = tally.watts(
                 f"{label}.accelerator.tdp_per_unit",
                 acc.tdp_per_unit,
-                accelerator_default(acc.model),
+                acc_fallback,
+                kind="accelerator.tdp_per_unit",
+                defaults=() if acc_fallback is None else (acc_fallback,),
+                subject=acc.model or "an unnamed accelerator",
             )
             parts.append(None if cpu_w is None else cpu.count_per_node * cpu_w)
             parts.append(None if acc_w is None else acc.count_per_node * acc_w)
@@ -576,7 +708,29 @@ class SystemPower(_Open):
                     fragment("power-descriptor", "declared-tdp-requires-switch", label=label)
                 )
                 return None
-            per_switch = tally.watts(f"{label}.tdp_per_switch", up.tdp_per_switch)
+            kind = "scale_up_network.tdp_per_switch"
+            # D.1's Ethernet point scales with the switch's bandwidth (C.7), which the
+            # descriptor does not carry, so only a default's subsection is checked.
+            per_switch = tally.watts(
+                f"{label}.tdp_per_switch", up.tdp_per_switch, kind=kind, defaults=None
+            )
+            sv = up.tdp_per_switch
+            if (
+                per_switch is not None
+                and sv is not None
+                and sv.is_default
+                and sv.source == SUBSECTIONS[kind]
+            ):
+                tally.unconfirmed.append(
+                    fragment(
+                        "power-descriptor",
+                        "mlc-default-ethernet-scaled",
+                        label=f"{label}.tdp_per_switch",
+                        value=per_switch,
+                        reference_w=ETHERNET_SWITCH_W,
+                        reference_tbps=ETHERNET_SWITCH_TBPS_PER_DIRECTION,
+                    )
+                )
             return None if per_switch is None else up.switch_count * per_switch
         # bandwidth_estimate. The worked examples (C.8, C.9, E.6.2) read the aggregate
         # as terabytes per second — 14.4 TB/s × 8 bit/B × 5 pJ/bit = 576 W — despite
@@ -595,6 +749,15 @@ class SystemPower(_Open):
             return None
         if energy.is_default:
             tally.estimated.append(f"{label}.energy_per_bit_pj ({energy.source} default)")
+            tally.appendix_d(
+                f"{label}.energy_per_bit_pj",
+                energy,
+                energy.value_pj,
+                kind="scale_up_network.energy_per_bit_pj",
+                expected=(NVLINK_PJ_PER_BIT,),
+                subject="the NVLink reference, D.1's only energy-per-bit figure",
+                unit="pJ/bit",
+            )
         return up.aggregate_bandwidth_tbps * 8.0 * energy.value_pj
 
     def _carries_nics(self, node_set: NodeSet) -> bool:
@@ -681,7 +844,14 @@ class SystemPower(_Open):
         if nics.counted:
             if not by_formula and not nics.excluded_from_published_power:
                 out.problems.append(fragment("power-descriptor", "scale-out-nics-counted"))
-            per_nic = tally.watts("scale_out.nics.tdp_per_nic", nics.tdp_per_nic, nic_default())
+            per_nic = tally.watts(
+                "scale_out.nics.tdp_per_nic",
+                nics.tdp_per_nic,
+                nic_default(),
+                kind="scale_out.nics.tdp_per_nic",
+                defaults=(nic_default(),),
+                subject="a scale-out NIC",
+            )
             if per_nic is not None:
                 nic_per_node_w = nics.count_per_node * per_nic
         elif by_formula:
@@ -720,8 +890,14 @@ class SystemPower(_Open):
         offered = 0.0
         for index, switch in enumerate(fabric.switches):
             label = f"scale_out.switches[{index}].power_per_switch"
+            reference = switch_default(switch.model, fabric.cabling)
             watts = tally.watts(
-                label, switch.power_per_switch, switch_default(switch.model, fabric.cabling)
+                label,
+                switch.power_per_switch,
+                reference,
+                kind="scale_out.switches.power_per_switch",
+                defaults=() if reference is None else (reference,),
+                subject=f"{switch.model} with {fabric.cabling} cabling",
             )
             if watts is not None:
                 out.scale_out_switch_power_w += switch.count * watts

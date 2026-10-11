@@ -487,6 +487,19 @@ power-descriptor:
     value-count: give exactly one of value_w, value_kw or value_pj
     mlc-default-source: an mlc_default source names its Appendix D subsection ({subsections}), not
       {source!r}
+    mlc-default-no-subsection: '{label} is sourced as mlc_default, but Appendix D defines no default for
+      it; give a verifiable public source'
+    mlc-default-wrong-subsection: '{label} cites {source} as its mlc_default, but Appendix D defines this
+      field''s default in {subsection}'
+    mlc-default-no-row: '{label} is sourced as mlc_default, but {subsection} has no default for {subject};
+      give a verifiable public source'
+    mlc-default-value: '{label} is {value:g} {unit} as a {subsection} default, but {subsection} gives {expected}
+      for {subject}'
+    mlc-default-unconfirmed: '{label}: {value:g} {unit} is a {subsection} default, but which row applies
+      to {subject} could not be established from the model name and system_desc.json core count'
+    mlc-default-ethernet-scaled: '{label}: {value:g} W is cited as D.1''s Ethernet reference ({reference_w:g}
+      W per switch at {reference_tbps:g} TB/s per direction), which scales with the switch''s bandwidth
+      (C.7); the descriptor does not carry that bandwidth, so the figure could not be checked'
     source-not-url: a {source_type} source must be a resolvable URL, not {source!r}
     pass:
       text: No system_power.json; power normalisation is not required for the {division} division

@@ -476,6 +476,211 @@ class TestDefaultsAndGaps:
         assert _compute(data).estimated
 
 
+def _default(value: float, source: str, unit: str = "value_w") -> dict[str, Any]:
+    return {unit: value, "source_type": "mlc_default", "source": source}
+
+
+def _formula_b300() -> dict[str, Any]:
+    """E.6.2's DGX B300 on its component sum alone, so every value reaches the total."""
+    data = _edit(DGX_B300)
+    for key in ("declared_provisioned_power", "computed", "provisioned_power_kw"):
+        del data[key]
+    return data
+
+
+def _counted_nics() -> dict[str, Any]:
+    """C.11's formula path: ten DGX B300 nodes counting their NICs, D.4 switches."""
+    data = _formula_b300()
+    data["node_sets"][0]["nodes_provisioned"] = 10
+    data["scale_out"] = _edit(DGX_CLUSTER["scale_out"])
+    data["scale_out"]["nics"]["counted"] = True
+    return data
+
+
+def _no_computed(data: dict[str, Any]) -> dict[str, Any]:
+    data.pop("computed", None)
+    data.pop("provisioned_power_kw", None)
+    return data
+
+
+@pytest.mark.unit
+class TestAppendixDDefaultsArePinned:
+    """E.1: an mlc_default is "its own reference" — the Appendix D figure, from its subsection."""
+
+    # D.3 — accelerators, keyed by model.
+    def test_accelerator_default_matching_d3_passes(self) -> None:
+        out = _compute(HELIOS)
+        assert not out.problems and not out.warnings
+
+    def test_accelerator_default_with_the_wrong_value_fails(self) -> None:
+        """The gap this closes: a B300 at 500 W "from D.3", where D.3 gives 1,100 W."""
+        data = _formula_b300()
+        data["node_sets"][0]["components"]["accelerator"]["tdp_per_unit"] = _default(500, "D.3")
+        out = _compute(data)
+        assert out.provisioned_power_kw is None
+        assert any("D.3 gives 1100 W for NVIDIA B300" in p for p in out.problems)
+
+    def test_accelerator_default_from_the_wrong_subsection_fails(self) -> None:
+        data = _no_computed(_edit(HELIOS))
+        data["node_sets"][0]["components"]["accelerator"]["tdp_per_unit"]["source"] = "D.2"
+        out = _compute(data)
+        assert out.provisioned_power_kw is None
+        assert any("cites D.2" in p and "in D.3" in p for p in out.problems)
+
+    def test_unlisted_accelerator_has_no_default_to_cite(self) -> None:
+        data = _formula_b300()
+        accelerator = data["node_sets"][0]["components"]["accelerator"]
+        accelerator["model"] = "NVIDIA H100"
+        accelerator["tdp_per_unit"] = _default(700, "D.3")
+        out = _compute(data)
+        assert any("D.3 has no default for NVIDIA H100" in p for p in out.problems)
+
+    # D.2 — processors, keyed by architecture and core count.
+    def test_cpu_default_matching_d2_passes(self) -> None:
+        data = _formula_b300()
+        data["node_sets"][0]["components"]["cpu"]["tdp_per_unit"] = _default(350, "D.2")
+        out = _compute(data, cores_by_ensemble={0: 64})
+        assert not out.problems and not out.warnings
+
+    def test_cpu_default_with_the_wrong_value_fails(self) -> None:
+        """A 256-core x86 part is D.2's > 64-core row: 500 W, not 350 W."""
+        data = _no_computed(_edit(HELIOS))
+        data["node_sets"][0]["components"]["cpu"]["tdp_per_unit"]["value_w"] = 350
+        out = _compute(data)
+        assert any("D.2 gives 500 W for AMD Venice 256-core" in p for p in out.problems)
+
+    def test_cpu_default_from_the_wrong_subsection_fails(self) -> None:
+        data = _edit(HELIOS)
+        data["node_sets"][0]["components"]["cpu"]["tdp_per_unit"]["source"] = "D.3"
+        assert any("in D.2" in p for p in _compute(data).problems)
+
+    def test_arm_above_128_cores_has_no_default_to_cite(self) -> None:
+        """D.2's open item: no ARM default above 128 cores."""
+        data = _formula_b300()
+        cpu = data["node_sets"][0]["components"]["cpu"]
+        cpu["model"] = "NVIDIA Grace"
+        cpu["tdp_per_unit"] = _default(300, "D.2")
+        out = _compute(data, cores_by_ensemble={0: 144})
+        assert any("D.2 has no default for NVIDIA Grace with 144 cores" in p for p in out.problems)
+
+    def test_cpu_default_whose_row_cannot_be_established_warns(self) -> None:
+        """No core count: 350 W is a D.2 figure, but which row applies is unknown."""
+        data = _formula_b300()
+        data["node_sets"][0]["components"]["cpu"]["tdp_per_unit"] = _default(350, "D.2")
+        out = _compute(data)
+        assert not out.problems
+        assert any("could not be established" in w for w in out.warnings)
+
+    def test_cpu_default_that_is_no_d2_figure_fails_even_unconfirmed(self) -> None:
+        data = _formula_b300()
+        data["node_sets"][0]["components"]["cpu"]["tdp_per_unit"] = _default(400, "D.2")
+        out = _compute(data)
+        assert any("D.2 gives 350 W or 500 W" in p for p in out.problems)
+
+    # D.1 — scale-up network.
+    def test_energy_per_bit_default_matching_d1_passes(self) -> None:
+        out = _compute(_formula_b300())
+        assert not out.problems and not out.warnings
+
+    def test_energy_per_bit_default_with_the_wrong_value_fails(self) -> None:
+        data = _formula_b300()
+        up = data["node_sets"][0]["components"]["scale_up_network"]
+        up["energy_per_bit_pj"]["value_pj"] = 3
+        out = _compute(data)
+        assert any("D.1 gives 5 pJ/bit" in p for p in out.problems)
+
+    def test_energy_per_bit_default_from_the_wrong_subsection_fails(self) -> None:
+        data = _formula_b300()
+        up = data["node_sets"][0]["components"]["scale_up_network"]
+        up["energy_per_bit_pj"]["source"] = "D.4"
+        assert any("in D.1" in p for p in _compute(data).problems)
+
+    def test_switch_tdp_from_d1_is_checked_by_subsection_and_warned(self) -> None:
+        """D.1's Ethernet point scales with bandwidth the descriptor does not carry."""
+        data = _no_computed(_edit(HELIOS))
+        up = data["node_sets"][0]["components"]["scale_up_network"]
+        up["tdp_per_switch"] = _default(1750, "D.1")
+        out = _compute(data)
+        assert not out.problems
+        assert any("could not be checked" in w for w in out.warnings)
+        up["tdp_per_switch"]["source"] = "D.4"
+        assert any("in D.1" in p for p in _compute(data).problems)
+
+    # D.4 — reference scale-out switches, keyed by model and cabling, and NICs.
+    def test_switch_default_matching_d4_passes(self) -> None:
+        out = _compute(DGX_CLUSTER)
+        assert not out.problems
+
+    def test_switch_default_with_the_wrong_value_fails(self) -> None:
+        data = _no_computed(_edit(DGX_CLUSTER))
+        data["scale_out"]["cabling"] = "active_optical"  # D.4: 2.08 kW, not 900 W
+        out = _compute(data)
+        assert any(
+            "D.4 gives 2080 W for NVIDIA Spectrum SN5610 with active_optical cabling" in p
+            for p in out.problems
+        )
+
+    def test_switch_default_from_the_wrong_subsection_fails(self) -> None:
+        data = _edit(DGX_CLUSTER)
+        data["scale_out"]["switches"][0]["power_per_switch"]["source"] = "D.1"
+        assert any("in D.4" in p for p in _compute(data).problems)
+
+    def test_switch_without_a_figure_for_its_cabling_has_no_default(self) -> None:
+        """D.4: the SN4700 publishes no active-optical figure."""
+        data = _no_computed(_edit(DGX_CLUSTER))
+        data["scale_out"]["cabling"] = "active_optical"
+        data["scale_out"]["switches"] = [
+            {
+                "model": "NVIDIA Spectrum SN4700",
+                "count": 5,
+                "bandwidth_tbps": 12.8,
+                "power_per_switch": _default(630, "D.4"),
+            }
+        ]
+        assert any("D.4 has no default" in p for p in _compute(data).problems)
+
+    def test_nic_default_matching_d4_passes(self) -> None:
+        data = _counted_nics()
+        data["scale_out"]["nics"]["tdp_per_nic"] = _default(75, "D.4")
+        out = _compute(data)
+        assert not out.problems
+        assert out.provisioned_power_kw == 161.94
+
+    def test_nic_default_with_the_wrong_value_fails(self) -> None:
+        data = _counted_nics()
+        data["scale_out"]["nics"]["tdp_per_nic"] = _default(25, "D.4")
+        assert any("D.4 gives 75 W for a scale-out NIC" in p for p in _compute(data).problems)
+
+    def test_nic_default_from_the_wrong_subsection_fails(self) -> None:
+        data = _counted_nics()
+        data["scale_out"]["nics"]["tdp_per_nic"] = _default(75, "D.2")
+        assert any("in D.4" in p for p in _compute(data).problems)
+
+    # Fields Appendix D gives no default for.
+    def test_published_power_has_no_appendix_d_default(self) -> None:
+        data = _edit(DGX_CLUSTER)
+        data["node_sets"][0]["published_power"] = _default(14.5, "D.4", "value_kw")
+        out = _compute(data)
+        assert any("defines no default" in p for p in out.problems)
+
+    def test_declared_provisioned_power_has_no_appendix_d_default(self) -> None:
+        data = _edit(DGX_B300)
+        data["declared_provisioned_power"] = _default(14.5, "D.3", "value_kw")
+        out = _compute(data)
+        assert out.provisioned_power_kw is None
+        assert any("declared_provisioned_power" in p for p in out.problems)
+
+    # E.6.2: under a governing declared figure the component block is a cross-check.
+    def test_misquoted_default_under_a_declared_figure_only_warns(self) -> None:
+        data = _edit(DGX_B300)
+        data["node_sets"][0]["components"]["accelerator"]["tdp_per_unit"] = _default(500, "D.3")
+        del data["computed"]
+        out = _compute(data)
+        assert not out.problems
+        assert out.provisioned_power_kw == 14.50
+        assert any("D.3 gives 1100 W" in w for w in out.warnings)
+
+
 @pytest.mark.unit
 class TestComputedBlock:
     def test_disagreement_is_a_rejection(self) -> None:

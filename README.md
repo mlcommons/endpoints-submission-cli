@@ -385,6 +385,17 @@ Details that are easy to get wrong:
   cabling (D.4). Scale-up has no fallback, because D.1's two references depend on the
   link protocol. Anything filled in sets the estimated tag; anything with no default,
   where it reaches the total, is an error.
+- **A value sourced as `mlc_default` must be the Appendix D figure (E.1).** It must
+  cite the subsection that defines the field — D.2 for CPUs, D.3 for accelerators,
+  D.1 for scale-up, D.4 for scale-out switches and NICs — and equal that table's
+  value for the model (and, for D.4 switches, the cabling). A field Appendix D has no
+  default for (published or declared power, a combined CPU + accelerator figure), or
+  a model it does not list, cannot be `mlc_default`. D.1's energy-per-bit default is
+  the NVLink 5 pJ/bit; its Ethernet point scales with a bandwidth the descriptor does
+  not carry, so a D.1 `tdp_per_switch` is checked by subsection only and warned. A D.2
+  value whose row cannot be chosen (no architecture or core count) warns if it is one
+  of D.2's figures. Under a governing declared figure, a misquoted default in the
+  cross-check block is a warning. The table lives in `power_defaults.py`.
 - **`cooling` must agree with §8.2's.** A system description whose node types are
   cooled differently counts as air-cooled, the conservative reading.
 - **A submitter's `computed` block is checked, not trusted.** Where it disagrees with
