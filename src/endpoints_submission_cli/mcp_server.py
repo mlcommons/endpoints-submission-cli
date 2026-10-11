@@ -351,9 +351,9 @@ def create_submission(
         confirm_public_provisional: Must be true with ``provisional``. Set it only after
             the user has agreed to their results being made public before review.
         target_availability_date: ``YYYY-MM-DD``. Required for ``preview``.
-        embargo_date: Embargo in ISO 8601 with a UTC offset (e.g. ``2026-12-01T16:00:00Z``;
-            no offset is taken as UTC). Required for ``confidential_embargoed``, optional
-            for ``provisional``, not allowed for ``confidential``.
+        embargo_date: Embargo in ISO 8601 (e.g. ``2026-12-01T16:00:00Z``). Required for
+            ``confidential_embargoed``, optional for ``provisional``, not allowed for
+            ``confidential``.
         dry_run: Assemble the bundle and run the checker, without submitting.
         test: Mark it a test submission, not a real results entry.
     """
@@ -399,7 +399,7 @@ def update_submission(
         submission_id: The submission's UUID.
         run_ids: Replaces the submission's whole run list.
         target_availability_date: ``YYYY-MM-DD``.
-        embargo_date: Move the embargo declared at submission, ISO 8601 with a UTC offset.
+        embargo_date: Move the embargo declared at submission, ISO 8601.
             A submission created without one cannot gain one, and a ``provisional``
             submission's embargo cannot be moved once it has lifted.
     """

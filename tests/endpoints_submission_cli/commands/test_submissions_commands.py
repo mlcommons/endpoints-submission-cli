@@ -1169,10 +1169,10 @@ class TestPublicationMode:
             )
         assert result.exit_code == 0, result.output
         assert _PROMPT_TEXT not in result.output
-        assert "not published before 2099-01-06T16:00:00+00:00" in _flat(result.output)
+        assert "not published before 2099-01-06T16:00:00Z" in _flat(result.output)
         payload = mock_create.call_args[0][1]
         assert payload["publication_mode"] == "confidential_embargoed"
-        assert payload["embargo_date"] == "2099-01-06T16:00:00+00:00"
+        assert payload["embargo_date"] == "2099-01-06T16:00:00Z"
 
     def test_provisional_with_embargo(self, tmp_path: Path) -> None:
         with _patched_create(tmp_path) as mock_create:
@@ -1182,44 +1182,9 @@ class TestPublicationMode:
                 input="y\n",
             )
         assert result.exit_code == 0, result.output
-        assert "from the embargo date, 2099-01-06T16:00:00+00:00" in _flat(result.output)
+        assert "from the embargo date, 2099-01-06T16:00:00Z" in _flat(result.output)
         payload = mock_create.call_args[0][1]
         assert payload["publication_mode"] == "provisional"
-
-    def test_embargo_without_offset_is_sent_as_utc(self, tmp_path: Path) -> None:
-        with _patched_create(tmp_path) as mock_create:
-            result = _runner.invoke(
-                app, [*self._CREATE_ARGS, *_EMBARGOED, "--embargo-date", "2099-01-06T16:00:00"]
-            )
-        assert result.exit_code == 0, result.output
-        assert "taking it as UTC" in _flat(result.output)
-        assert mock_create.call_args[0][1]["embargo_date"] == "2099-01-06T16:00:00+00:00"
-
-    def test_embargo_offset_is_kept(self, tmp_path: Path) -> None:
-        with _patched_create(tmp_path) as mock_create:
-            result = _runner.invoke(
-                app,
-                [*self._CREATE_ARGS, *_EMBARGOED, "--embargo-date", "2099-01-06T08:00:00-08:00"],
-            )
-        assert result.exit_code == 0, result.output
-        assert mock_create.call_args[0][1]["embargo_date"] == "2099-01-06T08:00:00-08:00"
-
-    @pytest.mark.parametrize(
-        ("value", "message"),
-        [("next tuesday", "Invalid --embargo-date"), ("2020-01-01T00:00:00Z", "not in the future")],
-    )
-    def test_bad_embargo_exits_before_downloading(
-        self, tmp_path: Path, value: str, message: str
-    ) -> None:
-        with _patched_create(tmp_path) as mock_create:
-            with patch("endpoints_submission_cli.runs.api.download_run_archive") as mock_download:
-                result = _runner.invoke(
-                    app, [*self._CREATE_ARGS, *_EMBARGOED, "--embargo-date", value]
-                )
-        assert result.exit_code == 1
-        assert message in _flat(result.output)
-        mock_download.assert_not_called()
-        mock_create.assert_not_called()
 
     @pytest.mark.parametrize(
         ("args", "message"),
@@ -1244,42 +1209,6 @@ class TestPublicationMode:
             result = _runner.invoke(app, [*self._CREATE_ARGS, "--provisional"])
         assert result.exit_code == 2
         mock_create.assert_not_called()
-
-    def test_update_normalizes_embargo_and_allows_past(self) -> None:
-        """Moving the embargo up, even into the past, is how a submitter lifts it."""
-        with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
-            with patch(
-                "endpoints_submission_cli.submissions.api.update_submission",
-                return_value=SUBMISSION_OUT,
-            ) as mock_patch:
-                _run_app(
-                    "submissions",
-                    "update",
-                    "--submission-id",
-                    SUBMISSION_ID,
-                    "--embargo-date",
-                    "2020-01-01T00:00:00",
-                    *_TOKEN_ARGS,
-                )
-        assert mock_patch.call_args[0][2] == {"embargo_date": "2020-01-01T00:00:00+00:00"}
-
-    def test_update_rejects_unparseable_embargo(self) -> None:
-        with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
-            with patch("endpoints_submission_cli.submissions.api.update_submission") as mock_patch:
-                result = _runner.invoke(
-                    app,
-                    [
-                        "submissions",
-                        "update",
-                        "--submission-id",
-                        SUBMISSION_ID,
-                        "--embargo-date",
-                        "soon",
-                        *_TOKEN_ARGS,
-                    ],
-                )
-        assert result.exit_code == 1
-        mock_patch.assert_not_called()
 
 
 class TestNoPublicationCycleFlag:

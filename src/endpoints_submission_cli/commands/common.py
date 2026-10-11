@@ -22,7 +22,6 @@ __all__ = [
     "_confirm_provisional",
     "_console",
     "_check_publication_mode",
-    "_normalize_embargo",
     "PUBLICATION_MODES",
     "_get_token",
     "_SEVERITY_STYLE",
@@ -62,36 +61,6 @@ def _check_publication_mode(publication_mode: str, embargo_date: str | None) -> 
             "[/bold red]"
         )
         sys.exit(1)
-
-
-def _normalize_embargo(value: str, *, require_future: bool) -> str:
-    """Validate an --embargo-date and return it with an explicit UTC offset; exit 1 if bad.
-
-    A value without an offset is taken as UTC and sent with one, so the instant does
-    not depend on the API server's local time zone. Called before any download, so a
-    typo costs nothing.
-    """
-    text = value.strip()
-    try:
-        # fromisoformat only accepts a trailing Z from Python 3.11.
-        parsed = datetime.datetime.fromisoformat(
-            text[:-1] + "+00:00" if text.endswith("Z") else text
-        )
-    except ValueError:
-        _console.print(
-            f"[bold red]Invalid --embargo-date {value!r}:[/bold red] expected ISO 8601, "
-            "e.g. 2026-12-01T16:00:00Z or 2026-12-01T08:00:00-08:00."
-        )
-        sys.exit(1)
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
-        _console.print(
-            f"[dim]--embargo-date has no UTC offset; taking it as UTC: {parsed.isoformat()}[/dim]"
-        )
-    if require_future and parsed <= datetime.datetime.now(datetime.timezone.utc):
-        _console.print(f"[bold red]--embargo-date {value!r} is not in the future.[/bold red]")
-        sys.exit(1)
-    return parsed.isoformat()
 
 
 def _confirm_provisional(assume_yes: bool, embargo_date: str | None = None) -> None:

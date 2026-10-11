@@ -20,7 +20,6 @@ from ...submissions.formatters import print_submission_detail
 from ..common import (
     _console,
     _get_token,
-    _normalize_embargo,
     _run_submission_checker,
     _write_cli_metadata,
 )
@@ -52,9 +51,9 @@ def _rollback_update(token: str, submission_id: str, original_run_ids: list[str]
     "--embargo-date",
     default=None,
     help=(
-        "Move the embargo declared at submission, ISO 8601 with a UTC offset (no offset = "
-        "UTC). A submission created without one cannot gain one, and a provisional "
-        "submission's embargo cannot be moved once it has lifted (its result is public)."
+        "Move the embargo declared at submission, ISO 8601. A submission created without "
+        "one cannot gain one, and a provisional submission's embargo cannot be moved once "
+        "it has lifted (its result is public)."
     ),
 )
 def submissions_update(
@@ -74,9 +73,6 @@ def submissions_update(
     would add one is rejected.
     """
     resolved_token = _get_token(token)
-    if embargo_date is not None:
-        # A past date is allowed here: moving the embargo up is how a submitter lifts it.
-        embargo_date = _normalize_embargo(embargo_date, require_future=False)
 
     if not run_ids and target_availability_date is None and embargo_date is None:
         _console.print("[yellow]Nothing to update — provide at least one field.[/yellow]")

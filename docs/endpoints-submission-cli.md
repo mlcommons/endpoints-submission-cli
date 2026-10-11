@@ -274,7 +274,7 @@ endpoints-submission-cli submissions create \
 | `--publication-mode MODE` | no | `confidential` (default), `confidential_embargoed` or `provisional`; Submission Rules §6.2, fixed once submitted. `provisional` asks for confirmation first. See [Publication modes](#publication-modes). |
 | `--yes`, `-y` | no | Skip the provisional publication confirmation prompt (for non-interactive use) |
 | `--target-availability-date DATE` | no | `YYYY-MM-DD`; required when availability is `preview` |
-| `--embargo-date DATETIME` | no | Embargo, ISO 8601 with a UTC offset (e.g. `2026-12-01T16:00:00Z`; no offset is taken as UTC). Required for `confidential_embargoed`, optional for `provisional`, not allowed for `confidential`. |
+| `--embargo-date DATETIME` | no | Embargo datetime in ISO 8601 format (e.g. `2026-12-01T16:00:00Z`). Required for `confidential_embargoed`, optional for `provisional`, not allowed for `confidential`. |
 | `--dry-run` | no | Assemble folder, run checker, print layout — exit without submitting |
 
 #### Publication modes
@@ -289,11 +289,10 @@ when it is created, with `--publication-mode`. The mode cannot be changed afterw
 | `confidential_embargoed` | required | No | Not before the embargo date |
 | `provisional` | optional | Yes, tagged `peer review pending`: from the embargo date, or once automated compliance passes if there is none | First publication date after finalization |
 
-The mode and embargo are checked before anything is downloaded, and the embargo must be
-in the future. It can be moved later with `submissions update --embargo-date`, but not
-removed, and a submission created without one cannot gain one (Submission Rules §4.2).
-A `provisional` embargo also cannot be moved once it has lifted, since the result is
-then public.
+The mode and embargo are checked against each other before anything is downloaded. The
+embargo can be moved later with `submissions update --embargo-date`, but not removed, and
+a submission created without one cannot gain one (Submission Rules §4.2). A `provisional`
+embargo also cannot be moved once it has lifted, since the result is then public.
 
 **If the final status PATCH fails** the submission record and uploaded bundle still
 exist; the failure is a warning, not a fatal error. The CLI does not open the review
@@ -331,7 +330,7 @@ endpoints-submission-cli submissions update \
 | `--token TOKEN` | API token |
 | `--run-ids RUN_ID` | Set the complete run UUID list. Repeatable — pass once per run. Runs not listed are removed. |
 | `--target-availability-date DATE` | Target availability date (`YYYY-MM-DD`) |
-| `--embargo-date DATETIME` | Move the embargo declared at submission, ISO 8601 with a UTC offset. A submission created without one cannot gain one, and a `provisional` embargo cannot be moved once it has lifted. |
+| `--embargo-date DATETIME` | Move the embargo declared at submission, ISO 8601. A submission created without one cannot gain one, and a `provisional` embargo cannot be moved once it has lifted. |
 
 **When `--run-ids` is provided** the command runs a full rebuild:
 

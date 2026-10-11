@@ -26,7 +26,6 @@ from ..common import (
     _confirm_provisional,
     _console,
     _get_token,
-    _normalize_embargo,
     _run_submission_checker,
     _write_cli_metadata,
 )
@@ -115,7 +114,7 @@ __all__ = ["submissions_create"]
     "--embargo-date",
     default=None,
     help=(
-        "Embargo, ISO 8601 with a UTC offset (e.g. 2026-12-01T16:00:00Z; no offset = UTC). "
+        "Embargo datetime in ISO 8601 format (e.g. 2026-12-01T16:00:00Z). "
         "Required for confidential_embargoed, where the finalized result is not published "
         "before it (Submission Rules §6.2.2). Optional for provisional, where the "
         "provisional result is not public before it (§6.2.3). Not allowed for confidential."
@@ -159,10 +158,8 @@ def submissions_create(
       5. Upload the submission bundle.
     """
     run_ids_list = list(run_ids)
-    # Validate and ask before any downloads — a typo or a declined prompt should cost nothing.
+    # Validate and ask before any downloads — a mismatch or a declined prompt should cost nothing.
     _check_publication_mode(publication_mode, embargo_date)
-    if embargo_date:
-        embargo_date = _normalize_embargo(embargo_date, require_future=True)
     if publication_mode == "provisional" and not dry_run:
         _confirm_provisional(assume_yes, embargo_date)
     elif publication_mode == "confidential_embargoed":
