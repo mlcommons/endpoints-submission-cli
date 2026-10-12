@@ -5,10 +5,16 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import datetime, timezone
 
 import pytest
 
-from submission_checker import messages
+from submission_checker import checker, messages
+
+#: The instant the suite checks submissions as of: inside cohort 2026-10-C1, which the
+#: bundled seed set and approved drafters are valid for, so results don't drift with
+#: the calendar.
+PINNED_NOW = datetime(2026, 10, 12, 12, 0, tzinfo=timezone.utc)
 
 
 @pytest.fixture(autouse=True)
@@ -24,3 +30,9 @@ def _strict_messages() -> Iterator[None]:
         yield
     finally:
         messages.strict = previous
+
+
+@pytest.fixture(autouse=True)
+def _pinned_submission_date(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Check every submission as if sent at :data:`PINNED_NOW` (§4.6, §2.9.4 count from it)."""
+    monkeypatch.setattr(checker, "_now", lambda: PINNED_NOW)

@@ -204,7 +204,7 @@ def submissions_update(
         # Run Submission Checker
         _console.print("[cyan]Running Submission Checker…[/cyan]")
         try:
-            _run_submission_checker(submission_dir)
+            _run_submission_checker(submission_dir, current_sub.get("created_at"))
         except SubmissionCheckError as exc:
             _console.print(f"[bold red]Submission checker failed:[/bold red]\n{exc}")
             _rollback_update(resolved_token, submission_id, original_run_ids)

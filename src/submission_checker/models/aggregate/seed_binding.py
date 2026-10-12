@@ -1,10 +1,11 @@
 """Seed binding — §4.6 seed rotation, checked across one Pareto curve.
 
 §9.1's "Seed-set validity" row makes this a property of the whole submission, not of
-one file: "every point must record the same seed set, and that set must have been
-published for ``target_cohort`` or one of the three immediately preceding cohorts."
-The first half is checkable today; the second is not, because the published registry
-carries no cohort keys yet — see :attr:`SeedBinding.adoption_checkable`.
+one file: every point must record the same seed set, and that set must be adoptable
+when the submission first appears (Submission Rules §4.6). §9.1 still words the second
+half against a declared ``target_cohort``, but under the rolling model (§4.1) a
+submission is timestamped on receipt and targets nothing, so the window is tested
+against the first cohort date on or after receipt — see :attr:`submission_cohort`.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr, model_validator
 
+from ...cohorts import Cohort
 from ...seed_sets import SeedSet
 from ..file.point_config import PointConfig
 from ..results import CheckResult, err, ok, warn
@@ -33,6 +35,9 @@ class SeedBinding(BaseModel):
     registry: dict[str, SeedSet]
     #: The curve directory, used as the path for curve-wide findings.
     model_dir: Path
+    #: The first cohort date on or after the submission's receipt. An amendment keeps
+    #: its original submission's, so §4.6's binding outlives the adoption window.
+    submission_cohort: Cohort
 
     @property
     def adoption_checkable(self) -> bool:
@@ -119,7 +124,7 @@ class SeedBinding(BaseModel):
 
     @model_validator(mode="after")
     def _check_seed_set_adoption(self) -> SeedBinding:
-        """§4.6: the bound set must be published for ``target_cohort`` or the three before it.
+        """§4.6: the bound set must be adoptable at the submission's cohort.
 
         Reported as INFO while the published registry carries no cohort keys: with no
         cohort attached to any set, every submission would either pass vacuously or
@@ -127,24 +132,16 @@ class SeedBinding(BaseModel):
         """
         if not self.points:
             return self
-        cohorts = {
-            config.target_cohort for _, config in self.points if config.target_cohort is not None
-        }
+        target = str(self.submission_cohort)
         if not self.adoption_checkable:
             self._check_results.append(
-                ok(
-                    "seed-set-adoption",
-                    "skipped-cohorts" if cohorts else "skipped",
-                    self.model_dir,
-                    cohorts=", ".join(sorted(cohorts)),
-                )
+                ok("seed-set-adoption", "skipped-cohorts", self.model_dir, cohorts=target)
             )
             return self
 
         for yaml_path, config in self.points:
             published = self.registry.get(config.seed_set or "")
-            target = config.target_cohort
-            if published is None or target is None:
+            if published is None:
                 continue
             if target in published.cohorts:
                 self._check_results.append(

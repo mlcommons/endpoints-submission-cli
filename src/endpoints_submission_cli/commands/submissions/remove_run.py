@@ -132,7 +132,7 @@ def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -
         # 3. Run Submission Checker
         _console.print("[cyan]Running Submission Checker…[/cyan]")
         try:
-            _run_submission_checker(submission_dir)
+            _run_submission_checker(submission_dir, sub_out.get("created_at"))
         except SubmissionCheckError as exc:
             _console.print(f"[bold red]Submission checker failed:[/bold red]\n{exc}")
             _rollback_remove_run(resolved_token, submission_id, run_id)

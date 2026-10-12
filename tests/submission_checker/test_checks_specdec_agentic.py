@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from submission_checker.cohorts import Cohort
 from submission_checker.drafters import (
     ApprovedDrafter,
     DrafterListError,
@@ -57,9 +58,13 @@ def _point(
     return tmp_path / "point.yaml", PointConfig.model_validate(payload)
 
 
-def _binding(tmp_path: Path, points, approved) -> DrafterBinding:
+def _binding(tmp_path: Path, points, approved, cohort: str = "2026-12-C1") -> DrafterBinding:
     return DrafterBinding(
-        points=points, approved=approved, benchmark="llama3_1-8b", model_dir=tmp_path
+        points=points,
+        approved=approved,
+        benchmark="llama3_1-8b",
+        model_dir=tmp_path,
+        submission_cohort=Cohort.parse(cohort),
     )
 
 
@@ -119,13 +124,11 @@ class TestDrafterList:
             d.model_id: d.approved_cohort for ds in load_approved_drafters().values() for d in ds
         }
         assert cohorts == {
-            model_id: "2026-09-C1"
-            for heads in self._REFERENCE_HEADS.values()
-            for model_id in heads
+            model_id: "2026-09-C1" for heads in self._REFERENCE_HEADS.values() for model_id in heads
         }
 
     @pytest.mark.parametrize(
-        ("target_cohort", "expected_severity"),
+        ("cohort", "expected_severity"),
         [
             ("2026-09-C1", Severity.ERROR),
             ("2026-10-C0", Severity.ERROR),
@@ -133,17 +136,16 @@ class TestDrafterList:
         ],
     )
     def test_bundled_heads_respect_their_approval_lead_time(
-        self, tmp_path: Path, target_cohort: str, expected_severity: Severity
+        self, tmp_path: Path, cohort: str, expected_severity: Severity
     ) -> None:
         for benchmark, approved in load_approved_drafters().items():
             for drafter in approved:
                 binding = DrafterBinding(
-                    points=[
-                        _point(tmp_path, {"weight_checksum": drafter.weight_checksum}, target_cohort)
-                    ],
+                    points=[_point(tmp_path, {"weight_checksum": drafter.weight_checksum})],
                     approved=approved,
                     benchmark=benchmark,
                     model_dir=tmp_path,
+                    submission_cohort=Cohort.parse(cohort),
                 )
                 results = [
                     r for r in binding._check_results if r.rule == "drafter-approval-lead-time"
@@ -240,9 +242,15 @@ class TestApprovedDrafterRule:
 class TestApprovalLeadTime:
     """§2.9.4: usable from two cohorts after the approval cohort."""
 
-    def _bind(self, tmp_path: Path, target_cohort: str) -> DrafterBinding:
-        points = [_point(tmp_path, {"weight_checksum": "sha256:abc"}, target_cohort)]
-        return _binding(tmp_path, points, [_WEIGHT_ENTRY])
+    def _bind(self, tmp_path: Path, cohort: str) -> DrafterBinding:
+        points = [_point(tmp_path, {"weight_checksum": "sha256:abc"})]
+        return _binding(tmp_path, points, [_WEIGHT_ENTRY], cohort)
+
+    def test_declared_target_cohort_is_ignored(self, tmp_path: Path) -> None:
+        """Naming a later cohort does not make a drafter usable before it is eligible."""
+        points = [_point(tmp_path, {"weight_checksum": "sha256:abc"}, target_cohort="2027-05-C0")]
+        binding = _binding(tmp_path, points, [_WEIGHT_ENTRY], cohort="2026-11-C0")
+        assert _errors(binding, "drafter-approval-lead-time")
 
     def test_earliest_usable_cohort(self) -> None:
         """Approved 2026-10-C1 → 2026-11-C0 → 2026-11-C1."""

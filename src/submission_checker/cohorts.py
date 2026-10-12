@@ -12,10 +12,17 @@ calendar and the next rule to count in cohorts will want it too.
 
 from __future__ import annotations
 
+import calendar
 import re
 from dataclasses import dataclass
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-__all__ = ["COHORT_RE", "Cohort", "adoption_window"]
+__all__ = ["COHORT_RE", "PUBLICATION_TZ", "Cohort", "adoption_window"]
+
+#: §4.2 publishes at 8:00 AM Pacific.
+PUBLICATION_TZ = ZoneInfo("America/Los_Angeles")
+_PUBLICATION_HOUR = 8
 
 #: A cohort identifier: calendar year-month plus the index within that month.
 COHORT_RE = re.compile(r"(?P<year>\d{4})-(?P<month>\d{2})-C(?P<index>[01])")
@@ -58,6 +65,26 @@ class Cohort:
         if not 1 <= month <= 12:
             return None
         return cls(year=int(match["year"]), month=month, index=int(match["index"]))
+
+    def publication_time(self) -> datetime:
+        """The cohort date (§4.2): the 1st (C0) or 3rd (C1) Wednesday, 8:00 AM PT."""
+        first_weekday, _ = calendar.monthrange(self.year, self.month)
+        first_wednesday = 1 + (calendar.WEDNESDAY - first_weekday) % 7
+        day = first_wednesday + 14 * self.index
+        return datetime(self.year, self.month, day, _PUBLICATION_HOUR, tzinfo=PUBLICATION_TZ)
+
+    @classmethod
+    def on_or_after(cls, when: datetime) -> Cohort:
+        """The first cohort whose date is at or after *when* (a timezone-aware instant).
+
+        Under the rolling model (Submission Rules §4.1) a submission names no cohort:
+        it is timestamped on receipt, and this is the first cohort date it can reach.
+        """
+        local = when.astimezone(PUBLICATION_TZ)
+        cohort = cls(local.year, local.month, 0)
+        while cohort.publication_time() < when:
+            cohort = cohort.next()
+        return cohort
 
     def next(self) -> Cohort:
         """The cohort immediately following this one."""

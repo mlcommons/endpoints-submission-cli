@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Speculative-decoding drafters (§2.9.4) — approval and lead time.
 
-§9.1 adds two checks, both per point but both needing the curve's ``target_cohort``
-and benchmark, so they live here rather than on :class:`PointConfig`.
+§9.1 adds two checks, both per point but both needing the submission's cohort and
+the curve's benchmark, so they live here rather than on :class:`PointConfig`.
 """
 
 from __future__ import annotations
@@ -35,6 +35,9 @@ class DrafterBinding(BaseModel):
     benchmark: str
     #: The curve directory, used as the path for curve-wide findings.
     model_dir: Path
+    #: The first cohort date on or after the submission's receipt — §2.9.4's "review
+    #: eligibility date" read as a cohort.
+    submission_cohort: Cohort
 
     @property
     def speculative_points(self) -> list[tuple[Path, PointConfig]]:
@@ -75,22 +78,26 @@ class DrafterBinding(BaseModel):
 
     @model_validator(mode="after")
     def _check_approval_lead_time(self) -> DrafterBinding:
-        """§9.1: the drafter was approved at least two cohorts before `target_cohort`."""
+        """§2.9.4: the submission's cohort is at least two cohorts after the drafter's approval.
+
+        §9.1 still words this against a declared ``target_cohort``; under the rolling
+        model the anchor is the submission's own cohort, so a submitter cannot name an
+        earlier one to use a drafter before it is eligible.
+        """
         for yaml_path, config in self.speculative_points:
             declared = config.speculative_decoding or {}
             matched = next((e for e in self.approved if e.matches(declared)), None)
             if matched is None:
                 continue  # already reported by approved-drafter
-            target = Cohort.parse(config.target_cohort or "")
+            target = self.submission_cohort
             earliest = matched.earliest_target_cohort()
-            if target is None or earliest is None:
+            if earliest is None:
                 self._check_results.append(
                     warn(
                         "drafter-approval-lead-time",
                         "warn",
                         yaml_path,
                         concurrency=config.concurrency,
-                        target_cohort=config.target_cohort,
                         approved_cohort=matched.approved_cohort,
                     )
                 )

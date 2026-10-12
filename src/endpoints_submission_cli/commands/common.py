@@ -159,11 +159,21 @@ def _get_token(token: str | None) -> str:
         sys.exit(1)
 
 
-def _run_submission_checker(submission_dir: Path) -> None:
-    """Run the SubmissionChecker on *submission_dir*; print results table; raise on errors."""
+def _run_submission_checker(submission_dir: Path, created_at: str | None = None) -> None:
+    """Run the SubmissionChecker on *submission_dir*; print results table; raise on errors.
+
+    *created_at* is a recorded submission's creation time from the API. Seed adoption
+    and drafter lead time count from when a submission first appeared (§4.6, §2.9.4),
+    so re-checking an existing submission passes it; a new one is checked as of now.
+    """
     from submission_checker.checker import SubmissionChecker
 
-    report = SubmissionChecker(submission_dir).run()
+    submitted_at = None
+    if created_at:
+        submitted_at = datetime.datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        if submitted_at.tzinfo is None:
+            submitted_at = submitted_at.replace(tzinfo=datetime.timezone.utc)
+    report = SubmissionChecker(submission_dir, submitted_at=submitted_at).run()
 
     # --- write Rich table to log file ---
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")

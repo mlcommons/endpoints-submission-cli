@@ -224,10 +224,11 @@ drafter-approval-lead-time:
   title: Drafter approval lead time
   spec: §2.9.4
   messages:
-    warn: 'Point {concurrency}: lead time unevaluable — target_cohort={target_cohort!r}, approved_cohort={approved_cohort!r}'
-    fail: 'Point {concurrency}: drafter approved in {approved_cohort}, so the earliest usable target_cohort
-      is {earliest} ({drafter_approval_lead_cohorts} cohorts later); this submission targets {target}'
-    pass: 'Point {concurrency}: target_cohort {target} ≥ earliest usable {earliest}'
+    warn: 'Point {concurrency}: lead time unevaluable — the approved-drafter entry records no approval
+      cohort (approved_cohort={approved_cohort!r})'
+    fail: 'Point {concurrency}: drafter approved in {approved_cohort}, so the earliest usable cohort is
+      {earliest} ({drafter_approval_lead_cohorts} cohorts later); this submission''s cohort is {target}'
+    pass: 'Point {concurrency}: submission cohort {target} ≥ earliest usable {earliest}'
 drafter-list-registry:
   title: Approved-drafter registry
   spec: §2.9.4
@@ -625,12 +626,11 @@ seed-set-adoption:
   title: Seed set adoption
   spec: §4.6
   messages:
-    pass: Seed set {published_id!r} was published for cohort {target}
-    fail: 'Seed set {published_id!r} was not published for cohort {target} (published for: {value})'
-    skipped: 'SKIPPED: the published seed-set registry carries no cohort keys, so the four-cohort adoption
-      window cannot be evaluated'
+    pass: Seed set {published_id!r} is adoptable at this submission's cohort, {target}
+    fail: 'Seed set {published_id!r} is not adoptable at this submission''s cohort, {target} (adoptable
+      in: {value})'
     skipped-cohorts: 'SKIPPED: the published seed-set registry carries no cohort keys, so the four-cohort
-      adoption window cannot be evaluated (points target {cohorts})'
+      adoption window cannot be evaluated (submission cohort {cohorts})'
 seed-set-consistency:
   title: Seed set consistency
   spec: §4.6

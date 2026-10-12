@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from submission_checker.cohorts import Cohort
 from submission_checker.models import PointConfig, RuntimeSettings, SeedBinding, Severity
 from submission_checker.seed_sets import SeedSet, load_seed_sets
 
@@ -39,9 +40,12 @@ def _point(
     return tmp_path / f"r{concurrency}" / "point.yaml", config
 
 
-def _binding(tmp_path: Path, points, registry=None) -> SeedBinding:
+def _binding(tmp_path: Path, points, registry=None, cohort: str = "2026-10-C1") -> SeedBinding:
     return SeedBinding(
-        points=points, registry=_REGISTRY if registry is None else registry, model_dir=tmp_path
+        points=points,
+        registry=_REGISTRY if registry is None else registry,
+        model_dir=tmp_path,
+        submission_cohort=Cohort.parse(cohort),
     )
 
 
@@ -123,33 +127,28 @@ class TestSeedRuntimeMatch:
 class TestSeedSetAdoption:
     def test_enforced_against_the_published_registry(self, tmp_path: Path) -> None:
         """The bundled registry now carries a cohort-id, so the window is evaluable."""
-        binding = SeedBinding(
-            points=[_point(tmp_path)], registry=load_seed_sets(), model_dir=tmp_path
-        )
+        binding = _binding(tmp_path, [_point(tmp_path)], registry=load_seed_sets())
         assert binding.adoption_checkable
         assert not _errors(binding, "seed-set-adoption")
 
     def test_cohort_outside_the_window_errors(self, tmp_path: Path) -> None:
-        """2026-09-C0 precedes the 2026-10-C1 publication cohort, so it cannot adopt."""
-        points = [_point(tmp_path, target_cohort="2026-09-C0")]
-        binding = SeedBinding(points=points, registry=load_seed_sets(), model_dir=tmp_path)
+        """A submission in 2026-09-C0 precedes the 2026-10-C1 publication cohort."""
+        binding = _binding(tmp_path, [_point(tmp_path)], load_seed_sets(), cohort="2026-09-C0")
         assert _errors(binding, "seed-set-adoption")
 
     def test_last_cohort_of_the_window_is_accepted(self, tmp_path: Path) -> None:
         """The window is inclusive of its fourth cohort (§4.6)."""
-        points = [_point(tmp_path, target_cohort="2026-12-C0")]
-        binding = SeedBinding(points=points, registry=load_seed_sets(), model_dir=tmp_path)
+        binding = _binding(tmp_path, [_point(tmp_path)], load_seed_sets(), cohort="2026-12-C0")
         assert not _errors(binding, "seed-set-adoption")
 
     def test_one_cohort_past_the_window_errors(self, tmp_path: Path) -> None:
-        points = [_point(tmp_path, target_cohort="2026-12-C1")]
-        binding = SeedBinding(points=points, registry=load_seed_sets(), model_dir=tmp_path)
+        binding = _binding(tmp_path, [_point(tmp_path)], load_seed_sets(), cohort="2026-12-C1")
         assert _errors(binding, "seed-set-adoption")
 
     def test_skipped_only_when_the_registry_declares_no_cohort(self, tmp_path: Path) -> None:
         """A pre-cohort registry file leaves §4.6 unevaluable rather than failing."""
         cohortless = {"A": SeedSet(id="A", **_SET_A.seeds, cohorts=())}
-        binding = SeedBinding(points=[_point(tmp_path)], registry=cohortless, model_dir=tmp_path)
+        binding = _binding(tmp_path, [_point(tmp_path)], registry=cohortless)
         results = [r for r in binding._check_results if r.rule == "seed-set-adoption"]
         assert len(results) == 1
         assert results[0].severity == Severity.INFO
@@ -164,3 +163,19 @@ class TestSeedSetAdoption:
         published = SeedSet(id="A", **_SET_A.seeds, cohorts=("2025-01-C0",))
         binding = _binding(tmp_path, [_point(tmp_path)], registry={"A": published})
         assert _errors(binding, "seed-set-adoption")
+
+
+@pytest.mark.unit
+class TestSubmissionCohortGovernsAdoption:
+    """§4.1/§4.6: the window is tested at the submission's cohort, not a declared one."""
+
+    def test_declared_target_cohort_is_ignored(self, tmp_path: Path) -> None:
+        """Naming a cohort inside the window does not rescue a submission sent after it."""
+        points = [_point(tmp_path, target_cohort="2026-10-C1")]
+        assert _errors(
+            _binding(tmp_path, points, load_seed_sets(), cohort="2027-01-C0"), "seed-set-adoption"
+        )
+
+    def test_message_names_the_submission_cohort(self, tmp_path: Path) -> None:
+        binding = _binding(tmp_path, [_point(tmp_path)], load_seed_sets(), cohort="2027-01-C0")
+        assert "2027-01-C0" in _errors(binding, "seed-set-adoption")[0].message

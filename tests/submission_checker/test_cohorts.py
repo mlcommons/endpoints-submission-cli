@@ -4,9 +4,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 
-from submission_checker.cohorts import Cohort, adoption_window
+from submission_checker.cohorts import PUBLICATION_TZ, Cohort, adoption_window
 
 
 class TestParse:
@@ -106,3 +108,35 @@ class TestAdoptionWindow:
         first = set(adoption_window(Cohort(2026, 10, 1)))
         second = set(adoption_window(Cohort(2026, 11, 1)))
         assert len(first & second) == 2
+
+
+class TestCohortDates:
+    """§4.2: C0 is the 1st Wednesday, C1 the 3rd, both at 8:00 AM Pacific."""
+
+    @pytest.mark.parametrize(
+        "cohort, expected",
+        [
+            # Submission Rules §4.2's worked example names these dates.
+            ("2026-10-C1", datetime(2026, 10, 21, 8, tzinfo=PUBLICATION_TZ)),
+            ("2026-11-C0", datetime(2026, 11, 4, 8, tzinfo=PUBLICATION_TZ)),
+            ("2026-11-C1", datetime(2026, 11, 18, 8, tzinfo=PUBLICATION_TZ)),
+            # A month that starts on a Wednesday.
+            ("2026-07-C0", datetime(2026, 7, 1, 8, tzinfo=PUBLICATION_TZ)),
+        ],
+    )
+    def test_publication_time(self, cohort: str, expected: datetime) -> None:
+        assert Cohort.parse(cohort).publication_time() == expected
+
+    @pytest.mark.parametrize(
+        "when, expected",
+        [
+            (datetime(2026, 10, 12, tzinfo=timezone.utc), "2026-10-C1"),
+            # Exactly at publication still makes that cohort; a minute later does not.
+            (datetime(2026, 10, 21, 15, 0, tzinfo=timezone.utc), "2026-10-C1"),
+            (datetime(2026, 10, 21, 15, 1, tzinfo=timezone.utc), "2026-11-C0"),
+            # After the month's last cohort, the next month's first.
+            (datetime(2026, 12, 30, tzinfo=timezone.utc), "2027-01-C0"),
+        ],
+    )
+    def test_on_or_after(self, when: datetime, expected: str) -> None:
+        assert str(Cohort.on_or_after(when)) == expected

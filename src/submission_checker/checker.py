@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 import yaml
@@ -15,6 +16,7 @@ import yaml
 __all__ = ["SubmissionChecker"]
 
 from . import layout
+from .cohorts import Cohort
 from .drafters import ApprovedDrafter, DrafterListError, load_approved_drafters
 from .messages import Invalid
 from .models import (
@@ -308,6 +310,11 @@ def _resolve_submission_root(path: Path) -> Path:
     return candidates[0] if len(candidates) == 1 else path
 
 
+def _now() -> datetime:
+    """The current instant; a seam so tests can pin the submission cohort."""
+    return datetime.now(timezone.utc)
+
+
 class SubmissionChecker:
     """Validates an MLPerf Endpoints submission directory against §9.1 rules.
 
@@ -319,6 +326,11 @@ class SubmissionChecker:
 
     Args:
         submission_path: Directory of the submission to validate.
+        submitted_at: When the submission was received (timezone-aware). §4.6's seed
+            adoption and §2.9.4's drafter lead time count from the first cohort date on
+            or after it. Defaults to now, which is when a new submission is sent; the
+            CLI passes a recorded submission's creation time when re-checking it, so an
+            amendment keeps its original binding.
 
     Example::
 
@@ -333,8 +345,10 @@ class SubmissionChecker:
         submission_path: Path,
         seed_sets_path: Path | None = None,
         approved_drafters_path: Path | None = None,
+        submitted_at: datetime | None = None,
     ) -> None:
         self.submission_path = _resolve_submission_root(submission_path)
+        self.submission_cohort = Cohort.on_or_after(submitted_at or _now())
         self.seed_sets_path = seed_sets_path
         self.approved_drafters_path = approved_drafters_path
         self._seed_sets: dict[str, SeedSet] = {}
@@ -718,7 +732,10 @@ class SubmissionChecker:
 
         if self._seed_sets_error is None:
             seed_binding = SeedBinding(
-                points=valid_points, registry=self._seed_sets, model_dir=model_dir
+                points=valid_points,
+                registry=self._seed_sets,
+                model_dir=model_dir,
+                submission_cohort=self.submission_cohort,
             )
             results.extend(seed_binding._check_results)
 
@@ -734,6 +751,7 @@ class SubmissionChecker:
                 approved=self._drafters.get(benchmark, []),
                 benchmark=benchmark,
                 model_dir=model_dir,
+                submission_cohort=self.submission_cohort,
             )
             results.extend(drafter_binding._check_results)
 

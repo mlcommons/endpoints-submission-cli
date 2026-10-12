@@ -490,8 +490,8 @@ not satisfy High Concurrency coverage.
 | `seed-set-consistency` | §9.1 | Every point records the same seed set |
 | `seed-set-membership` | §9.1 | The bound set is one MLCommons published |
 | `seed-runtime-match` | §2.1.1 | The RNG seeds equal the bound set's values |
-| `target-cohort` | §4.6 | `target_cohort` matches `YYYY-MM-C0` / `YYYY-MM-C1` |
-| `seed-set-adoption` | §4.6 | `target_cohort` falls inside the set's four-cohort adoption window |
+| `target-cohort` | §4.6 | `target_cohort` matches `YYYY-MM-C0` / `YYYY-MM-C1`. Recorded only: no check uses it |
+| `seed-set-adoption` | §4.6 | The submission's cohort falls inside the set's four-cohort adoption window |
 | `seed-config-legacy` | §4.6 | v0.7 fallback: seeds == 42 when no `seed_set` is declared |
 | `seed-set-registry` | §4.6 | Warns when the seed-set file itself cannot be read |
 
@@ -500,8 +500,10 @@ not satisfy High Concurrency coverage.
 | Rule | Spec | Description |
 |------|------|-------------|
 | `approved-drafter` | §2.9.4 | The declared drafter is on the benchmark's published list |
-| `drafter-approval-lead-time` | §2.9.4 | Approved at least two cohorts before `target_cohort` |
+| `drafter-approval-lead-time` | §2.9.4 | Approved at least two cohorts before the submission's cohort |
 | `drafter-list-registry` | §2.9.4 | Warns when the drafter list itself cannot be read |
+
+The submission's cohort is the first cohort date (§4.2) on or after the submission is received. Under the rolling model (Submission Rules §4.1) a submission names no cohort, so a `target_cohort` in `point.yaml` cannot move it. A new submission is checked as of now; `submissions update` and `remove-run` re-check an existing one as of its recorded creation time, so an amendment keeps the binding it started with (§4.6).
 
 The approved list ships as data (`src/submission_checker/data/approved_drafters.yaml`),
 transcribed from the agentic reference README's "Approved Checkpoints and
