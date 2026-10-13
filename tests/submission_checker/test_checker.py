@@ -309,6 +309,9 @@ def _make_run_yaml(concurrency: int, model_name: str | None = "llama3_1-8b") -> 
     }
 
 
+_RULESET = "mlperf-endpoints-v1.0-2026-10-C1-A"
+
+
 def _build_submission(
     root: Path,
     system_id: str = "test-sys",
@@ -359,7 +362,9 @@ def _build_submission(
         if write_results:
             (point_dir / "result_summary.json").write_text(json.dumps(_SUMMARY))
             if write_config_yaml:
-                (point_dir / "config.yaml").write_text(yaml.dump({"concurrency": c}))
+                (point_dir / "config.yaml").write_text(
+                    yaml.dump({"concurrency": c, "submission_ref": {"ruleset": _RULESET}})
+                )
             # Write accuracy into the first point only; checker scans all points
             if c == concs[0] and write_accuracy_json:
                 data = accuracy_data if accuracy_data is not None else _ACCURACY
@@ -518,7 +523,9 @@ class TestCheckerEdgeCases:
                 "system_tps": tps,
             }
             (rd / "result_summary.json").write_text(json.dumps(summary))
-            (rd / "config.yaml").write_text(yaml.dump({"concurrency": c}))
+            (rd / "config.yaml").write_text(
+                yaml.dump({"concurrency": c, "submission_ref": {"ruleset": _RULESET}})
+            )
             (rd / "system_desc.json").write_text(
                 json.dumps({**_SYSTEM_DESC, "tps_utilization": util})
             )
@@ -560,6 +567,35 @@ class TestCheckerEdgeCases:
     def test_config_yaml_present_is_not_an_error(self, tmp_path):
         root = _build_submission(tmp_path)
         assert not _errors(_check(root), "config-file-present")
+
+    def _set_ruleset(self, root, ruleset):
+        (config_path,) = list(root.rglob("config.yaml"))[:1]
+        config = yaml.safe_load(config_path.read_text())
+        if ruleset is None:
+            config.pop("submission_ref", None)
+        else:
+            config["submission_ref"] = {"ruleset": ruleset}
+        config_path.write_text(yaml.dump(config))
+
+    def test_v1_0_ruleset_passes(self, tmp_path):
+        root = _build_submission(tmp_path)
+        assert not _errors(_check(root), "ruleset-declared")
+
+    @pytest.mark.parametrize(
+        ("ruleset", "text"),
+        [
+            (None, "declares no submission_ref.ruleset"),
+            ("mlperf-inference-v6.0", "is not an MLPerf Endpoints ruleset"),
+            ("mlperf-endpoints-v1.1-2027-01-C0-A", "is not a v1.0 ruleset"),
+        ],
+    )
+    def test_ruleset_must_be_a_v1_0_endpoints_ruleset(self, tmp_path, ruleset, text):
+        """§8.5: the result ID's major.minor comes from this ruleset."""
+        root = _build_submission(tmp_path)
+        self._set_ruleset(root, ruleset)
+        errors = _errors(_check(root), "ruleset-declared")
+        assert len(errors) == 1
+        assert text in errors[0].message
 
     def test_config_yaml_must_be_a_mapping(self, tmp_path):
         root = _build_submission(tmp_path)

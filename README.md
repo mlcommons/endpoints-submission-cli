@@ -311,6 +311,7 @@ submission root (§9.1).
 | `point-dirs` | §1 | At least one `r<N>/` Pareto-point directory per model |
 | `measurement-points-present` | §1 | Every `r<N>/` carries a `point.yaml` |
 | `config-file-present` | §8.1 | Every `r<N>/` carries a `config.yaml` that is a YAML mapping |
+| `ruleset-declared` | §8.5 | Its `submission_ref.ruleset` is a v1.0 MLPerf Endpoints ruleset (the result ID's major.minor) |
 | `point-dirname-concurrency` | §1 | `r<N>/` name matches the declared concurrency (warn) |
 | `result-summary-present` | §1 | `result_summary.json` exists for each point |
 | `shared-path-resolution` | §9.1 | `shared_src` / `shared_docs` resolve under the submission root |

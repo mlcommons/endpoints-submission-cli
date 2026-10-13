@@ -132,6 +132,7 @@ _CONFIG = {
     "name": "test-benchmark",
     "version": "1.0",
     "type": "online",
+    "submission_ref": {"ruleset": "mlperf-endpoints-v1.0-2026-10-C1-A"},
     "model_params": {
         "name": "meta-llama/Llama-3.1-8B-Instruct",
         "temperature": 0.0,

@@ -600,6 +600,19 @@ config-file-present:
     invalid:
       text: 'config.yaml in {relative_to}/ is not a YAML mapping: {reason}'
       fix: Ship the config.yaml exactly as endpoints wrote it.
+ruleset-declared:
+  title: Ruleset declared
+  spec: §8.5
+  messages:
+    fail:
+      text: config.yaml in {relative_to}/ declares no submission_ref.ruleset
+      fix: Ship the config.yaml as the harness wrote it; it records the ruleset, e.g. mlperf-endpoints-v1.0-2026-10-C1-A.
+    invalid:
+      text: 'submission_ref.ruleset {ruleset!r} in {relative_to}/ is not an MLPerf Endpoints ruleset'
+      fix: Run the benchmark with an Endpoints ruleset (mlperf-endpoints-v<major>.<minor>-…).
+    version:
+      text: 'submission_ref.ruleset {ruleset!r} in {relative_to}/ is not a v{expected} ruleset'
+      fix: Rerun under the v{expected} ruleset, or check the submission with the checker for its version.
 result-file-valid:
   title: Result summary (result_summary.json)
   spec: §8.3

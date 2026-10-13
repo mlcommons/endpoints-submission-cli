@@ -7,6 +7,7 @@ model validators on PointConfig, PointResult, and ModelContext.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
@@ -306,6 +307,53 @@ def _resolve_submission_root(path: Path) -> Path:
         return path
     candidates = [d for d in sorted(path.iterdir()) if d.is_dir() and (d / "results").is_dir()]
     return candidates[0] if len(candidates) == 1 else path
+
+
+#: The Endpoints ruleset the harness records in config.yaml's ``submission_ref``,
+#: e.g. ``mlperf-endpoints-v1.0-2026-10-C1-A``.
+RULESET_RE = re.compile(r"^mlperf-endpoints-v(\d+)\.(\d+)(?:-|$)")
+#: The rules version this checker validates against.
+RULES_VERSION = (1, 0)
+
+
+def _check_ruleset(
+    config: dict[str, object], config_path: Path, relative_to: Path
+) -> list[CheckResult]:
+    """config.yaml must name the Endpoints ruleset the run was made under (§8.5).
+
+    Its major.minor is the first part of every result ID the lifecycle manager
+    assigns at publication, so it has to be there, be an Endpoints ruleset, and
+    be the version this checker validates. Requiring the version on every point
+    also makes all points of a submission agree.
+    """
+    ref = config.get("submission_ref")
+    ruleset = ref.get("ruleset") if isinstance(ref, dict) else None
+    if not ruleset:
+        return [_err("ruleset-declared", "fail", config_path, relative_to=relative_to)]
+    match = RULESET_RE.match(str(ruleset))
+    if match is None:
+        return [
+            _err(
+                "ruleset-declared",
+                "invalid",
+                config_path,
+                relative_to=relative_to,
+                ruleset=str(ruleset),
+            )
+        ]
+    version = (int(match.group(1)), int(match.group(2)))
+    if version != RULES_VERSION:
+        return [
+            _err(
+                "ruleset-declared",
+                "version",
+                config_path,
+                relative_to=relative_to,
+                ruleset=str(ruleset),
+                expected=f"{RULES_VERSION[0]}.{RULES_VERSION[1]}",
+            )
+        ]
+    return []
 
 
 class SubmissionChecker:
@@ -1072,7 +1120,7 @@ class SubmissionChecker:
                     reason=f"expected a mapping, got {type(data).__name__}",
                 )
             ]
-        return []
+        return _check_ruleset(data, config_path, relative_to)
 
     def _check_unparsed_point(self, point: _UnparsedPoint) -> list[CheckResult]:
         """Check what can be checked for a point whose ``point.yaml`` is unusable.
