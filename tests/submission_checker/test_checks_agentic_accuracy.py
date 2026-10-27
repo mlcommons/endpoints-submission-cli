@@ -148,7 +148,7 @@ class TestGateScope:
         assert not _hits(ctx, "agentic-accuracy-inline")
 
     def test_single_turn_gate_stands_down(self, tmp_path: Path) -> None:
-        """§15's gate would fold inline and SWE-bench into one weighted mean."""
+        """The single-turn gate would fold inline and SWE-bench into one weighted mean."""
         ctx = _ctx(tmp_path, accuracy_by_point={64: _accuracy(inline=60.0, swebench=95.0)})
         assert not _hits(ctx, "accuracy-gate")
 

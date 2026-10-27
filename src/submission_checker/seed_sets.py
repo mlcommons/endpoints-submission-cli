@@ -1,4 +1,4 @@
-"""Published seed sets (§4.6 Seed Rotation) and the registry that loads them.
+"""Published seed sets (Submission Rules §4.6 Seed Rotation) and the registry that loads them.
 
 §2.1.1 requires the client's request-issue / sample-order RNG and the per-query salt
 to be seeded from a set MLCommons published for the submission's cohort, and §9.1's
@@ -52,7 +52,7 @@ class SeedSet:
         sample_index_rng_seed: Seed for the sample-order RNG.
         model_seed: Seed passed through to the model / per-query salt.
         cohorts: The cohorts during which a *new* submission may adopt this set —
-            §4.6's four-cohort adoption window, derived from the registry's
+            Submission Rules §4.6's four-cohort adoption window, derived from the registry's
             publication cohort. Empty only when the file declares no ``cohort-id``,
             in which case the adoption test cannot run.
     """
@@ -100,7 +100,7 @@ def load_seed_sets(path: Path | None = None) -> dict[str, SeedSet]:
 
     entries, published = _unwrap(chosen, raw)
 
-    # §4.6 states the window in terms of the publication cohort, so the registry
+    # Submission Rules §4.6 states the window in terms of the publication cohort, so the registry
     # carries one `cohort-id` rather than listing the window per set.
     cohorts: tuple[str, ...] = ()
     if published is not None:
@@ -142,7 +142,7 @@ def _unwrap(path: Path, raw: object) -> tuple[list[object], str | None]:
     """Return ``(seed-set entries, publication cohort)`` from either registry shape.
 
     Upstream nests everything under a ``cohort:`` mapping that also carries the
-    ``cohort-id`` §4.6 counts from. The older flat ``seed_sets:`` form is still
+    ``cohort-id`` Submission Rules §4.6 counts from. The older flat ``seed_sets:`` form is still
     accepted so an operator can point ``--seed-sets`` at a file predating that
     change; such a file simply declares no cohort, and the adoption test stands down.
     """

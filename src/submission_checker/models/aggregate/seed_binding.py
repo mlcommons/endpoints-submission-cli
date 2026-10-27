@@ -1,4 +1,4 @@
-"""Seed binding — §4.6 seed rotation, checked across one Pareto frontier.
+"""Seed binding — Submission Rules §4.6 seed rotation, checked across one Pareto frontier.
 
 §9.1's "Seed-set validity" row makes this a property of the whole submission, not of
 one file: "every point must record the same seed set, and that set must have been
@@ -119,7 +119,9 @@ class SeedBinding(BaseModel):
 
     @model_validator(mode="after")
     def _check_seed_set_adoption(self) -> SeedBinding:
-        """§4.6: the bound set must be published for ``target_cohort`` or the three before it.
+        """The bound set must be published for ``target_cohort`` or the three before it.
+
+        Submission Rules §4.6.
 
         Reported as INFO while the published registry carries no cohort keys: with no
         cohort attached to any set, every submission would either pass vacuously or

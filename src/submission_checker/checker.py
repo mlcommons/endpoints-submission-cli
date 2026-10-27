@@ -414,7 +414,7 @@ class SubmissionChecker:
         # within each <system>/<benchmark_model> Pareto frontier.
         report.results.extend(self._check_tps_utilization(results_dir))
 
-        # §15: at least one model must carry accuracy results — either as accuracy_scores
+        # §6.6: at least one model must carry accuracy results — either as accuracy_scores
         # embedded in a results.json, or as a standalone accuracy/results.json.
         has_full_accuracy = any(True for _ in results_dir.rglob("accuracy_results.json")) or any(
             _results_has_accuracy_scores(p) for p in results_dir.rglob("results.json")

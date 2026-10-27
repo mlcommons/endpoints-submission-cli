@@ -85,7 +85,7 @@ accuracy-coverage:
       fix: Keep exactly one accuracy result per mandatory band and remove the rest.
 accuracy-gate:
   title: Accuracy gate
-  spec: §15
+  spec: §4.3
   messages:
     no-thresholds:
       text: No accuracy thresholds are defined for {model!r}, so its accuracy was not gated
@@ -97,7 +97,7 @@ accuracy-gate:
     pass: '{matched_key} = {score:.4f} PASSED (target {bound})'
 accuracy-present:
   title: Accuracy results present
-  spec: §15
+  spec: §6.6
   messages:
     pass: At least one model has accuracy results
     fail:
@@ -106,7 +106,7 @@ accuracy-present:
       fix: Include accuracy_results.json, or accuracy_scores in results.json, at the mandatory points.
 accuracy-sample-count:
   title: Accuracy sample count
-  spec: §15
+  spec: §4.3, §6.5
   messages:
     fail: '{total} samples{suffix} < required {min_queries}'
     pass: '{total} samples{suffix} ≥ required {min_queries}'
@@ -186,7 +186,7 @@ approved-drafter:
       identifies an entry by weight checksum, or by target checksum plus configuration'
 benchmark-model-dir:
   title: Benchmark-model directory
-  spec: §1
+  spec: §8.1
   messages:
     fail:
       text: No benchmark-model directories in results/{system_id}/
@@ -202,7 +202,7 @@ benchmark-type-consistency:
       spec: §6.1, §8.5
 concurrency-in-range:
   title: Concurrency in range
-  spec: §9
+  spec: §5.5
   messages:
     pass:
       text: 'Dedicated Offline run: concurrency {concurrency} is the dataset cardinality (§5.7.1), exempt
@@ -237,7 +237,7 @@ drafter-list-registry:
     unavailable: '{detail}'
 high-concurrency-coverage:
   title: High Concurrency coverage
-  spec: §§3–6
+  spec: §5.3, §5.4
   messages:
     pass: '{label} region covered: {covered} (range {bounds})'
     fail:
@@ -245,7 +245,7 @@ high-concurrency-coverage:
       fix: Add a point with concurrency in {bounds}.
 load-pattern:
   title: Load pattern
-  spec: §10
+  spec: §6.1
   messages:
     pass:
       text: 'Offline point: load pattern {lp!r} exempt from fixed concurrency'
@@ -255,7 +255,7 @@ load-pattern:
     pass-2: 'Point {concurrency}: load pattern OK ({lp})'
 low-concurrency-coverage:
   title: Low Concurrency coverage
-  spec: §§3–6
+  spec: §5.3, §5.4
   messages:
     pass: '{label} region covered: {covered} (range {bounds})'
     fail:
@@ -263,7 +263,7 @@ low-concurrency-coverage:
       fix: Add a point with concurrency in {bounds}.
 max-concurrency-declared:
   title: Maximum supported concurrency
-  spec: §7
+  spec: §5.4
   messages:
     pass: max_supported_concurrency = {c_max}
 maximal-engagement:
@@ -289,7 +289,7 @@ maximal-engagement:
       declared but there is no shortfall'
 measurement-points-present:
   title: Point configuration present
-  spec: §1
+  spec: §8.1
   messages:
     fail:
       text: No usable r<N>/point.yaml files in {relative_to}
@@ -300,7 +300,7 @@ measurement-points-present:
       fix: Add the point's point.yaml (§8.3 disclosure) to this directory.
 med-concurrency-coverage:
   title: Medium Concurrency coverage
-  spec: §§3–6
+  spec: §5.3, §5.4
   messages:
     pass: '{label} region covered: {covered} (range {bounds})'
     fail:
@@ -308,19 +308,19 @@ med-concurrency-coverage:
       fix: Add a point with concurrency in {bounds}.
 metric-consistency-accounting:
   title: Metric consistency accounting
-  spec: §14
+  spec: §6.4
   messages:
     fail: completed ({n_samples_completed}) + failed ({n_samples_failed}) = {accounted} ≠ issued ({n_samples_issued})
     pass: 'Sample accounting consistent: {n_samples_issued} issued'
 metric-consistency-duration:
   title: Metric consistency duration
-  spec: §14
+  spec: §4.1
   messages:
     fail: 'duration_ns is not positive: {duration_ns}'
     pass: duration_ns={duration_ns:.0f} ns
 metric-consistency-output-tokens:
   title: Metric consistency output tokens
-  spec: §14
+  spec: §4.1
   messages:
     fail: 'total_output_tokens is negative: {total_output_tokens}'
     pass: total_output_tokens={total_output_tokens}
@@ -354,7 +354,7 @@ metric-consistency-tps-per-user:
     fail: stored tps_per_user {stored:.4f} ≠ derived 1000 / tpot_p90_ms {derived:.4f} (rel err {rel_err:.1%})
 min-query-count:
   title: Min query count
-  spec: §12
+  spec: §6.4
   messages:
     fail: 'Dataset ''{dataset}'': completed {completed} < minimum {min_queries} (§6.4)'
     pass: 'Dataset ''{dataset}'': completed {completed} ≥ minimum {min_queries}'
@@ -429,13 +429,13 @@ offline-point-present:
       fix: Elect the C_max point (r{c_max}), or run a dedicated Offline point instead.
 path-exists:
   title: Submission path
-  spec: §1
+  spec: §8.1
   messages:
     pass: Submission path exists
     fail: 'Submission path does not exist: {submission_path}'
 point-cap:
   title: Point cap
-  spec: §2, §8
+  spec: §5.6
   messages:
     fail: '{n} points exceed the {max_points}-point cap'
 point-config-valid:
@@ -448,7 +448,7 @@ point-config-valid:
       nonzero
 point-count:
   title: Number of points
-  spec: §2, §8
+  spec: §5.3
   messages:
     fail:
       text: Only {n} measurement point(s) — minimum {minimum} required
@@ -456,14 +456,14 @@ point-count:
     pass: 'Point count OK: {n}'
 point-dirname-concurrency:
   title: Point dirname concurrency
-  spec: §1
+  spec: §8.1
   messages:
     warn:
       text: '{point_dir_name}/: directory concurrency {dir_concurrency} ≠ declared {concurrency}'
       fix: Rename the directory to r{concurrency}, or correct concurrency in point.yaml.
 point-dirs:
   title: Pareto point directories
-  spec: §1
+  spec: §8.1
   messages:
     fail: 'Missing benchmark-model directory: {rel}/'
     pass: 'Found {dirs_count} Pareto point director{value} in {rel}/: {dirs}'
@@ -484,7 +484,7 @@ point-duration:
     pass: 'Point {c}: {basis} duration {duration_ms:.0f} ms meets minimum for {region}'
 point-rules-skipped:
   title: Point rules skipped
-  spec: §1
+  spec: §8.3
   messages:
     warn: '{point_dir_name}/: point.yaml is missing or invalid, so the rules that read it (region placement,
       metric consistency, power) were not run for this point; fixing it may report more'
@@ -594,7 +594,7 @@ region-placement:
     pass: Declared region '{declared}' matches concurrency {concurrency}
 required-dir:
   title: Required directories
-  spec: §1
+  spec: §8.1
   messages:
     pass: 'Found required directory: {name}/'
     fail:
@@ -619,7 +619,7 @@ result-file-valid:
     percentile-conflict: two keys for percentile {percentile} give different values
 result-summary-present:
   title: Result summary present
-  spec: §1
+  spec: §8.1
   messages:
     fail:
       text: 'Missing result_summary.json for r{concurrency}: {relative_to}'
@@ -629,15 +629,15 @@ result-summary-present:
       fix: Add the point's result_summary.json, as the benchmark writes it.
 seed-config-legacy:
   title: Seed config legacy
-  spec: §4.6
+  spec: Submission Rules §4.6
   messages:
     fail: 'Point {concurrency}: {field_name} = {val!r}; v0.7 required 42 and v1.0 requires a declared
-      seed_set (§4.6) — neither is satisfied'
+      seed_set (Submission Rules §4.6) — neither is satisfied'
     warn: 'Point {concurrency}: {field_name} = 42 with no seed_set declared; v1.0 binds seeds to a published
-      set (§4.6)'
+      set (Submission Rules §4.6)'
 seed-runtime-match:
   title: Seed runtime match
-  spec: §4.6
+  spec: Submission Rules §4.6
   messages:
     fail: 'runtime_settings.runtime does not match seed set {published_id!r}: {mismatched}'
     pass: RNG seeds match seed set {published_id!r}
@@ -645,7 +645,7 @@ seed-runtime-match:
       v1.0 names them scheduler_rng_seed / sample_index_rng_seed and adds model_seed
 seed-set-adoption:
   title: Seed set adoption
-  spec: §4.6
+  spec: Submission Rules §4.6
   messages:
     pass: Seed set {published_id!r} was published for cohort {target}
     fail: 'Seed set {published_id!r} was not published for cohort {target} (published for: {value})'
@@ -655,20 +655,20 @@ seed-set-adoption:
       adoption window cannot be evaluated (points target {cohorts})'
 seed-set-consistency:
   title: Seed set consistency
-  spec: §4.6
+  spec: Submission Rules §4.6
   messages:
     fail: 'Points declare {declared_count} different seed sets: {declared} — a submission binds exactly
       one'
     pass: All points bind seed set {next!r}
 seed-set-membership:
   title: Seed set membership
-  spec: §4.6
+  spec: Submission Rules §4.6
   messages:
     pass: seed_set {set_id!r} is a published set
     fail: 'seed_set {set_id!r} is not a published set (known: {value})'
 seed-set-registry:
   title: Seed-set registry
-  spec: §4.6
+  spec: Submission Rules §4.6
   messages:
     unavailable: '{detail}'
 shared-path-resolution:
@@ -683,7 +683,7 @@ shared-path-resolution:
     pass: '{field_name} {value!r} resolves to {relative_to}/ ({where})'
 src-dir:
   title: Implementation sources (src/)
-  spec: §1
+  spec: §8.1
   messages:
     pass: 'src/ present with {impl_dirs_count} implementation director{value}: {impl_dirs}'
     fail:
@@ -695,7 +695,7 @@ src-dir:
       fix: Add one directory per implementation under src/ (vllm/, sglang/, …).
 src-readme:
   title: Implementation README
-  spec: §1
+  spec: §8.1
   messages:
     pass: src/{impl_dir_name}/README.md present
     fail:
@@ -791,14 +791,14 @@ system-description-valid:
       fix: Shorten shortened_system_name to {limit} characters or fewer.
 system-results-dir:
   title: System results directory
-  spec: §1
+  spec: §8.1
   messages:
     fail:
       text: No results/<system>/ directories found
       fix: Put each system's results under results/<system>/<benchmark_model>/r<N>/.
 target-cohort:
   title: Target cohort
-  spec: §4.6
+  spec: Submission Rules §4.6
   messages:
     pass: target_cohort='{target_cohort}'
     fail: target_cohort '{target_cohort}' is not of the form YYYY-MM-C0/C1

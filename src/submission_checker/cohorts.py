@@ -1,13 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 MLCommons
 # SPDX-License-Identifier: Apache-2.0
-"""Publication cohorts (§4.2) — identifiers and the arithmetic §4.6 needs.
+"""Publication cohorts — identifiers and arithmetic for Submission Rules §4.2 and §4.6.
 
 MLCommons publishes results on a bi-weekly cadence, two cohorts per calendar month,
-identified as ``YYYY-MM-C0`` and ``YYYY-MM-C1`` (§4.2). §4.6 then counts in cohorts:
-a seed set is adoptable for "its publication cohort and the following three", which
-only means something if a cohort has a well-defined successor. That successor lives
-here rather than in the seed-set loader, because it is a property of the publication
-calendar and the next rule to count in cohorts will want it too.
+identified as ``YYYY-MM-C0`` and ``YYYY-MM-C1`` (Submission Rules §4.2). Submission
+Rules §4.6 then counts in cohorts: a seed set is adoptable for "its publication cohort
+and the following three", which only means something if a cohort has a well-defined
+successor. That successor lives here rather than in the seed-set loader, because it is
+a property of the publication calendar and the next rule to count in cohorts will want
+it too.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ __all__ = ["COHORT_RE", "Cohort", "adoption_window"]
 #: A cohort identifier: calendar year-month plus the index within that month.
 COHORT_RE = re.compile(r"(?P<year>\d{4})-(?P<month>\d{2})-C(?P<index>[01])")
 
-#: Cohorts published per calendar month (§4.2's 1st and 3rd Wednesday).
+#: Cohorts published per calendar month (Submission Rules §4.2's 1st and 3rd Wednesday).
 _COHORTS_PER_MONTH = 2
 
 
@@ -71,12 +72,12 @@ class Cohort:
 def adoption_window(published: Cohort, length: int = 4) -> tuple[Cohort, ...]:
     """The cohorts during which a set published in *published* may be adopted.
 
-    §4.6: "Each published seed set is available for adoption by new submissions for
+    Submission Rules §4.6: "Each published seed set is available for adoption by new submissions for
     **four consecutive cohorts** — its publication cohort and the following three."
 
     Args:
         published: The cohort the set was published for.
-        length: Window length in cohorts. Defaults to §4.6's four; a parameter so a
+        length: Window length in cohorts. Defaults to Submission Rules §4.6's four; a parameter so a
             working-group change is a call-site edit rather than a rewrite.
 
     Returns:

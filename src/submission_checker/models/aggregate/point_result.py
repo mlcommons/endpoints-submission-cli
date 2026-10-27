@@ -139,7 +139,7 @@ class PointResult(BaseModel):
 
     @model_validator(mode="after")
     def _check_min_query_count(self, info: ValidationInfo) -> PointResult:
-        """§12: n_samples_completed must meet the dataset's minimum query count (§6.4).
+        """§6.4: n_samples_completed must meet the dataset's minimum query count.
 
         Skipped when the dataset is not in MIN_QUERY_COUNT (unknown datasets are
         not yet mapped; add them as the spec is ratified).
@@ -191,7 +191,7 @@ class PointResult(BaseModel):
     # ------------------------------------------------------------------
 
     def _check_duration_positive(self, s: PointSummary, path: Path | None) -> None:
-        """Emit ok/err for the duration_ns > 0 invariant (§14)."""
+        """Emit ok/err for the duration_ns > 0 invariant (§4.1)."""
         if s.duration_ns <= 0:
             self._check_results.append(
                 err("metric-consistency-duration", "fail", path, duration_ns=s.duration_ns)
@@ -202,7 +202,7 @@ class PointResult(BaseModel):
             )
 
     def _check_sample_accounting(self, s: PointSummary, path: Path | None) -> None:
-        """Emit ok/err for the completed + failed == issued invariant (§14).
+        """Emit ok/err for the completed + failed == issued invariant (§6.4).
 
         Skipped when n_samples_issued is 0 (point tool did not track issued count).
         """
@@ -231,7 +231,7 @@ class PointResult(BaseModel):
                 )
 
     def _check_output_tokens_nonnegative(self, s: PointSummary, path: Path | None) -> None:
-        """Emit ok/err for the total_output_tokens >= 0 invariant (§14)."""
+        """Emit ok/err for the total_output_tokens >= 0 invariant (§4.1)."""
         if s.total_output_tokens < 0:
             self._check_results.append(
                 err(
@@ -381,7 +381,7 @@ class PointResult(BaseModel):
 
     @model_validator(mode="after")
     def _check_metric_consistency(self, info: ValidationInfo) -> PointResult:
-        """§14 + §9.1: validate point-log accounting invariants and tps derivability."""
+        """§4.1, §6.4, §9.1: validate point-log accounting invariants and tps derivability."""
         summary_path: Path | None = (info.context or {}).get("summary_path")
         s = self.summary
         self._check_duration_positive(s, summary_path)

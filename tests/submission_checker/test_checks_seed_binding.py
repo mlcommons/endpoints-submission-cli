@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 MLCommons
 # SPDX-License-Identifier: Apache-2.0
-"""Tests for SeedBinding — §4.6 seed rotation, checked across a Pareto frontier."""
+"""Tests for SeedBinding — Submission Rules §4.6 seed rotation, checked across a Pareto frontier."""
 
 from __future__ import annotations
 
@@ -136,7 +136,7 @@ class TestSeedSetAdoption:
         assert _errors(binding, "seed-set-adoption")
 
     def test_last_cohort_of_the_window_is_accepted(self, tmp_path: Path) -> None:
-        """The window is inclusive of its fourth cohort (§4.6)."""
+        """The window is inclusive of its fourth cohort (Submission Rules §4.6)."""
         points = [_point(tmp_path, target_cohort="2026-12-C0")]
         binding = SeedBinding(points=points, registry=load_seed_sets(), model_dir=tmp_path)
         assert not _errors(binding, "seed-set-adoption")
@@ -147,7 +147,7 @@ class TestSeedSetAdoption:
         assert _errors(binding, "seed-set-adoption")
 
     def test_skipped_only_when_the_registry_declares_no_cohort(self, tmp_path: Path) -> None:
-        """A pre-cohort registry file leaves §4.6 unevaluable rather than failing."""
+        """A pre-cohort registry file leaves Submission Rules §4.6 unevaluable, not failing."""
         cohortless = {"A": SeedSet(id="A", **_SET_A.seeds, cohorts=())}
         binding = SeedBinding(points=[_point(tmp_path)], registry=cohortless, model_dir=tmp_path)
         results = [r for r in binding._check_results if r.rule == "seed-set-adoption"]

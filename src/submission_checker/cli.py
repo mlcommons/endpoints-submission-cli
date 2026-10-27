@@ -53,8 +53,8 @@ def main() -> None:
     default=None,
     envvar=SEED_SETS_ENV_VAR,
     help=(
-        "Published seed sets to check against (§4.6). Defaults to the set bundled with "
-        f"this checker; also settable via ${SEED_SETS_ENV_VAR}."
+        "Published seed sets to check against (Submission Rules §4.6). Defaults to the set "
+        f"bundled with this checker; also settable via ${SEED_SETS_ENV_VAR}."
     ),
 )
 @click.option(

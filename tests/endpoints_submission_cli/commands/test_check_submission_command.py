@@ -82,7 +82,7 @@ class TestCheckSubmission:
         assert result.exit_code == 1
         assert "::error " in result.stderr
         # Titled with the rule's title and spec section, not its id twice.
-        assert "title=Low Concurrency coverage (§§3–6)::" in result.stderr
+        assert "title=Low Concurrency coverage (§5.3%2C §5.4)::" in result.stderr
         assert "[low-concurrency-coverage]" not in result.stderr
 
     def test_no_annotate_by_default_outside_ci(self) -> None:

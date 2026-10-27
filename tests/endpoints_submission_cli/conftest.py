@@ -209,7 +209,7 @@ _RESULT_SUMMARY = {
 # a config carries runtime knobs, while point.yaml carries the disclosure the checker
 # validates (seeds, warmup counts, data source). Validated against the checker's
 # PointConfig, so the fixture represents a bundle that actually passes.
-#: Seed set A (§4.6), mirrored from policies PR #117 into data/seed_sets.yaml.
+#: Seed set A (Submission Rules §4.6), mirrored from policies PR #117 into data/seed_sets.yaml.
 _SEED_SET_ID = "A"
 _SEEDS = {
     "scheduler_rng_seed": 10487924139932647040,

@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 MLCommons
 # SPDX-License-Identifier: Apache-2.0
-"""Tests for publication-cohort identifiers and arithmetic (§4.2, §4.6)."""
+"""Tests for publication-cohort identifiers and arithmetic (Submission Rules §4.2, §4.6)."""
 
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ class TestSuccession:
             c = c.next()
 
     def test_two_cohorts_per_calendar_month(self) -> None:
-        """§4.2's bi-weekly cadence: a year advances in exactly 24 steps."""
+        """Submission Rules §4.2's bi-weekly cadence: a year advances in exactly 24 steps."""
         c = Cohort(2026, 1, 0)
         for _ in range(24):
             c = c.next()
@@ -69,7 +69,7 @@ class TestSuccession:
 
 class TestAdoptionWindow:
     def test_four_consecutive_cohorts_by_default(self) -> None:
-        """§4.6: the publication cohort and the following three."""
+        """Submission Rules §4.6: the publication cohort and the following three."""
         window = adoption_window(Cohort(2026, 10, 1))
         assert [str(c) for c in window] == [
             "2026-10-C1",
@@ -102,7 +102,7 @@ class TestAdoptionWindow:
             assert earlier.next() == later
 
     def test_two_sets_published_two_cohorts_apart_overlap_by_two(self) -> None:
-        """§4.6: refresh every two cohorts, adoptable for four — so two sets overlap."""
+        """Submission Rules §4.6: refresh every two cohorts, adoptable for four, so two overlap."""
         first = set(adoption_window(Cohort(2026, 10, 1)))
         second = set(adoption_window(Cohort(2026, 11, 1)))
         assert len(first & second) == 2

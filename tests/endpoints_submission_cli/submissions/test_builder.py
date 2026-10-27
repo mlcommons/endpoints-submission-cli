@@ -1269,7 +1269,7 @@ class TestBuilderCheckerContract:
             data = yaml.safe_load(py.read_text())
             # Must not raise — this is exactly what failed before the runtime fix.
             cfg = PointConfig.model_validate(data, context={"yaml_path": py})
-            # §4.6 binds the seeds to a published set; the fixture uses set A.
+            # Submission Rules §4.6 binds the seeds to a published set; the fixture uses set A.
             assert cfg.seed_set == "A"
             assert cfg.runtime_settings.runtime.scheduler_rng_seed == 10487924139932647040
             assert cfg.runtime_settings.runtime.sample_index_rng_seed == 586478644936801402
