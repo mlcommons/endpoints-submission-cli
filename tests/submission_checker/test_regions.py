@@ -99,7 +99,7 @@ def test_c_min_must_be_within_ultra_low_band():
 
 
 def test_zero_width_region_is_covered_by_its_neighbour():
-    """§5.5: a rounding collision leaves a region with a single valid level.
+    """§5.4: a rounding collision leaves a region with a single valid level.
 
     ``start > end`` makes ``contains`` false for every value, so the collided level
     is classified by the next region up rather than vanishing from the space.

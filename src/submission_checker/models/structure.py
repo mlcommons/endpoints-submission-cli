@@ -58,7 +58,7 @@ class SubmissionDir(BaseModel):
 
 
 class SrcDir(BaseModel):
-    """Validates the shared src/ tree (§2.2.1).
+    """Validates the shared src/ tree (§8.1).
 
     src/ is shared across the whole submission and holds one directory per
     implementation (trtllm/, vllm/, sglang/, …). At least one such directory must

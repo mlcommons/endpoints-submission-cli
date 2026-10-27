@@ -114,7 +114,7 @@ file in the bundle that neither source contains.
 
 Everything else is unchanged, which is worth knowing for two cases:
 
-- Every resulting `src/<implementation>/` must contain a `README.md` (§2.2.1),
+- Every resulting `src/<implementation>/` must contain a `README.md` (§8.1),
   including the ones a flag added.
 - Adding a second implementation makes `shared_src` ambiguous, so each `point.yaml`
   must then declare which one produced it. The builder will not guess.
@@ -265,7 +265,7 @@ submission-checker regions --max-concurrency 1024 --min-concurrency 16
 
 Prints the concurrency range for each region given a `(C_max, C_min)` pair, using the
 §5.5 reference algorithm. `--min-concurrency` defaults to 32; in a real submission
-`C_min` is derived from the lowest measurement point rather than declared (§5.4).
+`C_min` is the lowest measurement point unless `system_desc.json` sets `c_min_override` (§5.4).
 
 ## Required Files in submission structure
 
@@ -276,7 +276,7 @@ Pareto point carries its own `system_desc.json`.
 <submitting_organization>/
 └── <submission_id>/
     ├── src/
-    │   └── <implementation>/         # §2.2.1 — README.md + endpoint interface code
+    │   └── <implementation>/         # §8.1 — README.md + endpoint interface code
     │       └── README.md
     ├── docs/                         # calibration, software disclosure, …
     └── results/
@@ -497,7 +497,7 @@ validation by the service or reviewers.
 | `min-query-count` | §6.4 | `n_samples_completed` meets the dataset minimum |
 | `warmup-present` | §6.3.3 | Warmup declaration present; concurrency zero is valid only with zero duration and request counts |
 | `warmup-logs-retained` | §6.3.2 | Warmup log retention declared when warmup was performed (warn) |
-| `warmup-salt` | §6.3.3 | Warns when the warmup salt is enabled |
+| `warmup-salt` | §6.3.1 | Warns when the warmup salt is enabled |
 | `config-consistency-dataset` | §9.1 | All points use the same dataset |
 | `config-consistency-model` | §9.1 | All points declare the same `model_name` |
 
@@ -554,11 +554,11 @@ set published after this release.
 
 | Rule | Spec | Description |
 |------|------|-------------|
-| `result-file-valid` | §8.3 | `result_summary.json` parses against `PointSummary` |
+| `result-file-valid` | §8.1 | `result_summary.json` parses against `PointSummary` |
 | `metric-consistency-duration` | §4.1 | `duration_ns` > 0 |
 | `metric-consistency-accounting` | §6.4 | `completed + failed == issued` |
 | `metric-consistency-output-tokens` | §4.1 | `total_output_tokens` ≥ 0 |
-| `metric-consistency-system-tps` | §9.1 | Stored `system_tps` matches the derived value |
+| `metric-consistency-system-tps` | §4.1 | Stored `system_tps` matches the derived value |
 | `metric-consistency-tpot-p90` | §9.1 | Reported TPOT P90 present, finite, strictly positive; a dedicated Offline run is exempt (§5.7.1, §6.5) |
 | `metric-consistency-tps-per-user` | §9.1 | Stored `tps_per_user` matches `1000 / tpot_p90_ms`; not applied to a dedicated Offline run |
 | `metric-consistency-tps-per-kw` | §4.5.3 | Stored `system_tps_per_kw` matches `system_tps / point_power_kw` — see [per-point normalisation](#per-point-normalisation-453) |
@@ -576,7 +576,7 @@ set published after this release.
 | `agentic-accuracy` | §3.2 | The agentic model is one the reference implementation publishes thresholds for, and they are not TBD |
 | `agentic-accuracy-inline` | §4.3 | Inline accuracy clears the model's floor at **every** point |
 | `agentic-accuracy-swebench` | §4.3 | The **mean** of the N SWE-bench results clears the model's floor; individual results need not |
-| `agentic-osl-range` | §4.3 | Full-run OSL per-turn mean falls inside the model's range |
+| `agentic-osl-range` | §3.2 | Full-run OSL per-turn mean falls inside the model's range |
 
 ### Agentic benchmarks
 

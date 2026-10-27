@@ -21,8 +21,8 @@ agentic benchmarks gate three quantities that do not reduce that way:
 * **SWE-bench accuracy** — **mean-of-N across points**, not per point: "average one
   SWE-bench accuracy result from each of the four mandatory regions (``N = 4``), then
   compare that mean with the model-specific SWE-bench threshold". This is §4.3's
-  multi-turn branch: "The arithmetic mean of the ``N`` required accuracy results MUST
-  meet the quality threshold; individual results need not."
+  multi-turn branch: "The arithmetic mean of the ``N`` required accuracy validation
+  results MUST meet the quality threshold; individual results need not."
 * **OSL per-turn mean** — a *range*, and not an accuracy metric at all: it is read from
   ``result_summary.json``. The README is emphatic about which field, because the
   windowed one has the same name.

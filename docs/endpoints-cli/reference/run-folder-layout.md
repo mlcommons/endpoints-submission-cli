@@ -85,8 +85,8 @@ are decimal strings — `"50.0"`, `"90.0"`, `"99.9"` — **not** `"50"` / `"90"`
 ## What the CLI needs that endpoints does NOT write
 
 `runs create` additionally requires **`system_desc.json`** in the run folder. This is
-not an endpoints artifact — the submitter authors it (org, system, model, dataset
-metadata, flat schema per rules §8.2) and drops it into `report_dir` before upload.
+not an endpoints artifact — the submitter authors it (system and per-node hardware
+and software, per Rules §8.2 and its §8.2.1 template) and drops it into `report_dir` before upload.
 
 ## Consumption by `runs create`
 

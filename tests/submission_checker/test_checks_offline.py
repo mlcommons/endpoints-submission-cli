@@ -453,9 +453,9 @@ class TestAccuracyCoverage:
 class TestAccuracyRunCount:
     """§4.3 / §9.1 "Accuracy run count": exactly N results, one per mandatory point.
 
-    "`N` is a fixed count, not a floor. A submission carrying more than one accuracy
-    result for a region, or any accuracy result at a submitter's-choice point, is
-    non-conforming".
+    "`N` is a fixed count, not a floor. A submission carrying results from more than one
+    accuracy validation run for a region, or from any accuracy validation run at a
+    submitter's-choice point, is non-conforming".
     """
 
     #: C_max=1024, C_min=16: Low Concurrency is 17–26, so 17–26 lies in both it and

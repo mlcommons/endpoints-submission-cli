@@ -730,7 +730,7 @@ def _write_point_yaml(
 
 
 def _ensure_shared_trees(submission_dir: Path, *, dry_run: bool) -> list[str]:
-    """Give the fixture the ``src/<impl>/README.md`` §2.2.1 requires of every division.
+    """Give the fixture the ``src/<impl>/README.md`` §8.1 requires of every submission.
 
     The corpus predates that rule, so every ``sub_*`` tree failed ``src-dir`` — an error
     no test asserted and every test had to look past. Now that each point's

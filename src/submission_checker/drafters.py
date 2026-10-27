@@ -33,7 +33,8 @@ __all__ = [
 #: Environment variable naming a replacement drafter list.
 APPROVED_DRAFTERS_ENV_VAR = "MLPERF_ENDPOINTS_APPROVED_DRAFTERS"
 
-#: §2.9.4: "at least two cohorts after the cohort in which the drafter was approved".
+#: §2.9.4: usable once the submission is "at least two cohorts dates after the cohort in
+#: which the drafter was approved"; §9.1 counts that from ``target_cohort``.
 DRAFTER_APPROVAL_LEAD_COHORTS = 2
 
 _BUNDLED = Path(__file__).parent / "data" / "approved_drafters.yaml"

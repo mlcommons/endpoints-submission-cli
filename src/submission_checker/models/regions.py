@@ -202,7 +202,7 @@ def classify_concurrency(concurrency: int, regions: Regions) -> str | None:
     """Return the region name for *concurrency*, or ``None`` if out of range.
 
     Regions are tested in ascending order. A rounding collision can make a region
-    zero-width (``start > end``); §5.5 says such a region "has zero width and a
+    zero-width (``start > end``); §5.4 says such a region "has zero width and a
     single valid concurrency level at the boundary value", which
     :meth:`RegionBounds.contains` yields naturally because the neighbouring region
     still covers that value.

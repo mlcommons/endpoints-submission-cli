@@ -167,7 +167,7 @@ agentic-metric-consistency:
     fail-2: stored e2e_avg_interactivity {stored:.4f} ≠ derived {derived:.4f} (rel err {rel_err:.1%})
 agentic-osl-range:
   title: Agentic OSL range
-  spec: §4.3
+  spec: §3.2
   messages:
     warn: No `{osl_full_run_field}.output_sequence_lengths.avg` in result_summary.json for {listed}; the
       windowed `output_sequence_lengths` is explicitly not the field to gate
@@ -326,7 +326,7 @@ metric-consistency-output-tokens:
     pass: total_output_tokens={total_output_tokens}
 metric-consistency-system-tps:
   title: Metric consistency system TPS
-  spec: §9.1
+  spec: §4.1
   messages:
     pass: system_tps={derived:.3f} tok/s ({total_output_tokens} tokens / {elapsed_duration_seconds:.1f}s)
     fail: stored system_tps {stored:.3f} ≠ derived {derived:.3f} (rel err {rel_err:.1%})
@@ -613,7 +613,7 @@ config-file-present:
       fix: Ship the config.yaml exactly as endpoints wrote it.
 result-file-valid:
   title: Result summary (result_summary.json)
-  spec: §8.3
+  spec: §8.1
   messages:
     percentile-key: '{key!r} is not a percentile between 0 and 100'
     percentile-conflict: two keys for percentile {percentile} give different values
@@ -839,6 +839,6 @@ warmup-present:
     pass: 'Point {concurrency}: warmup declaration present'
 warmup-salt:
   title: Warmup salt
-  spec: §6.3.3
+  spec: §6.3.1
   messages:
     warn: 'Point {concurrency}: warmup salt is enabled'

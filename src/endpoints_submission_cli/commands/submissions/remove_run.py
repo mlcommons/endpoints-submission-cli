@@ -51,10 +51,10 @@ def submissions_remove_run(submission_id: str, run_id: str, token: str | None) -
     """Withdraw a run from an existing submission.
 
     Submission Rules §8.1 lets a submitter withdraw a faulty measurement point during
-    peer review. Withdrawn points do not count toward the 7-point minimum, so removing
-    one can leave the submission non-compliant — and since §8 no longer provides a
-    window for adding points, that cannot be repaired by adding another. The Submission
-    Checker runs below and will say so.
+    peer review. Withdrawn points do not count toward the §5.3 point minimum, so
+    removing one can leave the submission non-compliant — and since Submission Rules §8
+    no longer provide a window for adding points, that cannot be repaired by adding
+    another. The Submission Checker runs below and will say so.
 
     Workflow:
       1. DELETE /submissions/{id}/runs/{run_id}

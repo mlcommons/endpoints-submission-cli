@@ -178,7 +178,7 @@ _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 class DatasetAccuracyScores(BaseModel):
-    """Per-dataset accuracy scores for ``measured_accuracy_score`` (§8.2).
+    """Per-dataset accuracy scores for the legacy ``measured_accuracy_score`` field.
 
     Maps a single dataset to a ``scores`` dictionary of ``score_name -> score_value``,
     e.g. ``{"scores": {"exact_match": 84.01, "rouge1": 38.73}}``. Each score value must
@@ -265,7 +265,7 @@ class SystemDescription(BaseModel):
     link_to_model_transformation: str | None = None
     model_notes: str | None = None
 
-    # Dataset metadata — moved to point.yaml (§8.3).
+    # Dataset metadata — no longer in §8.2; §8.3 carries dataset_name/type/link.
     dataset_id: str | None = None
     dataset_name: str | None = None
     input_token_average: float | None = None

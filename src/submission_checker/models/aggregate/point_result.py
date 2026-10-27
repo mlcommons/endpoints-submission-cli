@@ -252,7 +252,7 @@ class PointResult(BaseModel):
             )
 
     def _check_system_tps_derivable(self, s: PointSummary, path: Path | None) -> None:
-        """§9.1: system_tps must equal total_output_tokens / elapsed_duration_seconds.
+        """§4.1: system_tps must equal total_output_tokens / elapsed_duration_seconds.
 
         If the result log also stores a system_tps field, verify it matches the
         derived value within _TPS_TOLERANCE. Always emits ok when consistent.

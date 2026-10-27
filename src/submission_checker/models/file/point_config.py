@@ -29,8 +29,7 @@ from .steady_state import (
     SteadyState,
 )
 
-# §8.3's own table still lists the v0.7 *_throughput names, but §5.5's reference
-# algorithm and §9.1's check names both use *_concurrency. The algorithm wins.
+# §8.3's region values, plus "margin", which §5.5's reference algorithm can return.
 _VALID_REGIONS = frozenset({*REGION_NAMES, SUBMITTERS_CHOICE})
 
 #: Cohort identifier (Submission Rules §4.6): calendar year-month plus the cohort index within it.

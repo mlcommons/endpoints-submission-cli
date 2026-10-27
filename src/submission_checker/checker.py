@@ -389,7 +389,7 @@ class SubmissionChecker:
         submission_dir = SubmissionDir(root=self.submission_path)
         report.results.extend(submission_dir._check_results)
 
-        # src/ is shared by the whole submission (§2.2.1), so it is checked once here
+        # src/ is shared by the whole submission (§8.1), so it is checked once here
         # rather than per frontier, and whatever else is missing.
         report.results.extend(SrcDir(root=self.submission_path)._check_results)
 
@@ -665,8 +665,8 @@ class SubmissionChecker:
     ) -> list[CheckResult]:
         """Run every check scoped to one Pareto frontier (§8.5: one system, one model).
 
-        Two-phase, because v1.0 derives ``C_min`` from the submitted points (§5.4)
-        rather than taking it as a declaration: phase one parses every ``point.yaml``
+        Two-phase, because ``C_min`` is the lowest submitted point unless
+        ``c_min_override`` declares it (§5.4): phase one parses every ``point.yaml``
         with no notion of regions, phase two computes the boundaries from what parsed
         and runs the region-dependent rules against them.
         """
