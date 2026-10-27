@@ -237,7 +237,7 @@ drafter-list-registry:
     unavailable: '{detail}'
 high-concurrency-coverage:
   title: High Concurrency coverage
-  spec: §5.4
+  spec: §5.3, §5.4
   messages:
     pass: '{label} region covered: {covered} (range {bounds})'
     fail:
@@ -255,7 +255,7 @@ load-pattern:
     pass-2: 'Point {concurrency}: load pattern OK ({lp})'
 low-concurrency-coverage:
   title: Low Concurrency coverage
-  spec: §5.4
+  spec: §5.3, §5.4
   messages:
     pass: '{label} region covered: {covered} (range {bounds})'
     fail:
@@ -300,7 +300,7 @@ measurement-points-present:
       fix: Add the point's point.yaml (§8.3 disclosure) to this directory.
 med-concurrency-coverage:
   title: Medium Concurrency coverage
-  spec: §5.4
+  spec: §5.3, §5.4
   messages:
     pass: '{label} region covered: {covered} (range {bounds})'
     fail:
@@ -308,19 +308,19 @@ med-concurrency-coverage:
       fix: Add a point with concurrency in {bounds}.
 metric-consistency-accounting:
   title: Metric consistency accounting
-  spec: §9.1
+  spec: §6.4
   messages:
     fail: completed ({n_samples_completed}) + failed ({n_samples_failed}) = {accounted} ≠ issued ({n_samples_issued})
     pass: 'Sample accounting consistent: {n_samples_issued} issued'
 metric-consistency-duration:
   title: Metric consistency duration
-  spec: §9.1
+  spec: §4.1
   messages:
     fail: 'duration_ns is not positive: {duration_ns}'
     pass: duration_ns={duration_ns:.0f} ns
 metric-consistency-output-tokens:
   title: Metric consistency output tokens
-  spec: §9.1
+  spec: §4.1
   messages:
     fail: 'total_output_tokens is negative: {total_output_tokens}'
     pass: total_output_tokens={total_output_tokens}
@@ -683,7 +683,7 @@ shared-path-resolution:
     pass: '{field_name} {value!r} resolves to {relative_to}/ ({where})'
 src-dir:
   title: Implementation sources (src/)
-  spec: §2.2.1, §8.1
+  spec: §8.1
   messages:
     pass: 'src/ present with {impl_dirs_count} implementation director{value}: {impl_dirs}'
     fail:
@@ -695,7 +695,7 @@ src-dir:
       fix: Add one directory per implementation under src/ (vllm/, sglang/, …).
 src-readme:
   title: Implementation README
-  spec: §2.2.1, §8.1
+  spec: §8.1
   messages:
     pass: src/{impl_dir_name}/README.md present
     fail:

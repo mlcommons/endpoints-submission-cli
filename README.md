@@ -304,8 +304,8 @@ submission root (§9.1).
 |------|------|-------------|
 | `path-exists` | §8.1 | Submission root directory exists |
 | `required-dir` | §8.1 | `results/` and `docs/` present |
-| `src-dir` | §2.2.1, §8.1 | `src/` present with at least one implementation directory |
-| `src-readme` | §2.2.1, §8.1 | Each `src/<implementation>/` has a `README.md` |
+| `src-dir` | §8.1 | `src/` present with at least one implementation directory |
+| `src-readme` | §8.1 | Each `src/<implementation>/` has a `README.md` |
 | `system-results-dir` | §8.1 | At least one `results/<system>/` directory exists |
 | `benchmark-model-dir` | §8.1 | At least one benchmark-model directory per system |
 | `point-dirs` | §8.1 | At least one `r<N>/` Pareto-point directory per model |
@@ -475,9 +475,9 @@ validation by the service or reviewers.
 | `offline-point-present` | §5.7 | Exactly one Offline point, `elected` sitting on the C_max point — or **none at all** for an agentic benchmark, which §5.7 says "neither requires nor may include" one |
 | `offline-ordering` | §5.7.2 | Offline beats C_max on throughput (2% tolerance) and concurrency (warn) |
 | `ultra-low-concurrency-coverage` | §5.4 | At least one point in 1–32 by default, or 1–C_min with an override |
-| `low-concurrency-coverage` | §5.4 | At least one point in the Low Concurrency region |
-| `med-concurrency-coverage` | §5.4 | At least one point in the Medium Concurrency region |
-| `high-concurrency-coverage` | §5.4 | At least one point in the High Concurrency region |
+| `low-concurrency-coverage` | §5.3, §5.4 | At least one point in the Low Concurrency region |
+| `med-concurrency-coverage` | §5.3, §5.4 | At least one point in the Medium Concurrency region |
+| `high-concurrency-coverage` | §5.3, §5.4 | At least one point in the High Concurrency region |
 | `point-count` | §5.3 | 7–32 measurement points; 8 with a dedicated Offline run; 7 for an agentic benchmark |
 | `benchmark-type-consistency` | §6.1, §8.5 | Every point on a frontier declares the same `load_pattern`, since one frontier is one benchmark |
 | `point-cap` | §5.6 | Point count does not exceed 32 |
@@ -555,9 +555,9 @@ set published after this release.
 | Rule | Spec | Description |
 |------|------|-------------|
 | `result-file-valid` | §8.3 | `result_summary.json` parses against `PointSummary` |
-| `metric-consistency-duration` | §9.1 | `duration_ns` > 0 |
-| `metric-consistency-accounting` | §9.1 | `completed + failed == issued` |
-| `metric-consistency-output-tokens` | §9.1 | `total_output_tokens` ≥ 0 |
+| `metric-consistency-duration` | §4.1 | `duration_ns` > 0 |
+| `metric-consistency-accounting` | §6.4 | `completed + failed == issued` |
+| `metric-consistency-output-tokens` | §4.1 | `total_output_tokens` ≥ 0 |
 | `metric-consistency-system-tps` | §9.1 | Stored `system_tps` matches the derived value |
 | `metric-consistency-tpot-p90` | §9.1 | Reported TPOT P90 present, finite, strictly positive; a dedicated Offline run is exempt (§5.7.1, §6.5) |
 | `metric-consistency-tps-per-user` | §9.1 | Stored `tps_per_user` matches `1000 / tpot_p90_ms`; not applied to a dedicated Offline run |

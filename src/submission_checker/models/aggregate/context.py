@@ -443,7 +443,7 @@ class ModelContext(BaseModel):
 
     @model_validator(mode="after")
     def _check_regional_coverage(self) -> ModelContext:
-        """§5.4: at least one valid point must fall in each of the three concurrency regions.
+        """§5.3: at least one valid point must fall in each of the three concurrency regions.
 
         Attribution goes through
         :func:`~submission_checker.models.regions.covered_region`, so a point in the
