@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -1256,6 +1257,83 @@ class TestProvisionalConfirmation:
         payload = mock_create.call_args[0][1]
         assert payload["early_publish"] is False
         assert payload["embargo_date"] == "2099-01-06T16:00:00Z"
+
+
+@pytest.mark.unit
+class TestEmbargoCapAdvisory:
+    """Rules §4.2 caps a confidential-review embargo at 60 days after review
+    completes. Review has not started at submission time, so the cap cannot be
+    decided here — the CLI says how much slack the date assumes, and nothing more.
+    """
+
+    _CREATE_ARGS = TestProvisionalConfirmation._CREATE_ARGS
+
+    @staticmethod
+    def _in_days(days: int) -> str:
+        moment = datetime.now(timezone.utc) + timedelta(days=days)
+        return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def test_inside_the_cap_says_nothing(self, tmp_path: Path) -> None:
+        """Review completes no earlier than now, so 30 days out is always legal."""
+        with _patched_create(tmp_path):
+            result = _runner.invoke(app, [*self._CREATE_ARGS, "--embargo-date", self._in_days(30)])
+        assert result.exit_code == 0, result.output
+        assert "§4.2" not in _flat(result.output)
+
+    def test_beyond_the_cap_says_how_much_review_must_take(self, tmp_path: Path) -> None:
+        with _patched_create(tmp_path):
+            result = _runner.invoke(app, [*self._CREATE_ARGS, "--embargo-date", self._in_days(200)])
+        output = _flat(result.output)
+        assert result.exit_code == 0, result.output
+        assert "§4.2 allows an embargo up to 60 days" in output
+        assert "only if review takes more than 139 days" in output
+
+    def test_the_advisory_does_not_block(self, tmp_path: Path) -> None:
+        """It is a note, not a rejection: the submission is still created."""
+        with _patched_create(tmp_path) as mock_create:
+            result = _runner.invoke(app, [*self._CREATE_ARGS, "--embargo-date", self._in_days(200)])
+        assert result.exit_code == 0, result.output
+        mock_create.assert_called_once()
+
+    def test_provisional_is_not_capped(self, tmp_path: Path) -> None:
+        """§6.2.3: a provisional embargo may be any date before finalization."""
+        with _patched_create(tmp_path):
+            result = _runner.invoke(
+                app,
+                [
+                    *self._CREATE_ARGS,
+                    "--provisional",
+                    "--yes",
+                    "--embargo-date",
+                    self._in_days(200),
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        assert "§4.2" not in _flat(result.output)
+
+    def test_update_hedges_because_the_mode_is_unknown(self) -> None:
+        """A PATCH does not say which §6.2 mode the submission is in."""
+        with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
+            with patch(
+                "endpoints_submission_cli.submissions.api.update_submission",
+                return_value=SUBMISSION_OUT,
+            ):
+                result = _runner.invoke(
+                    app,
+                    [
+                        "submissions",
+                        "update",
+                        "--submission-id",
+                        SUBMISSION_ID,
+                        "--embargo-date",
+                        self._in_days(200),
+                        *_TOKEN_ARGS,
+                    ],
+                )
+        output = _flat(result.output)
+        assert result.exit_code == 0, result.output
+        assert "§4.2 allows an embargo up to 60 days" in output
+        assert "provisional publication (§6.2.3), the cap does not apply" in output
 
 
 @pytest.mark.unit

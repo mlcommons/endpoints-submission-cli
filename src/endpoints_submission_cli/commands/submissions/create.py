@@ -156,7 +156,7 @@ def submissions_create(
     run_ids_list = list(run_ids)
     # Validate and ask before any downloads — a typo or a declined prompt should cost nothing.
     if embargo_date:
-        _check_embargo_date(embargo_date, require_future=True)
+        _check_embargo_date(embargo_date, require_future=True, provisional=provisional)
     if provisional and not dry_run:
         _confirm_provisional(assume_yes)
     resolved_token = _get_token(token)

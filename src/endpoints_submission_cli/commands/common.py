@@ -20,6 +20,7 @@ from ..exceptions import AuthError, SubmissionCheckError
 
 __all__ = [
     "_check_embargo_date",
+    "EMBARGO_CAP_DAYS",
     "_confirm_provisional",
     "_console",
     "_get_token",
@@ -36,12 +37,57 @@ _PROVISIONAL_WARNING = (
 )
 
 
-def _check_embargo_date(value: str, *, require_future: bool) -> None:
+#: Submission Rules §4.2: a confidential-review embargo (§6.2.2) may run "up to
+#: 60 days after the completion of review". Provisional publication (§6.2.3) is
+#: not capped this way — its embargo may be any date before finalization.
+EMBARGO_CAP_DAYS = 60
+
+
+def _embargo_cap_note(parsed: datetime.datetime, provisional: bool | None) -> str | None:
+    """The §4.2 cap advisory for an embargo *parsed*, or None if it cannot apply.
+
+    The cap is measured from the completion of review, which has not happened —
+    review has not started — so it cannot be enforced here. Half of it can be
+    settled, though: review completes no earlier than now, so an embargo within
+    60 days of today is inside the cap whatever happens. Past that the embargo
+    is legal only if review runs long enough, and the note says by how much.
+
+    Enforcement belongs at finalization, where the completion date exists.
+    """
+    if provisional:  # §6.2.3: no 60-day cap to warn about
+        return None
+    now = datetime.datetime.now(datetime.timezone.utc)
+    over = (parsed - now).days - EMBARGO_CAP_DAYS
+    if over <= 0:
+        return None
+    note = (
+        f"[yellow]Note:[/yellow] §4.2 allows an embargo up to {EMBARGO_CAP_DAYS} days "
+        f"after the completion of review. This date is {(parsed - now).days} days out, "
+        f"so it stays within the cap only if review takes more than {over} days to "
+        "complete. MLCommons applies the cap at finalization, when the completion "
+        "date is known."
+    )
+    if provisional is None:
+        note += (
+            "\n[dim]If this submission is under provisional publication (§6.2.3), the "
+            "cap does not apply — that embargo may be any date before finalization."
+            "[/dim]"
+        )
+    return note
+
+
+def _check_embargo_date(
+    value: str, *, require_future: bool, provisional: bool | None = None
+) -> None:
     """Exit 1 unless *value* is an ISO 8601 date-time with an explicit time zone.
 
     A bare time is rejected rather than guessed: the API would read it in its own
     server's time zone, and publication dates run on Pacific time, so the submitter
     has to say which instant they mean. The value is sent on unchanged.
+
+    Also prints the §4.2 cap advisory when one applies. That is a note and not an
+    error: see _embargo_cap_note for why the cap cannot be decided here. Pass
+    *provisional* when the publication mode is known, None when it is not.
     """
     try:
         # fromisoformat only accepts a trailing Z from Python 3.11.
@@ -65,6 +111,9 @@ def _check_embargo_date(value: str, *, require_future: bool) -> None:
     if require_future and parsed <= datetime.datetime.now(datetime.timezone.utc):
         _console.print(f"[bold red]--embargo-date {value} is not in the future.[/bold red]")
         sys.exit(1)
+    note = _embargo_cap_note(parsed, provisional)
+    if note is not None:
+        _console.print(note)
 
 
 def _confirm_provisional(assume_yes: bool) -> None:
