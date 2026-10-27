@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 MLCommons
 # SPDX-License-Identifier: Apache-2.0
-"""Tests for the published seed-set registry (§4.6 Seed Rotation)."""
+"""Tests for the published seed-set registry (Submission Rules §4.6 Seed Rotation)."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ class TestBundledRegistry:
         assert all(value != 42 for value in load_seed_sets()["A"].seeds.values())
 
     def test_adoption_window_is_derived_from_the_publication_cohort(self) -> None:
-        """§4.6: adoptable for the publication cohort and the three following it."""
+        """Submission Rules §4.6: adoptable for the publication cohort and the next three."""
         assert load_seed_sets()["A"].cohorts == (
             "2026-10-C1",
             "2026-11-C0",
@@ -160,7 +160,7 @@ class TestOverrides:
         assert list(load_seed_sets(arg_path)) == ["A"]
 
     def test_cohorts_are_read_when_present(self, tmp_path: Path) -> None:
-        """Forward-compatibility: the loader already reads the key §4.6 needs."""
+        """Forward-compatibility: the loader already reads the key Submission Rules §4.6 needs."""
         path = _write_registry(
             tmp_path / "seeds.yaml",
             [

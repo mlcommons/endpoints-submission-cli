@@ -28,8 +28,8 @@ __all__ = ["submissions_remove_run"]
 def _rollback_remove_run(token: str, submission_id: str, run_id: str) -> None:
     """Restore a run this command just removed, after a later step failed.
 
-    This re-adds a run the submission already had, so it is not a §8 post-submission
-    addition — it is the undo half of an operation that did not complete.
+    This re-adds a run the submission already had, so it is not a Submission Rules §8
+    post-submission addition — it is the undo half of an operation that did not complete.
     """
     _console.print(f"[yellow]Rolling back: re-adding run {run_id} to record…[/yellow]")
     try:

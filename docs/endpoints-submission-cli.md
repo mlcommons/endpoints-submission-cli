@@ -503,7 +503,7 @@ dataset_name: CNN/DailyMail
 dataset_type: Performance
 dataset_link: https://example.com/dataset
 
-# §4.6 seed binding — the set is named here and its values used below
+# Submission Rules §4.6 seed binding — the set is named here and its values used below
 seed_set: A
 target_cohort: 2026-10-C1
 
@@ -542,7 +542,7 @@ of every run's `src/` folder — does not exist until the builder assembles the 
 no single run archive can name it. A value the run *does* declare is validated and never
 overwritten; one that does not resolve fails the build.
 
-v1.0 also rotates the RNG seeds (§4.6). v0.7 fixed every seed at 42; a v1.0 point names
+v1.0 also rotates the RNG seeds (Submission Rules §4.6). v0.7 fixed every seed at 42; a v1.0 point names
 a published seed set and seeds `scheduler_rng_seed`, `sample_index_rng_seed` and
 `model_seed` from it.
 

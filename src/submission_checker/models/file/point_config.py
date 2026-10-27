@@ -33,7 +33,7 @@ from .steady_state import (
 # algorithm and §9.1's check names both use *_concurrency. The algorithm wins.
 _VALID_REGIONS = frozenset({*REGION_NAMES, SUBMITTERS_CHOICE})
 
-#: Cohort identifier (§4.6): calendar year-month plus the cohort index within it.
+#: Cohort identifier (Submission Rules §4.6): calendar year-month plus the cohort index within it.
 _COHORT_RE = re.compile(r"\d{4}-\d{2}-C[01]")
 
 #: §8.3's `offline` vocabulary. ``dedicated`` — this point is its own Offline run;
@@ -153,7 +153,7 @@ class RuntimeSettings(BaseModel):
     stream_all_chunks: bool = True
 
     class Runtime(BaseModel):
-        """RNG seed configuration, bound to a published seed set (§4.6).
+        """RNG seed configuration, bound to a published seed set (Submission Rules §4.6).
 
         v1.0 renamed every seed and stopped fixing them at 42: `seedset.yaml` names
         them ``scheduler_rng_seed``, ``sample_index_rng_seed`` and ``model_seed``. The
@@ -251,7 +251,7 @@ class PointConfig(BaseModel):
         dataset_link: Link to the data used for the submission.
         shared_src: Root-relative path to the implementation directory under ``src/``.
         shared_docs: Root-relative path to the shared ``docs/`` directory.
-        seed_set: Identifier of the bound seed set (§4.6).
+        seed_set: Identifier of the bound seed set (Submission Rules §4.6).
         target_cohort: Cohort this submission targets, ``YYYY-MM-C0`` or ``…-C1``.
         nodes_used: §4.5.3's per-point node declaration, by node type. Absent means
             the point is normalised by the system's full provisioned power.
@@ -476,7 +476,7 @@ class PointConfig(BaseModel):
 
     @model_validator(mode="after")
     def _check_target_cohort(self, info: ValidationInfo) -> PointConfig:
-        """§4.6: ``target_cohort`` names a cohort as ``YYYY-MM-C0`` or ``YYYY-MM-C1``."""
+        """Submission Rules §4.6: ``target_cohort`` is ``YYYY-MM-C0`` or ``YYYY-MM-C1``."""
         path: Path | None = (info.context or {}).get("yaml_path")
         if self.target_cohort is None:
             return self  # absence is reported by point-disclosure-complete
@@ -494,9 +494,9 @@ class PointConfig(BaseModel):
     def _check_seeds_legacy(self, info: ValidationInfo) -> PointConfig:
         """v0.7 fallback: seeds must equal 42 when the point binds no seed set.
 
-        v0.7 fixed every seed at 42. v1.0 rotates them (§4.6), so the constant is now
-        wrong for any point that names a ``seed_set`` — those are checked against the
-        published registry by
+        v0.7 fixed every seed at 42. v1.0 rotates them (Submission Rules §4.6), so the
+        constant is now wrong for any point that names a ``seed_set`` — those are checked
+        against the published registry by
         :class:`~submission_checker.models.aggregate.SeedBinding` instead. This rule
         survives only to give a v0.7 bundle a comprehensible message.
         """

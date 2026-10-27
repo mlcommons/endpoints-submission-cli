@@ -63,7 +63,7 @@ packages = [
 "" = "src"
 
 [tool.setuptools.package-data]
-# The published seed sets (§4.6) ship as data so a newly published set can be
+# The published seed sets (Submission Rules §4.6) ship as data so a newly published set can be
 # supplied without a checker release; see submission_checker.seed_sets.
 submission_checker = ["data/*.yaml"]
 endpoints_submission_cli = ["skills/*/SKILL.md"]

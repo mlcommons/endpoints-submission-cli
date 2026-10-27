@@ -48,7 +48,7 @@ _MANDATORY_BANDS = (
     "med_concurrency",
     "high_concurrency",
 )
-#: How each mandatory band is named to a submitter (§3–6's region names).
+#: How each mandatory band is named to a submitter (§5.4's region names).
 _BAND_LABELS = {
     "ultra_low_concurrency": "Ultra Low Concurrency",
     "low_concurrency": "Low Concurrency",
@@ -443,7 +443,7 @@ class ModelContext(BaseModel):
 
     @model_validator(mode="after")
     def _check_regional_coverage(self) -> ModelContext:
-        """§3–6: at least one valid point must fall in each of the three concurrency regions.
+        """§5.4: at least one valid point must fall in each of the three concurrency regions.
 
         Attribution goes through
         :func:`~submission_checker.models.regions.covered_region`, so a point in the
@@ -720,7 +720,7 @@ class ModelContext(BaseModel):
 
     @model_validator(mode="after")
     def _check_agentic_accuracy(self) -> ModelContext:
-        """The agentic accuracy gates (§3.2, §4.3), which do not reduce to §15's.
+        """The agentic accuracy gates (§3.2, §4.3), which do not reduce to the single-turn gate.
 
         Three quantities, aggregated three different ways — see
         :mod:`submission_checker.agentic_targets` for why they cannot share the
@@ -967,7 +967,7 @@ class ModelContext(BaseModel):
 
     @model_validator(mode="after")
     def _check_accuracy(self) -> ModelContext:
-        """§15: every accuracy metric must meet its quality threshold.
+        """§4.3: every accuracy metric must meet its quality threshold.
 
         Runs over every point that carries results — §5.3 requires N of them, and a
         failing gate at any one is a failing submission.
@@ -988,7 +988,7 @@ class ModelContext(BaseModel):
         return self
 
     def _gate_accuracy(self, accuracy_result: AccuracyResult) -> None:
-        """Gate one point's accuracy results against the model's thresholds (§15)."""
+        """Gate one point's accuracy results against the model's thresholds (§4.3)."""
         json_path = (
             (self.accuracy_dir / "results.json")
             if self.accuracy_dir

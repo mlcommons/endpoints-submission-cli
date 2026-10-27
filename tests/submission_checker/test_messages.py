@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -176,12 +177,31 @@ class TestCatalog:
             if rule in _SECTIONS:
                 continue
             assert entry.title and entry.title != rule, rule
-            assert entry.spec.startswith("§"), f"{rule}: spec {entry.spec!r}"
+            assert entry.spec.startswith(("§", "Submission Rules §")), (
+                f"{rule}: spec {entry.spec!r}"
+            )
 
     def test_specs_use_one_notation(self) -> None:
         for rule, entry in _CATALOG.items():
             for key, message in entry.messages.items():
                 assert "#" not in message.spec, f"{rule}.{key}: {message.spec!r}"
+
+    def test_specs_name_sections_that_exist(self) -> None:
+        """Each spec cites a section of the Rules (§1–§9) or Submission Rules (§1–§11).
+
+        A bare § is the Rules; the Submission Rules are named. The early checker
+        numbered its rules by their row in the §9.1 table (§10 load pattern, §15
+        accuracy, ...), which no reader could look up.
+        """
+        top_level = {"": 9, "Submission Rules ": 11}
+        for rule, entry in _CATALOG.items():
+            for key, message in entry.messages.items():
+                for ref in filter(None, message.spec.split(", ")):
+                    match = re.fullmatch(r"(Submission Rules )?§(\d+)(\.\d+)*", ref)
+                    assert match, f"{rule}.{key}: {ref!r} is not a § citation"
+                    assert 1 <= int(match[2]) <= top_level[match[1] or ""], (
+                        f"{rule}.{key}: {ref!r} names no section"
+                    )
 
     @pytest.mark.parametrize(
         ("rule", "key"),

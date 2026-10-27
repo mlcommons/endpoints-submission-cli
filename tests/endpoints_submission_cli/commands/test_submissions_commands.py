@@ -197,8 +197,9 @@ class TestSubmissionsUpdate:
 
     def test_update_run_ids(self, tmp_path: Path) -> None:
         """--run-ids triggers full rebuild pipeline; update_submission called with new run list."""
-        # Removing _OLD_RUN_ID and keeping RUN_ID: §8 permits withdrawing a point,
-        # not adding one, so the desired list must be a subset of the current one.
+        # Removing _OLD_RUN_ID and keeping RUN_ID: Submission Rules §8.1 permits
+        # withdrawing a point, not adding one, so the desired list must be a subset of
+        # the current one.
         current_sub = {
             **SUBMISSION_OUT,
             "run_ids": [self._OLD_RUN_ID, RUN_ID],
@@ -255,8 +256,9 @@ class TestSubmissionsUpdate:
 
     def test_update_run_ids_merge_failure_rolls_back(self, tmp_path: Path) -> None:
         """A rebuild failure rolls back the DB PATCH with the original run IDs."""
-        # Removing _OLD_RUN_ID and keeping RUN_ID: §8 permits withdrawing a point,
-        # not adding one, so the desired list must be a subset of the current one.
+        # Removing _OLD_RUN_ID and keeping RUN_ID: Submission Rules §8.1 permits
+        # withdrawing a point, not adding one, so the desired list must be a subset of
+        # the current one.
         current_sub = {
             **SUBMISSION_OUT,
             "run_ids": [self._OLD_RUN_ID, RUN_ID],
@@ -344,7 +346,7 @@ class TestSubmissionsUpdate:
         mock_patch.assert_any_call(TOKEN, SUBMISSION_ID, {"run_ids": [self._OLD_RUN_ID, RUN_ID]})
 
     def test_update_run_ids_rejects_additions(self) -> None:
-        """§8 no longer provides a post-submission window for adding points.
+        """Submission Rules §8 no longer provide a post-submission window for adding points.
 
         The guard fires before anything is fetched or rebuilt, so a mistaken --run-ids
         list cannot leave the submission half-updated.

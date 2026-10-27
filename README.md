@@ -218,7 +218,7 @@ directory below it; a submission root is the level holding `results/` and `docs/
 | `--strict` | Treat warnings as errors (exit 1 on any warning) |
 | `--quiet` / `-q` | Suppress INFO-level passing checks |
 | `--output FILE` / `-o FILE` | Write full results as JSON to *FILE* |
-| `--seed-sets FILE` | Published seed sets to check against (§4.6). Defaults to the bundled set; also settable via `$MLPERF_ENDPOINTS_SEED_SETS`. |
+| `--seed-sets FILE` | Published seed sets to check against (Submission Rules §4.6). Defaults to the bundled set; also settable via `$MLPERF_ENDPOINTS_SEED_SETS`. |
 | `--approved-drafters FILE` | Published approved drafters (§2.9.4). Defaults to the bundled list; also settable via `$MLPERF_ENDPOINTS_APPROVED_DRAFTERS`. |
 
 **Exit codes:** `0` = all checks passed, `1` = one or more errors (or warnings with `--strict`).
@@ -302,17 +302,17 @@ submission root (§9.1).
 
 | Rule | Spec | Description |
 |------|------|-------------|
-| `path-exists` | §1 | Submission root directory exists |
-| `required-dir` | §1 | `results/` and `docs/` present |
-| `src-dir` | §2.2.1 | `src/` present with at least one implementation directory |
-| `src-readme` | §2.2.1 | Each `src/<implementation>/` has a `README.md` |
-| `system-results-dir` | §1 | At least one `results/<system>/` directory exists |
-| `benchmark-model-dir` | §1 | At least one benchmark-model directory per system |
-| `point-dirs` | §1 | At least one `r<N>/` Pareto-point directory per model |
-| `measurement-points-present` | §1 | Every `r<N>/` carries a `point.yaml` |
+| `path-exists` | §8.1 | Submission root directory exists |
+| `required-dir` | §8.1 | `results/` and `docs/` present |
+| `src-dir` | §2.2.1, §8.1 | `src/` present with at least one implementation directory |
+| `src-readme` | §2.2.1, §8.1 | Each `src/<implementation>/` has a `README.md` |
+| `system-results-dir` | §8.1 | At least one `results/<system>/` directory exists |
+| `benchmark-model-dir` | §8.1 | At least one benchmark-model directory per system |
+| `point-dirs` | §8.1 | At least one `r<N>/` Pareto-point directory per model |
+| `measurement-points-present` | §8.1 | Every `r<N>/` carries a `point.yaml` |
 | `config-file-present` | §8.1 | Every `r<N>/` carries a `config.yaml` that is a YAML mapping |
-| `point-dirname-concurrency` | §1 | `r<N>/` name matches the declared concurrency (warn) |
-| `result-summary-present` | §1 | `result_summary.json` exists for each point |
+| `point-dirname-concurrency` | §8.1 | `r<N>/` name matches the declared concurrency (warn) |
+| `result-summary-present` | §8.1 | `result_summary.json` exists for each point |
 | `shared-path-resolution` | §9.1 | `shared_src` / `shared_docs` resolve under the submission root |
 
 ### System description (§8.2)
@@ -324,7 +324,7 @@ submission root (§9.1).
 | `system-description-consistency` | §8.5 | Every point of a frontier describes the same system (parallelism, `batch` and `config_summary` may vary by point) |
 | `model-name-valid` | §3.2 | `point.yaml`'s `model_name` is exactly one of the round's supported models, spelled canonically |
 | `model-name-consistency` | §8.1 | It is exactly the results directory name |
-| `max-concurrency-declared` | §7 | `max_supported_concurrency` (C_max) present and > 32 |
+| `max-concurrency-declared` | §5.4 | `max_supported_concurrency` (C_max) present and > 32 |
 | `tps-utilization` | §8.2 | Equals `system_tps / max(system_tps)` over the point's own frontier |
 | `power-descriptor` | §4.5.2, App. E | `system_power.json` present per system and valid under Appendix E.7; optional for RDI and Serviced |
 | `power-estimated` | §4.5.2, App. D | "MLC Estimated Power": an Appendix D value reaches the total (warn) |
@@ -468,19 +468,19 @@ validation by the service or reviewers.
 | `region-basis` | §5.4 | Reports whether `C_min` was derived or explicitly overridden |
 | `c-min-override` | §5.4 | Override is a consistent integer in 1–32 matching a submitted point |
 | `region-computation` | §5.5 | `(C_max, C_min)` is a valid input to the reference algorithm |
-| `concurrency-in-range` | §9.1 | Each concurrency falls in a valid region, margin included |
+| `concurrency-in-range` | §5.5 | Each concurrency falls in a valid region, margin included |
 | `region-declared` | §8.3 | Declared `region` is one of the spec's values |
 | `region-placement` | §8.3 | Declared region matches the computed one (warn) |
 | `offline-declared` | §5.7 | `offline` is `dedicated`, `elected`, or `none` |
 | `offline-point-present` | §5.7 | Exactly one Offline point, `elected` sitting on the C_max point — or **none at all** for an agentic benchmark, which §5.7 says "neither requires nor may include" one |
 | `offline-ordering` | §5.7.2 | Offline beats C_max on throughput (2% tolerance) and concurrency (warn) |
 | `ultra-low-concurrency-coverage` | §5.4 | At least one point in 1–32 by default, or 1–C_min with an override |
-| `low-concurrency-coverage` | §9.1 | At least one point in the Low Concurrency region |
-| `med-concurrency-coverage` | §9.1 | At least one point in the Medium Concurrency region |
-| `high-concurrency-coverage` | §9.1 | At least one point in the High Concurrency region |
+| `low-concurrency-coverage` | §5.4 | At least one point in the Low Concurrency region |
+| `med-concurrency-coverage` | §5.4 | At least one point in the Medium Concurrency region |
+| `high-concurrency-coverage` | §5.4 | At least one point in the High Concurrency region |
 | `point-count` | §5.3 | 7–32 measurement points; 8 with a dedicated Offline run; 7 for an agentic benchmark |
 | `benchmark-type-consistency` | §6.1, §8.5 | Every point on a frontier declares the same `load_pattern`, since one frontier is one benchmark |
-| `point-cap` | §2, §8 | Point count does not exceed 32 |
+| `point-cap` | §5.6 | Point count does not exceed 32 |
 
 ### Measurement points (§8.3, §6)
 
@@ -501,17 +501,17 @@ validation by the service or reviewers.
 | `config-consistency-dataset` | §9.1 | All points use the same dataset |
 | `config-consistency-model` | §9.1 | All points declare the same `model_name` |
 
-### Seed binding (§4.6)
+### Seed binding (Submission Rules §4.6)
 
 | Rule | Spec | Description |
 |------|------|-------------|
 | `seed-set-consistency` | §9.1 | Every point records the same seed set |
 | `seed-set-membership` | §9.1 | The bound set is one MLCommons published |
 | `seed-runtime-match` | §2.1.1 | The RNG seeds equal the bound set's values |
-| `target-cohort` | §4.6 | `target_cohort` matches `YYYY-MM-C0` / `YYYY-MM-C1` |
-| `seed-set-adoption` | §4.6 | `target_cohort` falls inside the set's four-cohort adoption window |
-| `seed-config-legacy` | §4.6 | v0.7 fallback: seeds == 42 when no `seed_set` is declared |
-| `seed-set-registry` | §4.6 | Warns when the seed-set file itself cannot be read |
+| `target-cohort` | Submission Rules §4.6 | `target_cohort` matches `YYYY-MM-C0` / `YYYY-MM-C1` |
+| `seed-set-adoption` | Submission Rules §4.6 | `target_cohort` falls inside the set's four-cohort adoption window |
+| `seed-config-legacy` | Submission Rules §4.6 | v0.7 fallback: seeds == 42 when no `seed_set` is declared |
+| `seed-set-registry` | Submission Rules §4.6 | Warns when the seed-set file itself cannot be read |
 
 ### Speculative decoding (§2.9.4)
 
@@ -546,33 +546,33 @@ cohorts in the same registry.
 
 The published sets ship as data (`src/submission_checker/data/seed_sets.yaml`), mirrored
 from the policies repo's `seedset.yaml`. The file's `cohort-id` is the cohort its sets
-were published for; §4.6's four-cohort adoption window is derived from it. Point
+were published for; Submission Rules §4.6's four-cohort adoption window is derived from it. Point
 `--seed-sets FILE` or `$MLPERF_ENDPOINTS_SEED_SETS` at a newer file to check against a
 set published after this release.
 
-### Metrics (§9.1, §14)
+### Metrics (§4.1, §9.1)
 
 | Rule | Spec | Description |
 |------|------|-------------|
 | `result-file-valid` | §8.3 | `result_summary.json` parses against `PointSummary` |
-| `metric-consistency-duration` | §14 | `duration_ns` > 0 |
-| `metric-consistency-accounting` | §14 | `completed + failed == issued` |
-| `metric-consistency-output-tokens` | §14 | `total_output_tokens` ≥ 0 |
+| `metric-consistency-duration` | §9.1 | `duration_ns` > 0 |
+| `metric-consistency-accounting` | §9.1 | `completed + failed == issued` |
+| `metric-consistency-output-tokens` | §9.1 | `total_output_tokens` ≥ 0 |
 | `metric-consistency-system-tps` | §9.1 | Stored `system_tps` matches the derived value |
 | `metric-consistency-tpot-p90` | §9.1 | Reported TPOT P90 present, finite, strictly positive; a dedicated Offline run is exempt (§5.7.1, §6.5) |
 | `metric-consistency-tps-per-user` | §9.1 | Stored `tps_per_user` matches `1000 / tpot_p90_ms`; not applied to a dedicated Offline run |
 | `metric-consistency-tps-per-kw` | §4.5.3 | Stored `system_tps_per_kw` matches `system_tps / point_power_kw` — see [per-point normalisation](#per-point-normalisation-453) |
 | `agentic-metric-consistency` | §4.1 | `e2e_avg_interactivity` is derivable from its reported inputs: the per-turn sums, or the client's `output_sequence_lengths.total / (latency.total / 1e9)` when no sample failed (latency is in nanoseconds) |
 
-### Accuracy (§15)
+### Accuracy (§4.3, §6.6)
 
 | Rule | Spec | Description |
 |------|------|-------------|
-| `accuracy-present` | §15 | At least one model in the submission carries accuracy results |
+| `accuracy-present` | §6.6 | At least one model in the submission carries accuracy results |
 | `accuracy-coverage` | §4.3, §5.3 | Exactly one accuracy result in each of the four mandatory bands, plus the Offline point (N=5; N=4 for an agentic benchmark, which has none). A result at any other point is an error, and one result cannot fill two bands |
-| `accuracy-valid` | §15 | `accuracy_results.json` parses correctly |
-| `accuracy-sample-count` | §15 | Issued sample count meets the model's minimum |
-| `accuracy-gate` | §15 | Score meets the benchmark quality target |
+| `accuracy-valid` | §4.3 | `accuracy_results.json` parses correctly |
+| `accuracy-sample-count` | §4.3, §6.5 | Issued sample count meets the model's minimum |
+| `accuracy-gate` | §4.3 | Score meets the benchmark quality target |
 | `agentic-accuracy` | §3.2 | The agentic model is one the reference implementation publishes thresholds for, and they are not TBD |
 | `agentic-accuracy-inline` | §4.3 | Inline accuracy clears the model's floor at **every** point |
 | `agentic-accuracy-swebench` | §4.3 | The **mean** of the N SWE-bench results clears the model's floor; individual results need not |
@@ -614,7 +614,7 @@ using the same assignment for coverage and the multi-turn mean. The exception is
 §5.7.2's elected `C_max` point, which counts once as its region point and once as the
 Offline result. The gates below then judge every result present.
 
-Accuracy is gated differently too. §15's gate folds every dataset of a point into one
+Accuracy is gated differently too. The single-turn gate folds every dataset of a point into one
 sample-weighted score per metric; the agentic benchmarks gate three quantities that do
 not reduce that way, so for a recognised agentic model it stands down in favour of the
 three rules above:

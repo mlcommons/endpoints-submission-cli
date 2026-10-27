@@ -21,8 +21,8 @@ What it does, per submission tree:
    with ``system_tps`` derived from ``result_summary.json``, so the stored value agrees
    with the measurement the checker recomputes it from.
 4. **§8.3 disclosure added to every ``point.yaml``** — the ten §8.3 fields plus
-   ``shared_src``, ``shared_docs``, ``seed_set`` and ``target_cohort``, and the §4.6 RNG
-   seeds under their v1.0 names.
+   ``shared_src``, ``shared_docs``, ``seed_set`` and ``target_cohort``, and the
+   Submission Rules §4.6 RNG seeds under their v1.0 names.
 5. **``result_summary.json`` gains ``tpot``** (migrated from ``run_metadata``'s
    ``measured_latency_tpot_*``, in nanoseconds), a TTFT P90, and ``system_tps`` /
    ``tps_per_user`` consistent with the v1.0 formulas.
@@ -79,7 +79,7 @@ FIXTURE_ROOT = Path(__file__).resolve().parents[2] / "test_submissions"
 
 #: The seed set every fixture binds, and the cohort it targets.
 #:
-#: §4.6 makes a set adoptable only for its publication cohort and the three
+#: Submission Rules §4.6 makes a set adoptable only for its publication cohort and the three
 #: following, so this must sit inside the window derived from the registry's
 #: `cohort-id` — see submission_checker.cohorts.adoption_window.
 SEED_SET_ID = "A"
@@ -638,7 +638,7 @@ def _write_point_yaml(
     *,
     dry_run: bool,
 ) -> list[str]:
-    """Add the §8.3 disclosure and §4.6 seeds to a point's ``point.yaml``."""
+    """Add the §8.3 disclosure and Submission Rules §4.6 seeds to a point's ``point.yaml``."""
     path = point_dir / layout.POINT_YAML
     current = yaml.safe_load(path.read_text()) if path.exists() else None
     point: dict[str, Any] = dict(current) if isinstance(current, dict) else {}
