@@ -950,7 +950,7 @@ def _write_src(
     # Merged into src/ rather than nested under the directory's own name, so a
     # --shared-src path is a tree *of* implementations — whatever shape it has is the
     # shape the bundle gets. _validate_src still holds every resulting
-    # `src/<implementation>/` to §2.2.1's README requirement.
+    # `src/<implementation>/` to §8.1's README requirement.
     for extra in extra_dirs:
         _merge_tree(extra, src_dir, "--shared-src")
 
@@ -958,7 +958,7 @@ def _write_src(
 
 
 def _validate_src(src_dir: Path) -> None:
-    """Check the assembled ``src/`` tree against the §2.2.1 source requirement.
+    """Check the assembled ``src/`` tree against the §8.1 layout.
 
     Enforced for every submission regardless of division for now; division-specific
     rulings are expected to relax this later.

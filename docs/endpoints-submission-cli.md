@@ -383,9 +383,9 @@ If no runs remain after removal, steps 2–5 are skipped and a warning is printe
 submission record.
 
 > **A withdrawn point cannot be replaced.** Submission Rules §8.1 lets a submitter withdraw a
-> faulty measurement point during peer review, which is what this command does — but §8 no
-> longer provides a window for adding points, so a submission that drops below the 7-point
-> minimum cannot be repaired by adding another. The Submission Checker reports the shortfall.
+> faulty measurement point during peer review, which is what this command does — but
+> Submission Rules §8 no longer provide a window for adding points, so a submission that drops
+> below the §5.3 point minimum cannot be repaired by adding another. The Submission Checker reports the shortfall.
 
 ---
 
@@ -436,19 +436,27 @@ exists when the performance phase ran, `accuracy/` when the accuracy phase ran, 
 layouts that put `result_summary.json` at the top level are not accepted by
 `runs create`.
 
-**`system_desc.json`** — §8.2 system description:
+**`system_desc.json`** — §8.2 system description, abridged from the §8.2.1 template:
 
 ```json
 {
+  "division": "Standardized",
   "system_name": "H100x8-vLLM",
   "shortened_system_name": "H100x8-vLLM",
   "system_availability_status": "Available",
   "availability_url": "https://example.com/h100x8",
-  "system_category": "datacenter",
-  "accelerator_model_name": "NVIDIA H100 SXM5 80GB",
-  "accelerators_per_node": 8,
-  "framework": "vllm==0.4.2",
-  "submitter_org_names": "Acme Corp",
+  "serving_framework": "vllm==0.4.2",
+  "node_types": [
+    {
+      "system_node_ensemble_id": 0,
+      "number_of_nodes": 1,
+      "accelerator_info": [
+        { "accelerator_model_name": "NVIDIA H100 SXM5 80GB", "accelerators_per_node": 8 }
+      ],
+      ...
+    }
+  ],
+  "tensor_parallel": 8,
   ...
 }
 ```

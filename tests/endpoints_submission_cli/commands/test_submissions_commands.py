@@ -378,7 +378,7 @@ class TestSubmissionsUpdate:
         mock_dl.assert_not_called()
 
     def test_update_run_ids_allows_pure_removal(self, tmp_path: Path) -> None:
-        """Withdrawing a point is still permitted (§8.1), so a shrinking list works."""
+        """Submission Rules §8.1 still permits withdrawing a point, so a shrinking list works."""
         current_sub = {**SUBMISSION_OUT, "run_ids": [self._OLD_RUN_ID, RUN_ID]}
         updated_sub = {**SUBMISSION_OUT, "run_ids": [RUN_ID]}
         fake_archive = _make_fake_archive(tmp_path)
@@ -1248,7 +1248,7 @@ class TestProvisionalConfirmation:
         mock_create.assert_not_called()
 
     def test_embargo_without_provisional_is_confidential(self, tmp_path: Path) -> None:
-        """Rules §6.2 mode B: an embargo alone neither prompts nor requests early publication."""
+        """Submission Rules §6.2.2: an embargo alone neither prompts nor requests early publication."""
         with _patched_create(tmp_path) as mock_create:
             result = _runner.invoke(
                 app, [*self._CREATE_ARGS, "--embargo-date", "2099-01-06T16:00:00Z"]

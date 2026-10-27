@@ -197,7 +197,7 @@ def test_required_system_fields_rejected_when_missing(field):
     ],
 )
 def test_fields_moved_to_point_yaml_are_optional(field):
-    """§8.2 moved these to point.yaml (§8.3); still read here, no longer required."""
+    """§8.2 no longer defines these (some moved to §8.3); still read, not required."""
     payload = {k: v for k, v in _BASE_FLAT.items() if k != field}
     sd = SystemDescription(**payload)
     assert getattr(sd, field) is None
@@ -475,7 +475,7 @@ def test_dataset_metadata_invalid_string_raises():
 
 
 def test_accuracy_empty_string_measured_score_is_none():
-    """An empty score coerces to None — the field left §8.2 for point.yaml (§8.3)."""
+    """An empty score coerces to None — a legacy field §8.2 no longer defines."""
     sd = SystemDescription(**{**_BASE_FLAT, "measured_accuracy_score": ""})
     assert sd.measured_accuracy_score is None
 

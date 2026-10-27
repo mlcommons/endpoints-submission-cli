@@ -234,7 +234,7 @@ endpoints-submission-cli submissions get \
 | `--token TOKEN` | no | API key. |
 | `-j` / `--json` | no | Print raw JSON. |
 
-The default table renders every field the API returns for a submission — classification (division, scenario, availability), the `Test Submission` flag, `Published In Cycle` (blank until the lifecycle manager publishes the submission) and embargo date, `Reviewers Assigned` (a count; the reviewer identities are never exposed by the API), `Penalties Imposed` and `Business Days Waiting` (the non-response penalty level from rules §6.3 — 1 and 2 each delay publication by a cycle, 3 withdraws — and the longest any one finding has waited on the submitter; shown as `—` when the API does not report them), the checker/API/CLI versions, PR references, and the full set of lifecycle timestamps in chronological order. Embedded runs follow in their own table.
+The default table renders every field the API returns for a submission — classification (division, scenario, availability), the `Test Submission` flag, `Published In Cycle` (blank until the lifecycle manager publishes the submission) and embargo date, `Reviewers Assigned` (a count; the reviewer identities are never exposed by the API), `Penalties Imposed` and `Business Days Waiting` (the non-response penalty level from Submission Rules §6.3 — 1 and 2 each delay publication by a cycle, 3 withdraws — and the longest any one finding has waited on the submitter; shown as `—` when the API does not report them), the checker/API/CLI versions, PR references, and the full set of lifecycle timestamps in chronological order. Embedded runs follow in their own table.
 
 **Example:**
 
@@ -351,13 +351,13 @@ compliance-checked, and re-uploaded.
 
 > [!IMPORTANT]
 > **A submission's points are fixed at creation.** MLPerf Endpoints Submission Rules §8
-> no longer provide a post-submission window for adding measurement points — the §8.1
-> *Pareto Updates* section that allowed it was removed. There is no `add-run` command,
+> no longer provide a post-submission window for adding measurement points — the
+> Submission Rules §8.1 *Pareto Updates* section that allowed it was removed. There is no `add-run` command,
 > and `submissions update --run-ids` rejects a list that would add one.
 >
-> §8.1 *Corrections* still lets a submitter withdraw a faulty point during peer review,
+> Submission Rules §8.1 *Corrections* still lets a submitter withdraw a faulty point during peer review,
 > which is what this command does. Note the consequence: withdrawn points do not count
-> toward the 7-point minimum, and that shortfall **cannot be repaired by adding another
+> toward the §5.3 point minimum, and that shortfall **cannot be repaired by adding another
 > point**. The Submission Checker will report it. If a submission needs a different set
 > of runs, create a new one.
 

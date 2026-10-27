@@ -243,7 +243,7 @@ def submissions_create(
             "availability": availability,
             "run_ids": run_ids_list,
             "is_test": is_test,
-            # The rules §6.2 mode is early_publish plus embargo_date: neither is
+            # The Submission Rules §6.2 mode is early_publish plus embargo_date: neither is
             # confidential, an embargo alone is confidential and embargoed, and
             # early_publish is provisional with or without one.
             "early_publish": provisional,

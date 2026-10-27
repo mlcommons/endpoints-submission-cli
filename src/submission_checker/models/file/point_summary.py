@@ -1,4 +1,4 @@
-"""Point summary model — §8.3 result log schema for a single measurement point."""
+"""Point summary model — the §8.1 result_summary.json of a single measurement point."""
 
 from __future__ import annotations
 

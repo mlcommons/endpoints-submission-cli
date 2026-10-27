@@ -950,7 +950,7 @@ class TestDirectoryNamingPrecedence:
 
     config.yaml became optional in v1.0, so deriving a path from it meant the tree's
     shape depended on a file that need not exist — and its ``model_params.name`` is a
-    HuggingFace path, not the supported-model-list name §8.2 defines.
+    HuggingFace path, not the supported-model-list name §8.3 defines.
     """
 
     def test_point_yaml_model_name_wins(self) -> None:
@@ -1320,7 +1320,7 @@ class TestBuilderCheckerContract:
 
         desc = json.loads((folder / "system_desc.json").read_text())
         desc["max_supported_concurrency"] = 1024
-        # Both are the supported-model-list name (§8.2, §8.5), which is also what
+        # Both are the supported-model-list name (§8.3, §8.5), which is also what
         # names the results directory (§8.1) now that point.yaml is the source.
         desc["model_name"] = "llama3.1-8b"
         desc["model_id"] = "llama3.1-8b"
@@ -1690,7 +1690,7 @@ class TestSharedTreeFlags:
     def test_an_implementation_without_a_readme_still_fails(
         self, run_archive: Path, tmp_path: Path
     ) -> None:
-        """§2.2.1's README requirement applies to every implementation the flag adds,
+        """§8.1's README requirement applies to every implementation the flag adds,
         not only to the ones a run archive supplied."""
         root = tmp_path / "extra_src"
         (root / "vllm").mkdir(parents=True)

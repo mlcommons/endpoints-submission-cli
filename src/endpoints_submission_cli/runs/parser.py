@@ -6,7 +6,7 @@ Run folder layout, as written by ``mlcommons/endpoints`` to its ``report_dir``
 (see ``docs/endpoints-cli/reference/run-folder-layout.md``):
 
     <run_folder>/
-        system_desc.json                    — org/system/model/dataset metadata   [required]
+        system_desc.json                    — §8.2 system description            [required]
         point.yaml                          — §8.3 Pareto-point disclosure        [required]
                                               Neither is an endpoints artifact: the
                                               submitter authors both and drops them in

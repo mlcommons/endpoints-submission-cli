@@ -610,11 +610,11 @@ class ModelContext(BaseModel):
         in each of Low, Medium and High — plus the Offline point. N is 5 for a
         non-agentic benchmark and 4 for an agentic one.
 
-        §4.3: "`N` is a fixed count, not a floor. A submission carrying more than one
-        accuracy result for a region, or any accuracy result at a submitter's-choice
-        point, is non-conforming". Submitter's-choice points share bands with the
-        mandatory ones and look the same on disk, so a result at one shows up as a
-        second result for its band, and both readings are reported as one error.
+        §4.3: "`N` is a fixed count, not a floor. A submission carrying results from more
+        than one accuracy validation run for a region, or from any accuracy validation run
+        at a submitter's-choice point, is non-conforming". Submitter's-choice points share
+        bands with the mandatory ones and look the same on disk, so a result at one shows
+        up as a second result for its band, and both readings are reported as one error.
 
         Each result fills at most one band (:func:`match_accuracy_bands`): a point ≤ 32 that is
         also in the Low Concurrency region is one run, and counting it for both would
@@ -807,8 +807,8 @@ class ModelContext(BaseModel):
     def _gate_agentic_swebench(self, targets: AgenticTargets) -> None:
         """SWE-bench, mean-of-N over the four mandatory bands — §4.3's multi-turn branch.
 
-        "The arithmetic mean of the N required accuracy results MUST meet the quality
-        threshold; individual results need not." For an agentic benchmark §5.3 puts
+        "The arithmetic mean of the N required accuracy validation results MUST meet the
+        quality threshold; individual results need not." For an agentic benchmark §5.3 puts
         the N=4 required results at "the four mandatory concurrency points", and §4.3
         asks for "one accuracy validation run … for each" region. The mean is therefore
         one value per band, not one per point. A result at a point outside the four
