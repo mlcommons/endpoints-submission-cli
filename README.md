@@ -584,20 +584,15 @@ set published after this release.
 rather than 8, accuracy is required at 4 points rather than 5, and an agentic
 submission "neither requires nor may include" an Offline point (§5.7).
 
-§8.3 has no field naming the benchmark type. The checker reads it from §6.1's load
-pattern instead — the reference implementation names its fixed-concurrency agentic
-scheduler `agentic_inference`, and that is the only agentic signal in any file a
-submission carries:
+The load pattern must match the model. Agentic models require:
 
 ```yaml
 runtime_settings:
   load_pattern: agentic_inference
 ```
 
-A frontier is one benchmark (§8.5), so every point must agree; `benchmark-type-consistency`
-reports points that do not, and a frontier that disagrees is read as single-turn, which
-keeps the Offline requirement in force rather than letting one mislabelled point switch
-it off.
+Single-turn models require `concurrency`. Dedicated Offline points use `max_throughput`.
+`benchmark-type-consistency` rejects mixed modes and modes that do not match the model.
 
 
 An accuracy run (SWE-bench, or a non-agentic benchmark's datasets) is **required** once
