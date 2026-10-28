@@ -21,6 +21,7 @@ dependencies = [
 [project.scripts]
 endpoints-submission-cli = "endpoints_submission_cli.main:main"
 endpoints-submission-mcp = "endpoints_submission_cli.mcp_server:main"
+submission-checker = "submission_checker.cli:main"
 
 [project.optional-dependencies]
 dev = [
