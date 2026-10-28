@@ -2,7 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Entry point for the endpoints-submission-cli tool."""
 
+import logging
+
 import click
+from rich.console import Console
+from rich.logging import RichHandler
 
 from ._version_check import register_upgrade_notice
 from .commands.check_submission import check_submission
@@ -15,8 +19,13 @@ __all__ = ["app", "main"]
 
 @click.group()
 @click.version_option(package_name="endpoints-submission-cli")
-def app() -> None:
+@click.pass_context
+def app(ctx: click.Context) -> None:
     """MLPerf rolling submission CLI — manage benchmark runs and submissions."""
+    logger = logging.getLogger("endpoints_submission_cli")
+    handler = RichHandler(console=Console(stderr=True), show_time=False, show_path=False)
+    logger.addHandler(handler)
+    ctx.call_on_close(lambda: logger.removeHandler(handler))
 
 
 app.add_command(runs)

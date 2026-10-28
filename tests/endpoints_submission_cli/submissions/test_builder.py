@@ -1698,14 +1698,31 @@ class TestSharedTreeFlags:
         with pytest.raises(SubmissionBuildError, match=r"README\.md"):
             self._build(run_archive, tmp_path, shared_src_dirs=[root])
 
-    def test_conflicting_content_is_a_build_error(self, run_archive: Path, tmp_path: Path) -> None:
-        """A collision must not silently pick a side — the bundle would then contain a
-        file neither source supplies."""
+    def test_shared_src_replaces_conflicting_content(
+        self, run_archive: Path, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         clash = self._src_tree(tmp_path, "trtllm", readme="# a different trtllm\n")
-        with pytest.raises(SubmissionBuildError, match="would overwrite"):
-            self._build(run_archive, tmp_path, shared_src_dirs=[clash])
+        org = self._build(run_archive, tmp_path, shared_src_dirs=[clash])
+        dest = next(org.iterdir()) / "src" / "trtllm" / "README.md"
+        assert dest.read_text() == "# a different trtllm\n"
+        assert "--shared-src" in caplog.text
+        assert str(dest) in caplog.text
+        assert str(clash / "trtllm" / "README.md") in caplog.text
 
-    def test_identical_content_is_allowed(self, run_archive: Path, tmp_path: Path) -> None:
+    def test_shared_docs_replaces_conflicting_content(
+        self, run_archive: Path, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        docs = self._docs(tmp_path, **{"calibration.adoc": "Updated calibration\n"})
+        org = self._build(run_archive, tmp_path, shared_docs_dirs=[docs])
+        dest = next(org.iterdir()) / "docs" / "calibration.adoc"
+        assert dest.read_text() == "Updated calibration\n"
+        assert "--shared-docs" in caplog.text
+        assert str(dest) in caplog.text
+        assert str(docs / "calibration.adoc") in caplog.text
+
+    def test_identical_content_is_allowed(
+        self, run_archive: Path, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """Re-supplying the same bytes is not a conflict."""
         same = self._src_tree(
             tmp_path,
@@ -1715,6 +1732,7 @@ class TestSharedTreeFlags:
         (same / "trtllm" / "serve.sh").unlink()
         org = self._build(run_archive, tmp_path, shared_src_dirs=[same])
         assert (next(org.iterdir()) / "src" / "trtllm" / "README.md").exists()
+        assert not caplog.records
 
     def test_missing_directory_is_reported_with_the_flag_name(
         self, run_archive: Path, tmp_path: Path

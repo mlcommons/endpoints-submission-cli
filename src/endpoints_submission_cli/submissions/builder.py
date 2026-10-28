@@ -27,6 +27,7 @@ once the real value is known.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import tarfile
 import tempfile
@@ -55,6 +56,8 @@ __all__ = [
 
 #: Placeholder directory name used when the MLC submission id is not yet known.
 PENDING_SUBMISSION_ID = "pending-submission-id"
+
+_logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -891,16 +894,7 @@ def _write_documentation(
 
 
 def _merge_tree(source: Path, dest_root: Path, flag: str) -> None:
-    """Copy every file under *source* into *dest_root*, refusing to clobber.
-
-    A run archive and a caller-supplied directory can both carry the same path. Taking
-    either side silently would put a file in the bundle that its source does not
-    contain, so a collision is a build failure unless the bytes already agree.
-
-    Raises:
-        SubmissionBuildError: If *source* is not a directory, or if a file already
-            written by a run differs from the one *source* supplies.
-    """
+    """Merge shared files, warning when they replace different bundled content."""
     if not source.is_dir():
         raise SubmissionBuildError(f"{flag} path is not a directory: {source}")
     for path in sorted(source.rglob("*")):
@@ -909,11 +903,7 @@ def _merge_tree(source: Path, dest_root: Path, flag: str) -> None:
         content = path.read_bytes()
         dest = dest_root / path.relative_to(source)
         if dest.exists() and dest.read_bytes() != content:
-            raise SubmissionBuildError(
-                f"{flag} would overwrite {dest.relative_to(dest_root.parent)} with different"
-                f" content from {path}. A run archive already supplies that file; remove it"
-                " from one side or make them identical."
-            )
+            _logger.warning("%s: replacing %s with %s", flag, dest, path)
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(content)
 
