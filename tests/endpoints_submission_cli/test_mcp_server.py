@@ -210,7 +210,7 @@ _COVERAGE: dict[tuple[str, ...], list[tuple[Callable[..., Any], dict[str, Any]]]
     ("runs", "delete"): [(mcp_server.delete_run, {"run_id": "r"})],
     ("runs", "pin"): [(mcp_server.pin_run, {"run_id": "r"})],
     ("runs", "unpin"): [(mcp_server.unpin_run, {"run_id": "r"})],
-    ("submissions", "list"): [(mcp_server.list_submissions, {})],
+    ("submissions", "list"): [(mcp_server.list_submissions, {"statuses": ["SUBMITTED"]})],
     ("submissions", "get"): [
         (mcp_server.get_submission, {"submission_id": "s"}),
         (mcp_server.download_submission, {"submission_id": "s", "directory": "d"}),

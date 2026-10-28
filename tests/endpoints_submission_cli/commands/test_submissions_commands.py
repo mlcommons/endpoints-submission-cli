@@ -43,6 +43,41 @@ def _run_app(*args: str) -> None:
 
 @pytest.mark.unit
 class TestSubmissionsList:
+    @pytest.mark.parametrize(
+        ("statuses", "expected"),
+        [
+            ([], ["COMPLIANCE_CHECKING", "REVIEW_PENDING", "PUBLISHED", "WITHDRAWN"]),
+            (["review_pending"], ["REVIEW_PENDING"]),
+            (["SUBMITTED"], ["COMPLIANCE_CHECKING", "REVIEW_PENDING"]),
+            (["SUBMITTED", "PUBLISHED"], ["COMPLIANCE_CHECKING", "REVIEW_PENDING", "PUBLISHED"]),
+            (["PUBLISHED", "WITHDRAWN"], ["PUBLISHED", "WITHDRAWN"]),
+            (["FINALIZED"], []),
+        ],
+    )
+    def test_status_filter(self, statuses: list[str], expected: list[str]) -> None:
+        rows = [
+            {**SUBMISSION_OUT, "id": status, "status": status}
+            for status in ("COMPLIANCE_CHECKING", "REVIEW_PENDING", "PUBLISHED", "WITHDRAWN")
+        ]
+        args = [arg for status in statuses for arg in ("--status", status)]
+        with patch("endpoints_submission_cli.submissions.api.list_submissions", return_value=rows):
+            result = _runner.invoke(app, ["submissions", "list", "-j", *_TOKEN_ARGS, *args])
+        assert result.exit_code == 0, result.output
+        assert [row["id"] for row in json.loads(result.output)] == expected
+
+    def test_status_filter_applies_to_table(self) -> None:
+        rows = [
+            {**SUBMISSION_OUT, "id": "keep-me", "status": "REVIEW_PENDING"},
+            {**SUBMISSION_OUT, "id": "hide-me", "status": "PUBLISHED"},
+        ]
+        with patch("endpoints_submission_cli.submissions.api.list_submissions", return_value=rows):
+            result = _runner.invoke(
+                app, ["submissions", "list", *_TOKEN_ARGS, "--status", "SUBMITTED"]
+            )
+        assert result.exit_code == 0, result.output
+        assert "keep-me" in result.output
+        assert "hide-me" not in result.output
+
     def test_list_success(self) -> None:
         with patch(
             "endpoints_submission_cli.submissions.api.list_submissions",
