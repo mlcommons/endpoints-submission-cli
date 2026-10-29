@@ -71,6 +71,7 @@ def build_submission_folder(
     shared_src_dirs: Sequence[Path] = (),
     shared_docs_dirs: Sequence[Path] = (),
     target_availability_date: str | None = None,
+    system_power: Path | None = None,
 ) -> Path:
     """Assemble a submission directory from a list of run archives.
 
@@ -89,6 +90,8 @@ def build_submission_folder(
             ``docs/`` tree.
         target_availability_date: ``YYYY-MM-DD``. When given, written into every
             ``system_desc.json``, where §8.2 requires it for a Preview system.
+        system_power: A local ``system_power.json`` to use instead of the runs'
+            copies. Only for a submission whose runs are all of one system.
 
     Returns:
         Path to the assembled org-level submission directory (the parent of the
@@ -159,8 +162,15 @@ def build_submission_folder(
     # one system, one model (§8.5) — which is also how the checker recomputes it.
     # Normalising per model across systems would divide a small system's points by a
     # larger system's peak, so no submission with two systems could match its own file.
+    power_override = _load_system_power_file(system_power) if system_power else None
+    if power_override is not None and len(runs_by_system) > 1:
+        raise SubmissionBuildError(
+            f"--system-power supplies one {layout.SYSTEM_POWER_JSON}, but the runs span"
+            f" {len(runs_by_system)} systems ({', '.join(sorted(runs_by_system))})."
+            f" Put each system's {layout.SYSTEM_POWER_JSON} in its run folders instead."
+        )
     for system_id, system_runs in runs_by_system.items():
-        _write_system_power(submission_dir, system_id, system_runs)
+        _write_system_power(submission_dir, system_id, system_runs, power_override)
 
     for (system_id, model), runs in groups.items():
         _write_point_dirs(
@@ -377,17 +387,42 @@ def _load_json_if_present(path: Path) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
-def _write_system_power(submission_dir: Path, system_id: str, runs: list[dict[str, Any]]) -> None:
+def _load_system_power_file(path: Path) -> dict[str, Any]:
+    """Read a ``--system-power`` file, which must hold a JSON object.
+
+    Raises:
+        SubmissionBuildError: If the file cannot be read or is not a JSON object.
+    """
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise SubmissionBuildError(f"Cannot read {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise SubmissionBuildError(f"{path} must contain a JSON object")
+    return data
+
+
+def _write_system_power(
+    submission_dir: Path,
+    system_id: str,
+    runs: list[dict[str, Any]],
+    override: dict[str, Any] | None = None,
+) -> None:
     """Write ``results/<system>/system_power.json`` from whichever run supplies it.
 
     §8.1 places one descriptor per *system*: provisioned power and each node set's
     ``N_s`` describe the hardware, and only the nodes a point engages vary by point
     (``nodes_used`` in ``point.yaml``, §4.5.3). So the runs of one system must agree on it.
 
+    *override*, from ``submissions create --system-power``, wins over the runs' copies:
+    it lets a submitter supply the descriptor for runs uploaded without one.
+
     Raises:
         SubmissionBuildError: If the system's runs declare conflicting power.
     """
     declared = [r["system_power"] for r in runs if r.get("system_power") is not None]
+    if override is not None:
+        declared = [override]
     if not declared:
         return
     first = declared[0]

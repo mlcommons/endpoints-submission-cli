@@ -364,6 +364,7 @@ def create_submission(
     run_ids: list[str],
     shared_src: list[str] | None = None,
     shared_docs: list[str] | None = None,
+    system_power: str | None = None,
     provisional: bool = False,
     confirm_public_provisional: bool = False,
     target_availability_date: str | None = None,
@@ -381,6 +382,8 @@ def create_submission(
         shared_src: Local directories merged into the bundle's shared ``src/``, each
             holding one or more ``<implementation>/`` folders.
         shared_docs: Local directories merged into the bundle's shared ``docs/``.
+        system_power: A local ``system_power.json`` for the submission's one system,
+            used instead of the runs' copies — for runs registered without one.
         provisional: Request provisional publication: the results become publicly
             viewable on the visualizer during the next cohort, with a "peer review
             pending" disclaimer.
@@ -413,6 +416,7 @@ def create_submission(
         *_repeat("--run-ids", run_ids),
         *_repeat("--shared-src", shared_src),
         *_repeat("--shared-docs", shared_docs),
+        *_optional("--system-power", system_power),
         # --yes answers the CLI's own prompt, which confirm_public_provisional stands for.
         *(["--provisional", "--yes"] if provisional else []),
         *_optional("--target-availability-date", target_availability_date),

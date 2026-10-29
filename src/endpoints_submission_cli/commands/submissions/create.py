@@ -12,6 +12,8 @@ from typing import Any
 import click
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 
+from submission_checker import layout
+
 from ..._version_check import REQUIRED_COMPONENTS, UPGRADE_COMMAND, outdated
 from ...exceptions import APIError, SubmissionBuildError, SubmissionCheckError
 from ...runs import api as runs_api
@@ -85,6 +87,16 @@ __all__ = ["submissions_create"]
     ),
 )
 @click.option(
+    "--system-power",
+    "system_power",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help=(
+        "Local system_power.json for the submission's system, used instead of the "
+        "runs' copies. For runs uploaded without one; the runs must all be of one system."
+    ),
+)
+@click.option(
     "--provisional",
     is_flag=True,
     default=False,
@@ -137,6 +149,7 @@ def submissions_create(
     run_ids: tuple[str, ...],
     shared_src_dirs: tuple[Path, ...],
     shared_docs_dirs: tuple[Path, ...],
+    system_power: Path | None,
     provisional: bool,
     assume_yes: bool,
     target_availability_date: str | None,
@@ -214,6 +227,7 @@ def submissions_create(
                 shared_src_dirs=shared_src_dirs,
                 shared_docs_dirs=shared_docs_dirs,
                 target_availability_date=target_availability_date,
+                system_power=system_power,
             )
         except SubmissionBuildError as exc:
             _console.print(f"[bold red]Build error:[/bold red] {exc}")
@@ -225,6 +239,8 @@ def submissions_create(
             _run_submission_checker(submission_dir)
         except SubmissionCheckError as exc:
             _console.print(f"[bold red]Submission checker failed:[/bold red]\n{exc}")
+            for hint in _system_power_hints(submission_dir):
+                _console.print(f"[yellow]{hint}[/yellow]")
             sys.exit(1)
 
         if dry_run:
@@ -294,3 +310,24 @@ def submissions_create(
         # then — review deadlines key off that time, so the CLI must not set it.
 
     _console.print(f"[bold green]Submission created:[/bold green] {submission_id}")
+
+
+def _system_power_hints(submission_dir: Path) -> list[str]:
+    """Explain a missing ``system_power.json`` in terms of where the build reads it from.
+
+    The bundle is assembled from the uploaded run archives alone, so a descriptor kept
+    only in the submitter's local results tree never reaches it — and the checker's own
+    message, written for a finished tree, does not say that.
+    """
+    missing = [
+        d.name
+        for d in sorted(submission_dir.glob(f"*/{layout.RESULTS_DIR}/*"))
+        if d.is_dir() and not (d / layout.SYSTEM_POWER_JSON).is_file()
+    ]
+    return [
+        f"{system}: none of its uploaded runs contains {layout.SYSTEM_POWER_JSON}."
+        " submissions create builds from the run archives, not your local results tree."
+        " Pass --system-power <path>, or re-register the runs with"
+        f" {layout.SYSTEM_POWER_JSON} beside point.yaml."
+        for system in missing
+    ]

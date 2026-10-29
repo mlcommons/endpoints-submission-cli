@@ -88,7 +88,9 @@ a `system_power.json`, it sends that too, as `system_power`, plus a `derived` ob
 computed with the submission checker's own power arithmetic: `provisioned_power_kw`,
 `point_power_kw` (scaled by the point's `nodes_used`), `system_tps_per_kw`, and
 `mlc_estimated_power` (true when any value fell back to an Appendix D default).
-`--dry-run` prints the exact payload.
+`--dry-run` prints the exact payload. When the folder has no `system_power.json`, `runs create` warns
+on stderr: `submissions create` reads it only from the uploaded archive, so a run registered
+without it needs `--system-power` there before it can back a Standardized submission.
 
 This is the layout `mlcommons/endpoints` writes to its `report_dir` — `performance/`
 exists when the performance phase ran, `accuracy/` when the accuracy phase ran, and

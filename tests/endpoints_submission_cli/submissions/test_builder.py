@@ -1616,6 +1616,74 @@ class TestSystemPowerDescriptor:
                 [("run-001", a), ("run-002", b)], "standardized", "available", tmp_path / "sub"
             )
 
+    def test_override_fills_runs_uploaded_without_one(
+        self, run_folder: Path, tmp_path: Path
+    ) -> None:
+        """``--system-power``: runs registered without the file can still be submitted."""
+        archive = self._archive(run_folder, tmp_path, "run", None)
+        local = tmp_path / "system_power.json"
+        local.write_text(json.dumps({"provisioned_power_w": 14700}))
+        sub_dir = build_submission_folder(
+            [("run-001", archive)],
+            "standardized",
+            "available",
+            tmp_path / "sub",
+            system_power=local,
+        )
+        (written,) = sub_dir.rglob("system_power.json")
+        assert json.loads(written.read_text())["provisioned_power_w"] == 14700
+
+    def test_override_wins_over_the_runs_copy(self, run_folder: Path, tmp_path: Path) -> None:
+        archive = self._archive(run_folder, tmp_path, "run", {"provisioned_power_w": 1})
+        local = tmp_path / "system_power.json"
+        local.write_text(json.dumps({"provisioned_power_w": 14700}))
+        sub_dir = build_submission_folder(
+            [("run-001", archive)],
+            "standardized",
+            "available",
+            tmp_path / "sub",
+            system_power=local,
+        )
+        (written,) = sub_dir.rglob("system_power.json")
+        assert json.loads(written.read_text())["provisioned_power_w"] == 14700
+
+    def test_override_rejected_across_systems(self, run_folder: Path, tmp_path: Path) -> None:
+        """One file cannot describe two systems' hardware."""
+        a = self._archive(run_folder, tmp_path, "a", None)
+        folder_b = tmp_path / "b"
+        import shutil
+
+        shutil.copytree(run_folder, folder_b)
+        desc = json.loads((folder_b / "system_desc.json").read_text())
+        desc["system_name"] = "Another system"
+        (folder_b / "system_desc.json").write_text(json.dumps(desc))
+        b = tmp_path / "b.tar.gz"
+        with tarfile.open(b, "w:gz") as tar:
+            tar.add(folder_b, arcname="b")
+        local = tmp_path / "system_power.json"
+        local.write_text(json.dumps({"provisioned_power_w": 14700}))
+        with pytest.raises(SubmissionBuildError, match="span 2 systems"):
+            build_submission_folder(
+                [("run-001", a), ("run-002", b)],
+                "standardized",
+                "available",
+                tmp_path / "sub",
+                system_power=local,
+            )
+
+    def test_unreadable_override_fails_the_build(self, run_folder: Path, tmp_path: Path) -> None:
+        archive = self._archive(run_folder, tmp_path, "run", None)
+        local = tmp_path / "system_power.json"
+        local.write_text("[1, 2]")
+        with pytest.raises(SubmissionBuildError, match="JSON object"):
+            build_submission_folder(
+                [("run-001", archive)],
+                "standardized",
+                "available",
+                tmp_path / "sub",
+                system_power=local,
+            )
+
 
 @pytest.mark.unit
 class TestSharedTreeFlags:

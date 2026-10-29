@@ -71,6 +71,7 @@ endpoints-submission-cli submissions create \
   --run-ids RUN_ID \
   [--run-ids RUN_ID ...] \
   [--token TOKEN] \
+  [--system-power PATH] \
   [--provisional] \
   [--yes] \
   [--target-availability-date DATE] \
@@ -85,11 +86,20 @@ endpoints-submission-cli submissions create \
 | `--availability` | yes | `available`, `preview`, or `rdi`. |
 | `--run-ids RUN_ID` | yes (repeatable) | Run UUID to include. Pass the flag once per run. |
 | `--token TOKEN` | no | API key. |
+| `--system-power PATH` | no | A local `system_power.json` for the submission's system, used instead of the runs' copies. For runs registered without one; every run must be of the same system. |
 | `--provisional` | no | Request provisional publication (default: false). Results become publicly viewable on the visualizer during the next cohort with a `peer review pending` disclaimer. Prompts for confirmation before submitting. |
 | `--yes`, `-y` | no | Skip the `--provisional` confirmation prompt (for non-interactive use). |
 | `--target-availability-date DATE` | no | Target availability date (`YYYY-MM-DD`). Required when `--availability preview`. |
 | `--embargo-date DATETIME` | no | Embargo datetime, ISO 8601 with a time zone, e.g. `2026-12-01T16:00:00Z` (UTC) or `2026-12-01T08:00:00-08:00` (Pacific). A time without one is rejected. Must be in the future. Nothing is published before it. It can be moved later with `submissions update` but not added, so declare it here. |
 | `--dry-run` | no | Assemble folder and run checker, then print the folder layout and exit without creating the submission or PR. |
+
+**Where `system_power.json` comes from.** The bundle is assembled from the uploaded run
+archives only, not from your local results tree. The builder takes the descriptor from
+beside `point.yaml` in each run archive and writes one copy to `results/<system>/`. A copy
+kept only in a local `results/<system>/` folder never reaches the bundle, so the checker
+reports it missing even though `check-submission` passes locally. Either put
+`system_power.json` in each run folder before `runs create` (which warns when it is absent),
+or pass `--system-power` here.
 
 To override the lower concurrency boundary, include `"c_min_override": 32` (for example)
 in each performance point's `system_desc.json` before registering the runs. Use the same

@@ -225,6 +225,7 @@ _COVERAGE: dict[tuple[str, ...], list[tuple[Callable[..., Any], dict[str, Any]]]
                 "run_ids": ["r1", "r2"],
                 "shared_src": ["s"],
                 "shared_docs": ["d"],
+                "system_power": "p.json",
                 "provisional": True,
                 "confirm_public_provisional": True,
                 "target_availability_date": "2026-01-01",

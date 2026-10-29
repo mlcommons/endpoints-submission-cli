@@ -927,6 +927,44 @@ class TestSubmissionsCreate:
                         )
         assert result.exit_code == 1
 
+    def test_create_checker_failure_explains_missing_system_power(self, tmp_path: Path) -> None:
+        """The bundle is built from the run archives; say so when the descriptor is absent."""
+        fake_archive = _make_fake_archive(tmp_path)
+        fake_sub_dir = tmp_path / "sub"
+        (fake_sub_dir / PENDING_SUBMISSION_ID / "results" / "HPE_sys").mkdir(parents=True)
+
+        with patch("endpoints_submission_cli._http.get_token", return_value=TOKEN):
+            with patch(
+                "endpoints_submission_cli.runs.api.download_run_archive", return_value=fake_archive
+            ):
+                with patch(
+                    "endpoints_submission_cli.commands.submissions.create.build_submission_folder",
+                    return_value=fake_sub_dir,
+                ):
+                    with patch(
+                        "endpoints_submission_cli.commands.submissions.create._run_submission_checker",
+                        side_effect=SubmissionCheckError("Missing system_power.json"),
+                    ):
+                        result = _runner.invoke(
+                            app,
+                            [
+                                "submissions",
+                                "create",
+                                "--division",
+                                "standardized",
+                                "--scenario",
+                                "cop",
+                                "--availability",
+                                "available",
+                                "--run-ids",
+                                RUN_ID,
+                                *_TOKEN_ARGS,
+                            ],
+                        )
+        assert result.exit_code == 1
+        assert "HPE_sys" in result.output
+        assert "--system-power" in result.output
+
     def test_create_api_error_exits_1(self, tmp_path: Path) -> None:
         fake_archive = _make_fake_archive(tmp_path)
         fake_sub_dir = tmp_path / "sub"
