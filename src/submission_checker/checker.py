@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -185,8 +185,24 @@ class _SystemFacts:
 
 
 def _system_desc_identity(data: dict[str, object]) -> dict[str, object]:
-    """Strip the fields that legitimately vary between points of the same frontier."""
-    return {k: v for k, v in data.items() if k not in _PER_POINT_SYSTEM_DESC_FIELDS}
+    """Strip the fields that legitimately vary between points of the same frontier.
+
+    §8.2.1 moved the parallelism fields and ``config_summary`` inside ``node_types``,
+    so stripping top-level keys alone no longer reaches them: a frontier that tunes
+    its replica size per point — which §4.5.3's C.3 example does — would differ on
+    ``node_types`` and fail system-description-consistency. They are stripped at both
+    depths, so a bundle in either placement compares on the same identity.
+    """
+    identity = {k: v for k, v in data.items() if k not in _PER_POINT_SYSTEM_DESC_FIELDS}
+    node_types = identity.get("node_types")
+    if isinstance(node_types, list):
+        identity["node_types"] = [
+            {k: v for k, v in node.items() if k not in _PER_POINT_SYSTEM_DESC_FIELDS}
+            if isinstance(node, dict)
+            else node
+            for node in node_types
+        ]
+    return identity
 
 
 def _read_json(path: Path) -> dict[str, object] | None:
@@ -268,30 +284,78 @@ def _declared_tps_utilization(system_desc_path: Path) -> float | None:
 def _point_parallelism(system_desc_path: Path) -> Parallelism | None:
     """A point's parallelism from its own ``system_desc.json``, or None if it declares none.
 
-    §8.2 places the fields at the top level; the structured ``config_summary`` object
-    is read as a fallback. A field left out is 1 — §8.2 defines "TP=1 means no
-    partitioning" and likewise for the others — but a description with none of them
-    says nothing about its deployment, so it yields ``None`` rather than a guess.
+    Two placements are accepted. §8.2.1 now declares the fields inside each
+    ``node_types`` entry, because §4.5.3's node-count declaration is per node type and
+    has to be consistent with them; older bundles carry them at the top level, with the
+    structured ``config_summary`` object as a further fallback. The node-type placement
+    wins where both appear, being the current format.
+
+    A field left out is 1 — §8.2 defines "TP=1 means no partitioning" and likewise for
+    the others — but a description with none of them says nothing about its deployment,
+    so it yields ``None`` rather than a guess.
     """
     data = _read_json(system_desc_path)
     if data is None:
         return None
     summary = data.get("config_summary")
     summary = summary if isinstance(summary, dict) else {}
+    node_types = [n for n in (data.get("node_types") or []) if isinstance(n, dict)]
+
     values: dict[str, int] = {}
     for name in _PARALLELISM_FIELDS:
+        declared = _declared_ints(node_types, name)
+        if len(set(declared)) > 1:
+            # §4.5.3 computes one A_replica = TP·PP·EP for the whole SUT, so a Parallelism
+            # cannot carry two values for a field. Rather than pick one and normalise
+            # against a replica size no node type has, decline: nodes-used is skipped,
+            # exactly as it already is for a bundle that declares no parallelism at all.
+            # Making §4.5.3's arithmetic per node type is the real fix and is its own job.
+            return None
+        if declared:
+            values[name] = declared[0]
+            continue
         value = data.get(name, summary.get(name))
         if isinstance(value, int) and not isinstance(value, bool):
             values[name] = value
     if not values:
         return None
     # §8.2: "Indicates whether the system is disaggregated (disaggregated > 1)", while
-    # the model reads it as a bool; either spelling of "yes" counts.
-    flag = data.get("disaggregated", summary.get("disaggregated"))
-    disaggregated = flag is True or (
-        isinstance(flag, int) and not isinstance(flag, bool) and flag > 1
+    # the model reads it as a bool; either spelling of "yes" counts. Any node type being
+    # disaggregated disaggregates the SUT.
+    flags = [
+        _node_value(n, "disaggregated")
+        for n in node_types
+        if _node_value(n, "disaggregated") is not None
+    ]
+    if not flags:
+        flags = [data.get("disaggregated", summary.get("disaggregated"))]
+    disaggregated = any(
+        flag is True or (isinstance(flag, int) and not isinstance(flag, bool) and flag > 1)
+        for flag in flags
     )
     return Parallelism(**values, disaggregated=disaggregated)
+
+
+def _node_value(node: dict[str, Any], name: str) -> object:
+    """*name* on a node type, or from that node type's own ``config_summary``.
+
+    §8.2.1 keeps ``config_summary`` beside the parallelism fields it concatenates, so
+    its object form is read per node type exactly as it used to be read SUT-wide.
+    """
+    if name in node:
+        return node[name]
+    summary = node.get("config_summary")
+    return summary.get(name) if isinstance(summary, dict) else None
+
+
+def _declared_ints(node_types: list[dict[str, Any]], name: str) -> list[int]:
+    """*name* as declared by each node type that declares it, in order."""
+    found = []
+    for node in node_types:
+        value = _node_value(node, name)
+        if isinstance(value, int) and not isinstance(value, bool):
+            found.append(value)
+    return found
 
 
 def _resolve_submission_root(path: Path) -> Path:

@@ -77,6 +77,27 @@ class AcceleratorInfo(BaseModel):
     accelerator_host_interconnect: str | None = None
 
 
+class ConfigSummary(BaseModel):
+    """Structured parallelism/config summary — the object form of ``config_summary``.
+
+    Moved here from the retired ``run_metadata.json`` model: policies PR #119 deleted
+    that file and §8.2 absorbed its fields into the system description.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    disaggregated: bool | None = None
+    expert_parallel: int | None = None
+    tensor_parallel: int | None = None
+    pipeline_parallel: int | None = None
+    data_parallel: int | None = None
+    batch: int | None = None
+
+
+#: ``config_summary`` accepts either the structured object or free-form prose.
+_ConfigSummaryStr = Annotated[str, StringConstraints(min_length=4)]
+
+
 class NodeType(BaseModel):
     """Per-node hardware and software configuration (§8.2.1)."""
 
@@ -133,6 +154,17 @@ class NodeType(BaseModel):
             data = {**data, "accelerator_info": [flat]}
         return data
 
+    # §8.2.1 declares the deployment configuration per node type: a heterogeneous SUT
+    # may partition differently on each, and §4.5.3's node-count declaration is per
+    # node type and must agree with these. Older bundles carry them at the top level
+    # of the system description instead; both placements are read.
+    disaggregated: bool | None = None
+    expert_parallel: int | None = None
+    tensor_parallel: int | None = None
+    pipeline_parallel: int | None = None
+    data_parallel: int | None = None
+    config_summary: ConfigSummary | _ConfigSummaryStr | None = None
+
     @model_validator(mode="after")
     def _require_core_or_vcpu_count(self) -> NodeType:
         """A node must disclose at least one of physical core count or vCPU count."""
@@ -140,26 +172,6 @@ class NodeType(BaseModel):
             raise Invalid("system-description-valid", "core-count-missing")
         return self
 
-
-class ConfigSummary(BaseModel):
-    """Structured parallelism/config summary — the object form of ``config_summary``.
-
-    Moved here from the retired ``run_metadata.json`` model: policies PR #119 deleted
-    that file and §8.2 absorbed its fields into the system description.
-    """
-
-    model_config = ConfigDict(extra="allow")
-
-    disaggregated: bool | None = None
-    expert_parallel: int | None = None
-    tensor_parallel: int | None = None
-    pipeline_parallel: int | None = None
-    data_parallel: int | None = None
-    batch: int | None = None
-
-
-#: ``config_summary`` accepts either the structured object or free-form prose.
-_ConfigSummaryStr = Annotated[str, StringConstraints(min_length=4)]
 
 #: §8.2's availability field first, then the legacy spellings still read from older
 #: bundles: ``publication_status`` (written by earlier builds of this CLI) and
