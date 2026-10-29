@@ -12,6 +12,8 @@ from pathlib import Path
 
 import click
 
+from submission_checker.layout import SYSTEM_POWER_JSON
+
 from ...exceptions import APIError, ArchiveError, RunFolderError
 from ...runs import api as runs_api
 from ...runs.parser import _started_at_to_run_date, build_archive, parse_run_folder
@@ -85,6 +87,9 @@ def runs_create(
         _console.print(f"[bold red]Run folder error:[/bold red] {exc}")
         sys.exit(1)
 
+    if "system_power" not in payload:
+        _warn_missing_system_power(path)
+
     if expires_at is not None:
         payload["expires_at"] = expires_at
     if pinned:
@@ -139,3 +144,21 @@ def runs_create(
     _console.print(f"[bold green]Run created:[/bold green] {run_id}")
     if archive_uri:
         _console.print(f"[dim]Archive:[/dim] {archive_uri}")
+
+
+def _warn_missing_system_power(path: Path) -> None:
+    """Warn that a run without ``system_power.json`` cannot back a Standardized submission.
+
+    The division is chosen at ``submissions create``, so this cannot be an error here.
+    But that command builds the bundle from the uploaded archives alone: a descriptor
+    kept only in the local results tree — often one level up, where a finished
+    submission holds it — never reaches the bundle, and the run must be registered again.
+    """
+    parent_copy = path.resolve().parent / SYSTEM_POWER_JSON
+    where = f" (found one at {parent_copy}, which is not uploaded)" if parent_copy.is_file() else ""
+    _console.print(
+        f"[yellow]Warning:[/yellow] {path} has no {SYSTEM_POWER_JSON}{where}. Standardized"
+        f" submissions require one per system, and submissions create reads it only from"
+        f" the uploaded run archives. Put it beside point.yaml before registering, or pass"
+        f" --system-power to submissions create."
+    )

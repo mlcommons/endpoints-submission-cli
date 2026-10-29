@@ -128,6 +128,34 @@ class TestRunsCreate:
         assert result.exit_code == 0
         assert json.loads(result.output)["is_test"] is True
 
+    def test_create_warns_without_system_power(self, endpoints_run_folder: Path) -> None:
+        """submissions create reads the descriptor only from the archive; say so now."""
+        (endpoints_run_folder / "system_power.json").unlink(missing_ok=True)
+        result = _runner.invoke(
+            app, ["runs", "create", "--path", str(endpoints_run_folder), "--dry-run"]
+        )
+        assert result.exit_code == 0
+        assert "has no system_power.json" in result.stderr
+        # The warning goes to stderr, so the dry-run payload stays parseable.
+        assert "system_power" not in json.loads(result.stdout)
+
+    def test_create_warning_names_a_copy_one_level_up(self, endpoints_run_folder: Path) -> None:
+        """The usual mistake: the file sits at results/<system>/, above the run folder."""
+        (endpoints_run_folder / "system_power.json").unlink(missing_ok=True)
+        (endpoints_run_folder.parent / "system_power.json").write_text("{}")
+        result = _runner.invoke(
+            app, ["runs", "create", "--path", str(endpoints_run_folder), "--dry-run"]
+        )
+        assert result.exit_code == 0
+        assert "which is not uploaded" in result.stderr
+
+    def test_create_no_warning_with_system_power(self, endpoints_run_folder: Path) -> None:
+        result = _runner.invoke(
+            app, ["runs", "create", "--path", str(endpoints_run_folder), "--dry-run"]
+        )
+        assert result.exit_code == 0
+        assert "system_power.json" not in result.stderr
+
 
 @pytest.mark.unit
 class TestRunsGet:
