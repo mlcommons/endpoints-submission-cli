@@ -1,20 +1,27 @@
 # MLPerf Endpoints published seed sets (§4.6 Seed Rotation).
 #
-# Mirrored verbatim from `mlcommons/endpoints_policies` `seedset.yaml`, merged to
-# `v1.0_rules_dev` in PR #117 (`a36d158`, 2026-09-15).
+# Mirrored verbatim from `mlcommons/endpoints_policies` `seedset.yaml`, as of PR #155
+# (`e731300`, seed set B for cohort 2026-11-C0; earlier: PR #117, `a36d158`, 2026-09-15).
 #
-# `cohort-id` is the cohort the sets below were published for. §4.6 makes each set
-# adoptable for that cohort and the three following it, so the adoption window is
-# derived rather than listed — see `submission_checker.seed_sets`.
+# Each set lists its own `cohorts:` adoption window (§4.6: its publication cohort and
+# the three following it). A set without that list falls back to a window derived from
+# the file-level `cohort-id`, which now names the newest set's cohort — so dropping A's
+# list would re-date A to 2026-11-C0. See `submission_checker.seed_sets`.
 #
 # Override with `--seed-sets FILE` or $MLPERF_ENDPOINTS_SEED_SETS so a newly
 # published set can be used without waiting for a checker release.
 
 cohort:
   version: 1.0
-  cohort-id: 2026-10-C1
+  cohort-id: 2026-11-C0        # the newest set's first adoptable cohort
   seed_sets:                              # a submission selects exactly one, by id
     - id: A
       scheduler_rng_seed:    10487924139932647040
       sample_index_rng_seed: 586478644936801402
       model_seed:            9315206023656308754
+      cohorts: [2026-10-C1, 2026-11-C0, 2026-11-C1, 2026-12-C0]
+    - id: B
+      scheduler_rng_seed:    17312635550606430962
+      sample_index_rng_seed: 6679150691998295617
+      model_seed:            2538075066783666738
+      cohorts: [2026-11-C0, 2026-11-C1, 2026-12-C0, 2026-12-C1]
