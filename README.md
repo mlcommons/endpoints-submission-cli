@@ -545,8 +545,10 @@ Approval cohorts are recorded per drafter, so future additions can carry later
 cohorts in the same registry.
 
 The published sets ship as data (`src/submission_checker/data/seed_sets.yaml`), mirrored
-from the policies repo's `seedset.yaml`. The file's `cohort-id` is the cohort its sets
-were published for; §4.6's four-cohort adoption window is derived from it. Point
+from the policies repo's `seedset.yaml`. Each set lists its own `cohorts:`, the §4.6
+four-cohort adoption window starting at the cohort it was published for. Older sets stay
+in the file so a submission remains bound to its set. A set without that list gets the
+window derived from the file's `cohort-id`, which names the newest set's cohort. Point
 `--seed-sets FILE` or `$MLPERF_ENDPOINTS_SEED_SETS` at a newer file to check against a
 set published after this release.
 

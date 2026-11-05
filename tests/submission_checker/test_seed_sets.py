@@ -25,6 +25,13 @@ _PR117_SET_A = {
     "model_seed": 9315206023656308754,
 }
 
+#: Set B, published for cohort 2026-11-C0 in `endpoints_policies` PR #155.
+_PR155_SET_B = {
+    "scheduler_rng_seed": 17312635550606430962,
+    "sample_index_rng_seed": 6679150691998295617,
+    "model_seed": 2538075066783666738,
+}
+
 
 def _write_registry(path: Path, entries: list[dict]) -> Path:
     path.write_text(yaml.safe_dump({"seed_sets": entries}))
@@ -36,17 +43,37 @@ class TestBundledRegistry:
         seed_set = load_seed_sets()["A"]
         assert seed_set.seeds == _PR117_SET_A
 
+    def test_mirrors_pr155(self) -> None:
+        seed_set = load_seed_sets()["B"]
+        assert seed_set.seeds == _PR155_SET_B
+
+    def test_carries_exactly_the_published_sets(self) -> None:
+        """Sets are never removed upstream, so A stays alongside the newer B."""
+        assert set(load_seed_sets()) == {"A", "B"}
+
     def test_seeds_are_not_the_v07_constant(self) -> None:
         """v0.7 fixed every seed at 42; v1.0 rotates them, which is why the rule changed."""
-        assert all(value != 42 for value in load_seed_sets()["A"].seeds.values())
+        for seed_set in load_seed_sets().values():
+            assert all(value != 42 for value in seed_set.seeds.values())
 
-    def test_adoption_window_is_derived_from_the_publication_cohort(self) -> None:
-        """§4.6: adoptable for the publication cohort and the three following it."""
-        assert load_seed_sets()["A"].cohorts == (
+    def test_each_set_keeps_its_own_adoption_window(self) -> None:
+        """§4.6: adoptable for the publication cohort and the three following it.
+
+        The file-level cohort-id now names B's cohort, so A's window must come from
+        its own `cohorts:` list rather than be re-dated to B's.
+        """
+        sets = load_seed_sets()
+        assert sets["A"].cohorts == (
             "2026-10-C1",
             "2026-11-C0",
             "2026-11-C1",
             "2026-12-C0",
+        )
+        assert sets["B"].cohorts == (
+            "2026-11-C0",
+            "2026-11-C1",
+            "2026-12-C0",
+            "2026-12-C1",
         )
 
     def test_bundled_file_ships_with_the_package(self) -> None:
