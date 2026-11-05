@@ -24,8 +24,6 @@ permissions:
 
 env:
   SEED_FILE: src/submission_checker/data/seed_sets.yaml
-  # Tagged on the issue when a release has to be made by hand. Confirm before merging.
-  MAINTAINERS: "@mlcommons/wg-benchmark-infra"
 
 jobs:
   decide:
@@ -125,14 +123,19 @@ jobs:
           ADDED: ${{ steps.decide.outputs.added }}
         run: |
           set -euo pipefail
+          # Tag whoever can approve the release environment, so the list lives in one place.
+          reviewers=$(gh api "repos/$GITHUB_REPOSITORY/environments/release" --jq \
+            '[.protection_rules[] | select(.type == "required_reviewers") | .reviewers[]
+              | "@" + (.reviewer.login // "mlcommons/\(.reviewer.slug)")] | join(" ")')
           gh issue create --title "Seed sets changed on main: release by hand" --body-file - <<EOF
-          ${MAINTAINERS}: \`${SEED_FILE}\` changed in ${GITHUB_SHA::7} (new sets: ${ADDED:-none}), but it can't be released automatically:
+          ${reviewers:-Maintainers}: \`${SEED_FILE}\` changed in ${GITHUB_SHA::7} (new sets: ${ADDED:-none}), but it can't be released automatically:
 
           $(cat reasons.md)
 
           Until a release ships, the checker rejects submissions that use a new set.
           EOF
     permissions:
+      actions: read # read the release environment's reviewers
       contents: read
       issues: write
 
