@@ -107,10 +107,8 @@ bundle gets:
     └── README.md                 └── README.md
 ```
 
-Both are repeatable, and both are **additive**: whatever the run archives supply is
-still written, and the flags add to it. A file supplied by both a run and a flag is a
-build error unless the bytes are identical — silently taking either side would put a
-file in the bundle that neither source contains.
+Both flags are repeatable. Shared files replace conflicting run files with a warning.
+For repeated flags, the last directory wins. Identical files cause no warning.
 
 Everything else is unchanged, which is worth knowing for two cases:
 
