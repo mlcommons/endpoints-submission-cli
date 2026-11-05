@@ -140,7 +140,8 @@ jobs:
     needs: decide
     if: needs.decide.outputs.action == 'release'
     runs-on: ubuntu-latest
-    # Holds the endpoints automation app's secrets; limited to main.
+    # Holds the endpoints automation app's secrets; limited to main. A maintainer
+    # (required reviewer on the environment) approves the job before it runs.
     environment: release
     steps:
       # A release made with GITHUB_TOKEN does not start publish.yml; the app's token does.
