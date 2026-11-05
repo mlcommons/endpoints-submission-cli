@@ -22,6 +22,7 @@ from ...agentic_targets import (
 from ..file.accuracy import PERFORMANCE_DATASET_TYPE, AccuracyResult
 from ..file.point_config import (
     LOAD_PATTERN_AGENTIC,
+    LOAD_PATTERN_CONCURRENCY,
     OFFLINE_DEDICATED,
     OFFLINE_ELECTED,
     PointConfig,
@@ -173,23 +174,7 @@ class ModelContext(BaseModel):
 
     @property
     def is_agentic(self) -> bool:
-        """Whether this frontier measures an agentic benchmark (§6.1's load pattern).
-
-        The benchmark type governs four §9.1 rows but §8.3 has no field for it, so it
-        is read from ``runtime_settings.load_pattern``: the reference implementation
-        names its fixed-concurrency agentic scheduler ``agentic_inference``, and that
-        name is the only agentic signal in any file this checker reads.
-
-        A frontier is one benchmark (§8.5: "one system, one benchmark model, one
-        dataset"), so this requires unanimity. Points that disagree are reported by
-        ``benchmark-type-consistency`` and the frontier is treated as non-agentic — the
-        stricter reading, since it keeps the Offline requirement in force rather than
-        letting one mislabelled point switch it off.
-
-        A dedicated Offline run is left out of the vote (see
-        :attr:`_type_voting_points`), so an agentic frontier that wrongly includes one is
-        still read as agentic, and ``offline-point-present`` rejects it under §5.7.
-        """
+        """Check if all non-Offline points use the agentic run mode."""
         patterns = {c.runtime_settings.load_pattern for _, c in self._type_voting_points}
         return patterns == {LOAD_PATTERN_AGENTIC}
 
@@ -208,14 +193,15 @@ class ModelContext(BaseModel):
 
     @model_validator(mode="after")
     def _check_benchmark_type_consistency(self) -> ModelContext:
-        """§8.5: one frontier is one benchmark, so its points must agree on the type.
-
-        Only :attr:`_type_voting_points` are compared: §6.1 expects a dedicated Offline
-        run to use a different pattern from the rest of its frontier.
-        """
+        """Check the run mode against the model and the other points."""
         if not self._type_voting_points:
             return self
         patterns = sorted({c.runtime_settings.load_pattern for _, c in self._type_voting_points})
+        expected = None
+        if get_agentic_targets(self.model_dir.name) is not None:
+            expected = LOAD_PATTERN_AGENTIC
+        elif get_thresholds(self.model_dir.name) is not None:
+            expected = LOAD_PATTERN_CONCURRENCY
         if len(patterns) > 1:
             self._check_results.append(
                 err(
@@ -223,6 +209,17 @@ class ModelContext(BaseModel):
                     "fail",
                     self.points_dir,
                     patterns=", ".join(repr(lp) for lp in patterns),
+                )
+            )
+        elif expected is not None and patterns != [expected]:
+            self._check_results.append(
+                err(
+                    "benchmark-type-consistency",
+                    "model-mismatch",
+                    self.points_dir,
+                    model=self.model_dir.name,
+                    expected=expected,
+                    patterns=patterns[0],
                 )
             )
         else:

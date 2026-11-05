@@ -123,6 +123,22 @@ class TestSrcCheckedOnce:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("model", ["kimi-k3", "qwen3_6-35b-a3b", "deepseek-v4_1-flash"])
+def test_agentic_model_rejects_single_turn_runs(submission: Path, model: str) -> None:
+    model_dir = _curve(submission)
+    model_dir = model_dir.rename(model_dir.parent / model)
+    for path in model_dir.rglob(layout.POINT_YAML):
+        data = yaml.safe_load(path.read_text())
+        data["model_name"] = model
+        path.write_text(yaml.safe_dump(data))
+
+    report = _check(submission)
+
+    assert not report.passed
+    assert _results(report, "benchmark-type-consistency", Severity.ERROR)
+
+
+@pytest.mark.unit
 class TestInvalidSystemDescription:
     def test_bad_division_does_not_hide_the_curve(self, submission: Path, baseline: Report) -> None:
         _edit_system_descs(submission, division="Standardised")
