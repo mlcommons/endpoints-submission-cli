@@ -331,9 +331,10 @@ def unpin_run(run_id: str) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def list_submissions() -> Any:
-    """List the authenticated user's submissions on PRISM."""
-    return _run_cli("submissions", "list")
+def list_submissions(statuses: list[str] | None = None) -> Any:
+    """List submissions. SUBMITTED includes compliance and review statuses."""
+    args = [arg for status in statuses or [] for arg in ("--status", status)]
+    return _run_cli("submissions", "list", *args)
 
 
 def get_submission(submission_id: str) -> Any:
