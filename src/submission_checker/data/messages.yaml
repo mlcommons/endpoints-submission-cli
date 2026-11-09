@@ -630,14 +630,6 @@ result-summary-present:
     fail-2:
       text: 'Missing result_summary.json for {point_dir_name}: {relative_to}'
       fix: Add the point's result_summary.json, as the benchmark writes it.
-seed-config-legacy:
-  title: Seed config legacy
-  spec: §4.6
-  messages:
-    fail: 'Point {concurrency}: {field_name} = {val!r}; v0.7 required 42 and v1.0 requires a declared
-      seed_set (§4.6) — neither is satisfied'
-    warn: 'Point {concurrency}: {field_name} = 42 with no seed_set declared; v1.0 binds seeds to a published
-      set (§4.6)'
 seed-runtime-match:
   title: Seed runtime match
   spec: §4.6

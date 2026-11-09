@@ -510,7 +510,6 @@ validation by the service or reviewers.
 | `seed-runtime-match` | §2.1.1 | The RNG seeds equal the bound set's values |
 | `target-cohort` | §4.6 | `target_cohort` matches `YYYY-MM-C0` / `YYYY-MM-C1` |
 | `seed-set-adoption` | §4.6 | `target_cohort` falls inside the set's four-cohort adoption window |
-| `seed-config-legacy` | §4.6 | v0.7 fallback: seeds == 42 when no `seed_set` is declared |
 | `seed-set-registry` | §4.6 | Warns when the seed-set file itself cannot be read |
 
 ### Speculative decoding (§2.9.4)
