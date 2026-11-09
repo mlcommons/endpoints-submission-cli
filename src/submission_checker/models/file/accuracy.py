@@ -152,16 +152,8 @@ class AccuracyResult(RootModel[dict[str, dict[str, Any]]]):
         """
         result: dict[str, dict[str, float]] = {}
         for ds_name, entry in self.root.items():
-            raw_score = entry.get("score")
             scores: dict[str, float] = {}
-            if isinstance(raw_score, dict):
-                items = raw_score.items()
-            elif "score" in entry:
-                items = {"score": raw_score}.items()
-            else:
-                # No `score` key — metrics are direct entry keys.
-                items = {k: v for k, v in entry.items() if k not in self._META_KEYS}.items()
-            for k, v in items:
+            for k, v in self._metric_items(entry).items():
                 try:
                     scores[k] = float(v)
                 except (TypeError, ValueError):
@@ -171,3 +163,30 @@ class AccuracyResult(RootModel[dict[str, dict[str, Any]]]):
             if scores:
                 result[ds_name] = scores
         return result
+
+    def unreadable_metrics(self) -> dict[str, dict[str, Any]]:
+        """Return ``{dataset_name: {metric: raw value}}`` for what :meth:`metric_scores` skips.
+
+        A metric is skipped when it is present but null or not a number.
+        """
+        result: dict[str, dict[str, Any]] = {}
+        for ds_name, entry in self.root.items():
+            skipped: dict[str, Any] = {}
+            for k, v in self._metric_items(entry).items():
+                try:
+                    float(v)
+                except (TypeError, ValueError):
+                    skipped[k] = v
+            if skipped:
+                result[ds_name] = skipped
+        return result
+
+    def _metric_items(self, entry: dict[str, Any]) -> dict[str, Any]:
+        """The raw ``{metric: value}`` pairs of one entry, in whichever shape it uses."""
+        raw_score = entry.get("score")
+        if isinstance(raw_score, dict):
+            return dict(raw_score)
+        if "score" in entry:
+            return {"score": raw_score}
+        # No `score` key — metrics are direct entry keys.
+        return {k: v for k, v in entry.items() if k not in self._META_KEYS}

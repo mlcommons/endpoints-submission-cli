@@ -96,6 +96,9 @@ accuracy-gate:
     incomplete-datasets:
       text: 'Cannot compute aggregate accuracy: incomplete score (complete: false) for dataset(s): {datasets}'
       fix: 'Rescore each listed dataset until every sample is graded and the client reports complete: true.'
+    unreadable-metrics:
+      text: 'Cannot compute aggregate accuracy: null or non-numeric metric {metrics}'
+      fix: Complete scoring for each listed dataset so every gated metric has a numeric value.
     non-finite-scores:
       text: 'Cannot compute aggregate accuracy: non-finite score for {scores}'
       fix: Rescore each listed dataset; a NaN or infinite score means scoring failed.

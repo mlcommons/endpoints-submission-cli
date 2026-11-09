@@ -216,6 +216,22 @@ class TestAccuracyResultModel:
         ar = AccuracyResult({"ds": {"score": None, "osl_tokenize_s": 19.085}})
         assert ar.metric_scores() == {}
 
+    def test_unreadable_metrics_are_what_metric_scores_skips(self):
+        ar = AccuracyResult(
+            {
+                "named": {"score": {"rouge1": "38.7", "rouge2": None}},
+                "scalar": {"score": "N/A"},
+                "legacy": {"exact_match": None, "num_samples": 4388, "status": "ok"},
+                "clean": {"score": 0.8},
+            }
+        )
+        assert ar.unreadable_metrics() == {
+            "named": {"rouge2": None},
+            "scalar": {"score": "N/A"},
+            "legacy": {"exact_match": None},
+        }
+        assert ar.metric_scores() == {"named": {"rouge1": 38.7}, "clean": {"score": 0.8}}
+
 
 _WARMUP = {
     "duration_s": 60.0,

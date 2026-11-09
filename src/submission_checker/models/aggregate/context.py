@@ -1086,6 +1086,17 @@ class ModelContext(BaseModel):
             for name in datasets
             if name not in unscored and root[name].get("complete") is False
         ]
+        # A gated metric that is null or not a number (e.g. `"score": {"exact_match":
+        # null}`) would drop its dataset out of that metric's mean. Other fields of a
+        # legacy entry with no `score` key may be bookkeeping, so only gated names count.
+        gated = set(thresholds) | {"score"}
+        unreadable = [
+            f"{name} ({metric}={'null' if value is None else repr(value)})"
+            for name, metrics in accuracy_result.unreadable_metrics().items()
+            if name in datasets and name not in unscored
+            for metric, value in metrics.items()
+            if metric.lower() in gated
+        ]
         if unscored:
             self._check_results.append(
                 err("accuracy-gate", "unscored-datasets", json_path, datasets=", ".join(unscored))
@@ -1099,7 +1110,11 @@ class ModelContext(BaseModel):
                     datasets=", ".join(incomplete),
                 )
             )
-        if unscored or incomplete:
+        if unreadable:
+            self._check_results.append(
+                err("accuracy-gate", "unreadable-metrics", json_path, metrics=", ".join(unreadable))
+            )
+        if unscored or incomplete or unreadable:
             return  # A mean over only the scored subsets is not the aggregate accuracy.
         per_ds = accuracy_result.metric_scores()  # {ds: {metric: float}}
         # A JSON NaN (or ROUGE's "nan" string) compares false with every bound, so it
