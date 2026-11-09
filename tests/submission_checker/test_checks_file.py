@@ -212,6 +212,10 @@ class TestAccuracyResultModel:
         }
         assert "num_samples" not in scores and "status" not in scores
 
+    def test_null_score_does_not_promote_timing_metadata_to_metrics(self):
+        ar = AccuracyResult({"ds": {"score": None, "osl_tokenize_s": 19.085}})
+        assert ar.metric_scores() == {}
+
 
 _WARMUP = {
     "duration_s": 60.0,

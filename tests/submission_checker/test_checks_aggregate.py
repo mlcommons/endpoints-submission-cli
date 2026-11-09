@@ -831,6 +831,41 @@ class TestAccuracyGateValidator:
             r.rule == "accuracy-gate" and r.severity == Severity.ERROR for r in ctx._check_results
         )
 
+    @pytest.mark.parametrize("native", [False, True])
+    @pytest.mark.parametrize("timing_metadata", [{}, {"osl_tokenize_s": 19.085}])
+    def test_null_dataset_score_rejects_incomplete_aggregate(
+        self, tmp_path, native, timing_metadata
+    ):
+        # Even if the other datasets score perfectly, an unscored dataset must
+        # not disappear from the composite score or turn timing data into metrics.
+        entries = {
+            "aime25::gptoss": {"num_samples": 30, "n_repeats": 8, "score": 1.0},
+            "gpqa::gptoss": {"num_samples": 198, "n_repeats": 5, "score": 1.0},
+            "livecodebench::gptoss": {
+                "num_samples": 1055,
+                "n_repeats": 3,
+                "score": None,
+                **timing_metadata,
+            },
+        }
+        data = (
+            {
+                "accuracy_scores": [
+                    {"dataset_name": name, **entry} for name, entry in entries.items()
+                ]
+            }
+            if native
+            else entries
+        )
+        ctx = _model_ctx(
+            tmp_path, accuracy_result=AccuracyResult.model_validate(data), model_name="gpt-oss-120b"
+        )
+        gates = [r for r in ctx._check_results if r.rule == "accuracy-gate"]
+        assert any(
+            r.severity == Severity.ERROR and "livecodebench::gptoss" in r.message for r in gates
+        )
+        assert not any(r.severity == Severity.INFO for r in gates)
+
     def test_multidataset_sample_count_is_summed(self, tmp_path):
         ctx = _model_ctx(
             tmp_path, accuracy_result=AccuracyResult(self._GPTOSS), model_name="gpt-oss-120b"

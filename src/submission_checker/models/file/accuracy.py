@@ -156,7 +156,7 @@ class AccuracyResult(RootModel[dict[str, dict[str, Any]]]):
             scores: dict[str, float] = {}
             if isinstance(raw_score, dict):
                 items = raw_score.items()
-            elif raw_score is not None:
+            elif "score" in entry:
                 items = {"score": raw_score}.items()
             else:
                 # No `score` key — metrics are direct entry keys.
