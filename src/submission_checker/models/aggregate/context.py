@@ -1055,10 +1055,28 @@ class ModelContext(BaseModel):
             for name in accuracy_result.accuracy_datasets()
             if "score" in root[name] and root[name]["score"] is None
         ]
+        # The client writes `complete: false` when a score covers only part of the
+        # dataset (e.g. DeepSeek-R1 with LiveCodeBench left unscored). A null score is
+        # already reported above, so it is not reported twice.
+        incomplete = [
+            name
+            for name in accuracy_result.accuracy_datasets()
+            if name not in unscored and root[name].get("complete") is False
+        ]
         if unscored:
             self._check_results.append(
                 err("accuracy-gate", "unscored-datasets", json_path, datasets=", ".join(unscored))
             )
+        if incomplete:
+            self._check_results.append(
+                err(
+                    "accuracy-gate",
+                    "incomplete-datasets",
+                    json_path,
+                    datasets=", ".join(incomplete),
+                )
+            )
+        if unscored or incomplete:
             return  # A mean over only the scored subsets is not the aggregate accuracy.
         per_ds = accuracy_result.metric_scores()  # {ds: {metric: float}}
         weighted: dict[str, list[tuple[float, float | None]]] = {}
