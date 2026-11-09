@@ -162,6 +162,9 @@ agentic-accuracy-swebench:
     warn-3: SWE-bench {basis} = {mean:.2f} ≥ {swebench_min}, but §4.3 averages one result from each of
       the {swebench_mean_of_n} mandatory regions
     pass: SWE-bench {basis} = {mean:.2f} ≥ {swebench_min}
+    unscored:
+      text: 'Cannot compute the SWE-bench mean: null `{swebench_dataset}` score at {listed}'
+      fix: Rerun SWE-bench scoring at each listed point and include the resulting score.
 agentic-metric-consistency:
   title: Agentic metric consistency
   spec: §4.1

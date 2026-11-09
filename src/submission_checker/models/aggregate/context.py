@@ -831,13 +831,30 @@ class ModelContext(BaseModel):
         candidates = self._band_candidates()
         assignment = {c: band for band, c in match_accuracy_bands(candidates).items()}
         by_band: dict[str, list[tuple[int, float]]] = {}
+        unscored: list[str] = []
         for c, bands, _elected in candidates:
             score = self._dataset_score(c, SWEBENCH_DATASET, "agentic-accuracy-swebench")
             # Coverage rejects extras. Keep their diagnostic mean, but use the exact
             # coverage assignment for every matched result, including legacy overlaps.
             band = assignment.get(c) or (bands[0] if bands else None)
-            if score is not None and band is not None:
+            if band is None:
+                continue
+            entry = self.accuracy_by_point[c].root.get(SWEBENCH_DATASET, {})
+            if "score" in entry and entry["score"] is None:
+                unscored.append(f"r{c} ({band.replace('_', ' ')})")
+            elif score is not None:
                 by_band.setdefault(band, []).append((c, score))
+        if unscored:
+            self._check_results.append(
+                err(
+                    "agentic-accuracy-swebench",
+                    "unscored",
+                    self.points_dir,
+                    swebench_dataset=SWEBENCH_DATASET,
+                    listed=", ".join(unscored),
+                )
+            )
+            return  # A mean over only the scored bands is not the mean of N.
         if not by_band:
             self._check_results.append(
                 warn(
