@@ -141,6 +141,7 @@ class RuntimeSettings(BaseModel):
             ``"agentic_inference"`` for an agentic benchmark.
         min_duration_ms: Minimum steady-state duration in milliseconds (§6.2).
         min_sample_count: Minimum completed queries required (§6.4). ``None`` = no override.
+        n_samples_from_dataset: Dataset or approved low-concurrency subset size (§6.5).
         stream_all_chunks: Whether HTTP workers forward every chunk to the main process.
             This IPC setting does not determine whether the server streams its response.
     """
@@ -150,6 +151,7 @@ class RuntimeSettings(BaseModel):
     load_pattern: str = "concurrency"
     min_duration_ms: int = 600_000
     min_sample_count: int | None = None
+    n_samples_from_dataset: int | None = Field(default=None, gt=0)
     stream_all_chunks: bool = True
 
     class Runtime(BaseModel):

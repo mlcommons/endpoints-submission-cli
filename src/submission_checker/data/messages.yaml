@@ -352,6 +352,20 @@ metric-consistency-tps-per-user:
   messages:
     pass: tps_per_user={derived:.4f} tok/s/user (1000 / tpot_p90_ms {p90:.4f})
     fail: stored tps_per_user {stored:.4f} ≠ derived 1000 / tpot_p90_ms {derived:.4f} (rel err {rel_err:.1%})
+dataset-pass-multiple:
+  title: Whole dataset passes
+  spec: §6.4
+  messages:
+    fail:
+      text: '{issued} issued samples is not a positive integer multiple of dataset size {size}'
+      fix: Issue a positive whole number of passes over the dataset or approved subset.
+    pass: '{issued} issued samples is a positive integer multiple of dataset size {size}'
+    unknown-size:
+      text: 'Cannot check whole dataset passes: no recorded dataset size for {dataset!r}'
+      fix: Record runtime_settings.n_samples_from_dataset and verify it against the dataset.
+    missing-issued:
+      text: Cannot check whole dataset passes because n_samples_issued is missing
+      fix: Include the issued sample count from the benchmark result summary.
 min-query-count:
   title: Min query count
   spec: §12
