@@ -3,8 +3,8 @@
 # Mirrored from `mlcommons/endpoints_policies` `seedset.yaml` as published on `main`
 # in PR #155 (`aa7537c`, 2026-11-04). Set A was first published in PR #117.
 #
-# Each set carries its own `cohorts:` adoption window (§4.6: its publication cohort
-# and the three following it). Sets are never removed, so a submission stays bound
+# Each set carries its own `cohorts:` adoption window: its publication cohort and the
+# three cohorts after it (§4.6, §9.1). Sets are never removed, so a submission stays bound
 # to its set for the full Pareto-update window. The file-level `cohort-id` is the
 # newest set's first adoptable cohort; the window derived from it applies only to a
 # set that lists no `cohorts:` of its own — see `submission_checker.seed_sets`.
