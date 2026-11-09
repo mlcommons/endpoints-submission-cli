@@ -831,6 +831,25 @@ class TestAccuracyGateValidator:
             r.rule == "accuracy-gate" and r.severity == Severity.ERROR for r in ctx._check_results
         )
 
+    @staticmethod
+    def _report(entries: dict[str, dict], native: bool) -> AccuracyResult:
+        """*entries* as a legacy keyed report, or as the client's native list.
+
+        The client's native entries name the sample fields ``unit_samples`` and
+        ``num_repeats``; the legacy keyed form used ``num_samples`` and ``n_repeats``.
+        """
+        if not native:
+            return AccuracyResult.model_validate(entries)
+        renamed = {"num_samples": "unit_samples", "n_repeats": "num_repeats"}
+        return AccuracyResult.model_validate(
+            {
+                "accuracy_scores": [
+                    {"dataset_name": name, **{renamed.get(k, k): v for k, v in entry.items()}}
+                    for name, entry in entries.items()
+                ]
+            }
+        )
+
     @pytest.mark.parametrize("native", [False, True])
     @pytest.mark.parametrize("timing_metadata", [{}, {"osl_tokenize_s": 19.085}])
     def test_null_dataset_score_rejects_incomplete_aggregate(
@@ -848,23 +867,41 @@ class TestAccuracyGateValidator:
                 **timing_metadata,
             },
         }
-        data = (
-            {
-                "accuracy_scores": [
-                    {"dataset_name": name, **entry} for name, entry in entries.items()
-                ]
-            }
-            if native
-            else entries
-        )
         ctx = _model_ctx(
-            tmp_path, accuracy_result=AccuracyResult.model_validate(data), model_name="gpt-oss-120b"
+            tmp_path, accuracy_result=self._report(entries, native), model_name="gpt-oss-120b"
         )
         gates = [r for r in ctx._check_results if r.rule == "accuracy-gate"]
         assert any(
             r.severity == Severity.ERROR and "livecodebench::gptoss" in r.message for r in gates
         )
         assert not any(r.severity == Severity.INFO for r in gates)
+
+    @pytest.mark.parametrize("native", [False, True])
+    @pytest.mark.parametrize("timing_metadata", [{}, {"osl_tokenize_s": 19.085}])
+    def test_null_inline_score_does_not_block_accuracy_gate(
+        self, tmp_path, native, timing_metadata
+    ):
+        # The inline entry is the performance run's own score, not an accuracy run
+        # (§4.3), so a null there must neither raise the unscored error nor stop the
+        # accuracy datasets from being gated.
+        entries = {
+            "aime25::gptoss": {"num_samples": 30, "n_repeats": 8, "score": 1.0},
+            "gpqa::gptoss": {"num_samples": 198, "n_repeats": 5, "score": 1.0},
+            "livecodebench::gptoss": {"num_samples": 1055, "n_repeats": 3, "score": 1.0},
+            "performance": {
+                "num_samples": 6396,
+                "n_repeats": 1,
+                "score": None,
+                "dataset_type": "performance",
+                **timing_metadata,
+            },
+        }
+        ctx = _model_ctx(
+            tmp_path, accuracy_result=self._report(entries, native), model_name="gpt-oss-120b"
+        )
+        gates = [r for r in ctx._check_results if r.rule == "accuracy-gate"]
+        assert not any(r.severity == Severity.ERROR for r in gates)
+        assert any(r.severity == Severity.INFO and "exact_match" in r.message for r in gates)
 
     def test_multidataset_sample_count_is_summed(self, tmp_path):
         ctx = _model_ctx(
