@@ -194,6 +194,14 @@ class TestInlineAccuracy:
         errors = _errors(ctx, "agentic-accuracy-inline")
         assert errors and "not a fraction" in errors[0].message
 
+    @pytest.mark.parametrize("value", [float("nan"), float("inf")])
+    def test_non_finite_value_errors(self, tmp_path: Path, value: float) -> None:
+        """NaN fails the [0, 1] range check, so it is reported, never passed."""
+        ctx = _ctx(tmp_path, accuracy_by_point={16: _accuracy(inline=value, raw=True)})
+        errors = _errors(ctx, "agentic-accuracy-inline")
+        assert errors and "not a fraction" in errors[0].message
+        assert not [h for h in _hits(ctx, "agentic-accuracy-inline") if h.key == "pass"]
+
     def test_qwen_uses_its_own_threshold(self, tmp_path: Path) -> None:
         """56.0 clears Qwen's 55.86 and fails Kimi's 58.32."""
         for model, fails in (("qwen3_6-35b-a3b", False), ("kimi-k3", True)):
