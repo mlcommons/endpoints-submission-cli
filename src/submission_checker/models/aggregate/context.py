@@ -1016,6 +1016,12 @@ class ModelContext(BaseModel):
             return  # reported once for the frontier by _check_accuracy
         thresholds, min_queries = target
         root = accuracy_result.root
+        # Only the accuracy runs are gated. The inline entry is the performance run's
+        # own score and "is not an accuracy validation run" (§4.3); a point with only
+        # that entry carries no run to gate, which accuracy-coverage reports.
+        datasets = accuracy_result.accuracy_datasets()
+        if not datasets:
+            return
 
         # MLPerf inference gates accuracy as a single aggregate over the whole dataset:
         # one total sample count and one sample-weighted score per metric. Endpoints
@@ -1026,7 +1032,8 @@ class ModelContext(BaseModel):
         # repeats, e.g. gpt-oss aime×8/gpqa×5/lcb×3), so compare in issued units, not
         # unique. n_repeats defaults to 1 (e.g. deepseek), where issued == unique.
         sample_counts: list[int] = []
-        for entry in root.values():
+        for name in datasets:
+            entry = root[name]
             raw = entry.get("num_samples")
             if raw is None:
                 continue
@@ -1068,16 +1075,14 @@ class ModelContext(BaseModel):
 
         # Sample-weighted mean per metric across subsets (the aggregate accuracy).
         unscored = [
-            name
-            for name in accuracy_result.accuracy_datasets()
-            if "score" in root[name] and root[name]["score"] is None
+            name for name in datasets if "score" in root[name] and root[name]["score"] is None
         ]
         # The client writes `complete: false` when a score covers only part of the
         # dataset (e.g. DeepSeek-R1 with LiveCodeBench left unscored). A null score is
         # already reported above, so it is not reported twice.
         incomplete = [
             name
-            for name in accuracy_result.accuracy_datasets()
+            for name in datasets
             if name not in unscored and root[name].get("complete") is False
         ]
         if unscored:
@@ -1098,6 +1103,8 @@ class ModelContext(BaseModel):
         per_ds = accuracy_result.metric_scores()  # {ds: {metric: float}}
         weighted: dict[str, list[tuple[float, float | None]]] = {}
         for ds_name, scores in per_ds.items():
+            if ds_name not in datasets:
+                continue
             raw = root.get(ds_name, {}).get("num_samples")
             weight: float | None
             try:
