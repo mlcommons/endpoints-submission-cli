@@ -542,6 +542,15 @@ of every run's `src/` folder — does not exist until the builder assembles the 
 no single run archive can name it. A value the run *does* declare is validated and never
 overwritten; one that does not resolve fails the build.
 
+For the whole-dataset-pass check (§6.4), record `runtime_settings.n_samples_from_dataset`
+from the resolved benchmark settings. The checker requires a positive integer
+multiple of that size in `result_summary.json`'s `n_samples_issued`. It does not
+infer dataset size from the minimum query count, which can include repeated runs.
+Missing size or issued-count information produces a warning that the check could
+not run, rather than a passing result. Reviewers must still verify that the size
+matches the full dataset, or a working-group-approved subset at concurrency 1–32
+under §6.5; divisibility alone does not establish subset approval.
+
 v1.0 also rotates the RNG seeds (§4.6). v0.7 fixed every seed at 42; a v1.0 point names
 a published seed set and seeds `scheduler_rng_seed`, `sample_index_rng_seed` and
 `model_seed` from it.
