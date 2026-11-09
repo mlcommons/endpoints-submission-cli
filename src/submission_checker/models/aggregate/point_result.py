@@ -181,15 +181,19 @@ class PointResult(BaseModel):
         # Minimum query counts can include repeats across accuracy datasets and
         # are not a reliable denominator. Use the resolved benchmark setting.
         size = self.config.runtime_settings.n_samples_from_dataset
-        if size is None:
+        issued = self.summary.n_samples_issued
+        if "n_samples_issued" not in self.summary.model_fields_set:
+            self._check_results.append(warn("dataset-pass-multiple", "missing-issued", path))
+        elif issued <= 0:
+            self._check_results.append(
+                err("dataset-pass-multiple", "nonpositive-issued", path, issued=issued)
+            )
+        elif size is None:
             self._check_results.append(
                 warn("dataset-pass-multiple", "unknown-size", path, dataset=self.config.dataset)
             )
-        elif "n_samples_issued" not in self.summary.model_fields_set:
-            self._check_results.append(warn("dataset-pass-multiple", "missing-issued", path))
         else:
-            issued = self.summary.n_samples_issued
-            if issued <= 0 or issued % size:
+            if issued % size:
                 self._check_results.append(
                     err("dataset-pass-multiple", "fail", path, issued=issued, size=size)
                 )

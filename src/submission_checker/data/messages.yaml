@@ -356,6 +356,9 @@ dataset-pass-multiple:
   title: Whole dataset passes
   spec: §6.4
   messages:
+    nonpositive-issued:
+      text: 'Issued sample count must be positive; got {issued}'
+      fix: Include a positive issued sample count from a completed benchmark run.
     fail:
       text: '{issued} issued samples is not a positive integer multiple of dataset size {size}'
       fix: Issue a positive whole number of passes over the dataset or approved subset.

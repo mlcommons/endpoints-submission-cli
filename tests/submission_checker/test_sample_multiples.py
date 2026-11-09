@@ -37,6 +37,14 @@ def test_rejects_nonpositive_or_partial_passes(tmp_path, issued):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("issued", [-30, 0])
+def test_rejects_nonpositive_issued_count_without_dataset_size(tmp_path, issued):
+    results = _check(tmp_path, issued, n_samples_from_dataset=None)
+    assert any(r.severity == Severity.ERROR for r in results)
+    assert not any(r.severity == Severity.INFO for r in results)
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("issued", [30, 60, 90])
 def test_accepts_positive_whole_passes(tmp_path, issued):
     results = _check(tmp_path, issued)
@@ -74,6 +82,7 @@ def test_unknown_size_reports_that_check_could_not_run(tmp_path):
     results = _check(tmp_path, 40, dataset="custom", n_samples_from_dataset=None)
     assert any(r.severity == Severity.WARNING for r in results)
     assert not any(r.severity == Severity.INFO for r in results)
+    assert not any(r.severity == Severity.ERROR for r in results)
 
 
 @pytest.mark.unit
@@ -85,12 +94,13 @@ def test_zero_declared_dataset_size_rejected():
 
 
 @pytest.mark.unit
-def test_missing_issued_count_is_reported(tmp_path):
+@pytest.mark.parametrize("size", [10, None])
+def test_missing_issued_count_is_reported(tmp_path, size):
     config = PointConfig(
         concurrency=32,
         dataset="aime25",
         runtime_settings=RuntimeSettings(
-            runtime=RuntimeSettings.Runtime(), n_samples_from_dataset=10
+            runtime=RuntimeSettings.Runtime(), n_samples_from_dataset=size
         ),
     )
     result = PointResult(
@@ -103,3 +113,4 @@ def test_missing_issued_count_is_reported(tmp_path):
     checks = [r for r in result._check_results if r.rule == "dataset-pass-multiple"]
     assert any(r.severity == Severity.WARNING for r in checks)
     assert not any(r.severity == Severity.INFO for r in checks)
+    assert not any(r.severity == Severity.ERROR for r in checks)
