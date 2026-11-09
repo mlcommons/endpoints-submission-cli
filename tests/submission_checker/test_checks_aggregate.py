@@ -979,8 +979,7 @@ class TestAccuracyGateValidator:
             "livecodebench::gptoss": {"num_samples": 1055, "n_repeats": 3, "score": 1.0},
             "performance": {
                 "num_samples": 6396,
-                # 1.0 keeps the mean at 1.0: the inline entry is still averaged (#176).
-                "score": 1.0,
+                "score": 0.5,
                 "complete": False,
                 "dataset_type": "performance",
             },
@@ -990,6 +989,69 @@ class TestAccuracyGateValidator:
         )
         gates = [r for r in ctx._check_results if r.rule == "accuracy-gate"]
         assert not any(r.severity == Severity.ERROR for r in gates)
+
+    @staticmethod
+    def _gptoss_with_inline(accuracy_score: float, inline_score: float) -> dict[str, dict]:
+        """gpt-oss accuracy datasets plus the inline entry, at the client's run shape."""
+        return {
+            "aime25::gptoss": {"num_samples": 30, "n_repeats": 8, "score": accuracy_score},
+            "gpqa::gptoss": {"num_samples": 198, "n_repeats": 5, "score": accuracy_score},
+            "livecodebench::gptoss": {
+                "num_samples": 1055,
+                "n_repeats": 3,
+                "score": accuracy_score,
+            },
+            "performance": {
+                "num_samples": 6396,
+                "n_repeats": 1,
+                "score": inline_score,
+                "dataset_type": "performance",
+            },
+        }
+
+    @pytest.mark.parametrize("native", [False, True])
+    def test_low_inline_score_does_not_sink_the_accuracy_mean(self, tmp_path, native):
+        # Averaged in, 0.50 over 6396 samples would pull 85% down to about 56%.
+        entries = self._gptoss_with_inline(accuracy_score=0.85, inline_score=0.50)
+        ctx = _model_ctx(
+            tmp_path, accuracy_result=self._report(entries, native), model_name="gpt-oss-120b"
+        )
+        gates = [r for r in ctx._check_results if r.rule == "accuracy-gate"]
+        assert not any(r.severity == Severity.ERROR for r in gates)
+        assert any(r.severity == Severity.INFO and "= 85.0000" in r.message for r in gates)
+
+    @pytest.mark.parametrize("native", [False, True])
+    def test_high_inline_score_does_not_lift_a_failing_mean(self, tmp_path, native):
+        # Averaged in, 1.0 over 6396 samples would lift 70% above the 82.30% threshold.
+        entries = self._gptoss_with_inline(accuracy_score=0.70, inline_score=1.0)
+        ctx = _model_ctx(
+            tmp_path, accuracy_result=self._report(entries, native), model_name="gpt-oss-120b"
+        )
+        gates = [r for r in ctx._check_results if r.rule == "accuracy-gate"]
+        assert any(r.severity == Severity.ERROR and "= 70.0000" in r.message for r in gates)
+
+    def test_inline_samples_are_not_counted_as_accuracy_samples(self, tmp_path):
+        # Without repeats the accuracy datasets issue 1283 < 4395; the inline entry's
+        # 6396 must not make up the difference.
+        entries = self._gptoss_with_inline(accuracy_score=0.85, inline_score=0.85)
+        for name in ("aime25::gptoss", "gpqa::gptoss", "livecodebench::gptoss"):
+            del entries[name]["n_repeats"]
+        ctx = _model_ctx(
+            tmp_path, accuracy_result=self._report(entries, True), model_name="gpt-oss-120b"
+        )
+        sc = [r for r in ctx._check_results if r.rule == "accuracy-sample-count"]
+        assert len(sc) == 1
+        assert sc[0].severity == Severity.ERROR
+        assert "1283" in sc[0].message and "across 3 datasets" in sc[0].message
+
+    def test_inline_only_point_is_not_gated_as_accuracy(self, tmp_path):
+        entries = {"performance": self._gptoss_with_inline(0.85, 0.50)["performance"]}
+        ctx = _model_ctx(
+            tmp_path, accuracy_result=self._report(entries, True), model_name="gpt-oss-120b"
+        )
+        assert not any(
+            r.rule in ("accuracy-gate", "accuracy-sample-count") for r in ctx._check_results
+        )
 
     def test_multidataset_sample_count_is_summed(self, tmp_path):
         ctx = _model_ctx(
