@@ -1050,6 +1050,16 @@ class ModelContext(BaseModel):
                 )
 
         # Sample-weighted mean per metric across subsets (the aggregate accuracy).
+        unscored = [
+            name
+            for name in accuracy_result.accuracy_datasets()
+            if "score" in root[name] and root[name]["score"] is None
+        ]
+        if unscored:
+            self._check_results.append(
+                err("accuracy-gate", "unscored-datasets", json_path, datasets=", ".join(unscored))
+            )
+            return  # A mean over only the scored subsets is not the aggregate accuracy.
         per_ds = accuracy_result.metric_scores()  # {ds: {metric: float}}
         weighted: dict[str, list[tuple[float, float | None]]] = {}
         for ds_name, scores in per_ds.items():
