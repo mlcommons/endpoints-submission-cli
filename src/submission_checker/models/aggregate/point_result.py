@@ -7,10 +7,18 @@ from pathlib import Path
 
 __all__ = ["MIN_QUERY_COUNT", "PointResult"]
 
-from pydantic import BaseModel, ConfigDict, PrivateAttr, ValidationInfo, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    PrivateAttr,
+    ValidationError,
+    ValidationInfo,
+    model_validator,
+)
 
 from ..file.point_config import OFFLINE_DEDICATED, PointConfig
 from ..file.point_summary import PointSummary
+from ..file.steady_state import SteadyState, from_client_verdict
 from ..regions import classify_concurrency, min_duration_ms
 from ..results import CheckResult, err, ok, warn
 
@@ -57,16 +65,13 @@ class PointResult(BaseModel):
         The point's own load pattern decides; a frontier whose points disagree is
         reported by ``benchmark-type-consistency``.
         """
-        regions = (info.context or {}).get("regions")
         summary_path: Path | None = (info.context or {}).get("summary_path")
-        if regions is None:
-            return self
+        minimum = self._min_duration_ms(info)
+        if minimum is None:
+            return self  # no regions, or already flagged by concurrency-in-range
+        region, min_ms = minimum
         c = self.config.concurrency
-        region = classify_concurrency(c, regions)
-        if region is None:
-            return self  # already flagged by concurrency-in-range
-        min_ms = min_duration_ms(region, c, agentic=self.config.is_agentic)
-        duration_ms, basis = self._duration_basis()
+        duration_ms, basis = self._duration_basis(self._steady_state(info))
         if duration_ms < min_ms:
             self._check_results.append(
                 warn(
@@ -107,12 +112,25 @@ class PointResult(BaseModel):
         A ``drifting_up`` / ``drifting_down`` verdict is flagged separately: §4.4 says
         such a metric is reported "as drift (range/slope), never as a point estimate",
         which a percentile read out of ``result_summary.json`` silently is.
+
+        The verdict is the one the client wrote to ``result_summary.json``, read by
+        :func:`~submission_checker.models.file.steady_state.from_client_verdict`.
+        §4.4 covers fixed-concurrency points only, so agentic points and a dedicated
+        Offline run are skipped.
         """
         path: Path | None = (info.context or {}).get("summary_path")
-        block = self.config.steady_state
         c = self.config.concurrency
-        if block is None:
+        if self.config.is_agentic or self.config.offline == OFFLINE_DEDICATED:
+            return self
+        if not self.summary.has_steady_state_key:
+            self._check_results.append(warn("steady-state-basis", "warn-absent", path, c=c))
+            return self
+        if self.summary.steady_state is None:
             self._check_results.append(warn("steady-state-basis", "warn", path, c=c))
+            return self
+        block = self._steady_state(info)
+        if block is None:
+            self._check_results.append(warn("steady-state-basis", "unreadable", path, c=c))
             return self
 
         if block.is_official:
@@ -174,15 +192,41 @@ class PointResult(BaseModel):
             )
         return self
 
-    def _duration_basis(self) -> tuple[float, str]:
+    def _min_duration_ms(self, info: ValidationInfo) -> tuple[str, float] | None:
+        """Return ``(region, §6.2 minimum in ms)``, or None when the region is unknown."""
+        regions = (info.context or {}).get("regions")
+        if regions is None:
+            return None
+        c = self.config.concurrency
+        region = classify_concurrency(c, regions)
+        if region is None:
+            return None
+        return region, min_duration_ms(region, c, agentic=self.config.is_agentic)
+
+    def _steady_state(self, info: ValidationInfo) -> SteadyState | None:
+        """The client's §4.4 verdict, or None when it reports none or an unreadable one."""
+        raw = self.summary.steady_state
+        if not isinstance(raw, dict):
+            return None
+        minimum = self._min_duration_ms(info)
+        try:
+            return from_client_verdict(raw, None if minimum is None else minimum[1] / 1000.0)
+        except ValidationError:
+            return None
+
+    def _duration_basis(self, block: SteadyState | None) -> tuple[float, str]:
         """Return ``(duration in ms, what it measures)`` for the §6.2 comparison.
 
         §4.4 measures §6.2 against the steady-state window's issue-time span. A point
-        that reports no window — or one whose window states no ``duration_s`` — falls
-        back to the whole run, which is §4.4's own fallback basis.
+        whose client found no window falls back to the whole run, which is §4.4's own
+        fallback basis. A window the client rejected as too short is not a steady
+        window, so it does not count either.
         """
-        block = self.config.steady_state
-        if block is not None and block.window.duration_s is not None:
+        if (
+            block is not None
+            and block.verdict != "not found"
+            and block.window.duration_s is not None
+        ):
             return block.window.duration_s * 1000.0, "steady-state window"
         return self.summary.duration_ms, "whole-run"
 

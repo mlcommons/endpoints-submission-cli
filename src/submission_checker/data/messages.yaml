@@ -710,8 +710,18 @@ steady-state-basis:
   title: Steady state basis
   spec: §4.4
   messages:
-    warn: 'Point {c}: no steady_state block; metrics are whole-run, which §4.4 makes the fallback rather
-      than the official basis'
+    warn:
+      text: 'Point {c}: result_summary.json has no steady-state verdict (detection was off); metrics are
+        whole-run, which §4.4 makes the fallback rather than the official basis'
+      fix: 'Run the benchmark with settings.steady_state.enabled: true (--steady-state).'
+    warn-absent:
+      text: 'Point {c}: result_summary.json has no steady_state field; the client predates steady-state
+        reporting, so metrics are whole-run (§4.4 fallback)'
+      fix: 'Rerun with a client that reports steady state, with settings.steady_state.enabled: true.'
+    unreadable:
+      text: 'Point {c}: result_summary.json steady_state is not the block the client writes; metrics are
+        treated as whole-run'
+      fix: Ship result_summary.json exactly as the client wrote it.
     pass: 'Point {c}: official result is the steady-state window ({value} super-passes)'
     warn-2: 'Point {c}: status {status!r} — official result falls back to whole-run `total`; steady-state
       numbers are low-confidence (§4.4)'
@@ -719,27 +729,6 @@ steady-state-basis:
       never as a point estimate'
     drifting-metrics: 'Point {c}: verdict {verdict!r} — a drifting gating metric is reported as a range
       or slope, never as a point estimate ({metrics})'
-steady-state-consistency:
-  title: Steady state consistency
-  spec: §4.4
-  messages:
-    pass: steady_state status {status!r} consistent with the reported window
-    fail: '{problems}'
-    status-windowable-over-super: status 'windowable' over {spans} super-pass(es); §4.4 needs ≥ {min_trend_n}
-      (MIN_TREND_N)
-    status-windowable-drifting-gating: 'status ''windowable'' with drifting gating metric(s): {drifting};
-      §4.4 requires every one to be a Plateau'
-    status-insufficient-passes-over: status 'insufficient_passes' over {spans} super-pass(es), which meets
-      the ≥ {min_trend_n} floor
-steady-state-valid:
-  title: Steady state valid
-  spec: §4.4
-  messages:
-    pass: steady_state status={status!r} verdict={verdict!r}
-    fail: '{problems}'
-    status-expected-one: status {status!r} (expected one of {steady_state_statuses})
-    verdict-expected-one: verdict {verdict!r} (expected one of {steady_state_verdicts})
-    state-expected-one: state[{metric}] {state!r} (expected one of {gating_states})
 streaming-config:
   title: Streaming config
   spec: §6.5
