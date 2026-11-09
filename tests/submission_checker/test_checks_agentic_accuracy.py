@@ -408,6 +408,52 @@ class TestSweBenchMeanOfN:
         )
         assert not _errors(ctx, "agentic-accuracy-swebench")
 
+    _NULL = AccuracyResult({"swe_bench": {"score": None, "num_samples": 200}})
+
+    def test_null_result_in_a_band_errors(self, tmp_path: Path) -> None:
+        """The three scored bands would clear; a mean without the fourth is not §4.3's."""
+        results = {c: _accuracy(swebench=99.0) for c in self._BANDS}
+        results[40] = self._NULL
+        ctx = _ctx(tmp_path, accuracy_by_point=results)
+        hits = _hits(ctx, "agentic-accuracy-swebench")
+        assert [h.severity for h in hits] == [Severity.ERROR]
+        assert "r40 (low concurrency)" in hits[0].message
+
+    def test_null_in_every_band_is_one_error_naming_each(self, tmp_path: Path) -> None:
+        ctx = _ctx(tmp_path, accuracy_by_point=dict.fromkeys(self._BANDS, self._NULL))
+        hits = _hits(ctx, "agentic-accuracy-swebench")
+        assert [h.severity for h in hits] == [Severity.ERROR]
+        for c in self._BANDS:
+            assert f"r{c} (" in hits[0].message
+
+    def test_native_null_result_errors(self, tmp_path: Path) -> None:
+        """As the client writes a failed SWE-bench run: null score, `complete: false`."""
+        results = {c: _accuracy(swebench=99.0) for c in self._BANDS}
+        results[256] = AccuracyResult.model_validate(
+            {
+                "accuracy_scores": [
+                    {
+                        "dataset_name": "swe_bench",
+                        "score": None,
+                        "unit_samples": 200,
+                        "num_repeats": 1,
+                        "total_samples": 200,
+                        "complete": False,
+                        "dataset_type": "accuracy",
+                    }
+                ]
+            }
+        )
+        ctx = _ctx(tmp_path, accuracy_by_point=results)
+        errors = _errors(ctx, "agentic-accuracy-swebench")
+        assert errors and "r256 (high concurrency)" in errors[0].message
+
+    def test_null_result_outside_mandatory_bands_is_left_out(self, tmp_path: Path) -> None:
+        results: dict[int, AccuracyResult] = {c: _accuracy(swebench=96.0) for c in self._BANDS}
+        results[1100] = self._NULL
+        ctx = _ctx(tmp_path, accuracy_by_point=results)
+        assert not _errors(ctx, "agentic-accuracy-swebench")
+
 
 @pytest.mark.unit
 class TestOslRange:
