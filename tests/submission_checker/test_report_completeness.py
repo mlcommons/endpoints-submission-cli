@@ -146,7 +146,7 @@ class TestInvalidSystemDescription:
         # Rules that need neither the description nor the regions still run.
         assert _results(report, "point-count")
         assert _results(report, "ultra-low-concurrency-coverage")
-        assert _results(report, "steady-state-valid")
+        assert _results(report, "steady-state-basis")
 
 
 @pytest.mark.unit
