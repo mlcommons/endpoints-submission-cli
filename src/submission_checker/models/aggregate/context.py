@@ -5,6 +5,7 @@ Handles accuracy and overall compliance checks.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 __all__ = ["ModelContext", "accuracy_bands", "match_accuracy_bands"]
@@ -1101,6 +1102,20 @@ class ModelContext(BaseModel):
         if unscored or incomplete:
             return  # A mean over only the scored subsets is not the aggregate accuracy.
         per_ds = accuracy_result.metric_scores()  # {ds: {metric: float}}
+        # A JSON NaN (or ROUGE's "nan" string) compares false with every bound, so it
+        # would pass; +inf would pass a lower bound.
+        non_finite = [
+            f"{ds_name} ({metric}={value})"
+            for ds_name, scores in per_ds.items()
+            if ds_name in datasets
+            for metric, value in scores.items()
+            if not math.isfinite(value)
+        ]
+        if non_finite:
+            self._check_results.append(
+                err("accuracy-gate", "non-finite-scores", json_path, scores=", ".join(non_finite))
+            )
+            return
         weighted: dict[str, list[tuple[float, float | None]]] = {}
         for ds_name, scores in per_ds.items():
             if ds_name not in datasets:

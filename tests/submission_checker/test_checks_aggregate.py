@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from submission_checker.models import (
@@ -1052,6 +1054,60 @@ class TestAccuracyGateValidator:
         assert not any(
             r.rule in ("accuracy-gate", "accuracy-sample-count") for r in ctx._check_results
         )
+
+    @pytest.mark.parametrize("score", [float("nan"), "nan", float("inf"), float("-inf")])
+    def test_non_finite_score_rejects_aggregate(self, tmp_path, score):
+        entries = {"deepseek_r1_accuracy": {"num_samples": 4388, "score": score}}
+        ctx = _model_ctx(
+            tmp_path,
+            accuracy_result=self._report(entries, True),
+            model_name="deepseek_r1-torch-fp4",
+        )
+        gates = [r for r in ctx._check_results if r.rule == "accuracy-gate"]
+        assert [r.severity for r in gates] == [Severity.ERROR]
+        assert "non-finite" in gates[0].message and "deepseek_r1_accuracy" in gates[0].message
+
+    def test_nan_as_the_client_writes_it_rejects_aggregate(self, tmp_path):
+        # The client writes accuracy_results.json with json.dumps, which emits a float
+        # NaN as the bare literal `NaN`; json.loads reads it back as float("nan").
+        text = (
+            '{"accuracy_scores": [{"dataset_name": "deepseek_r1_accuracy", "score": NaN,'
+            ' "unit_samples": 4388, "num_repeats": 1, "total_samples": 4388,'
+            ' "complete": true, "dataset_type": "accuracy"}]}'
+        )
+        ctx = _model_ctx(
+            tmp_path,
+            accuracy_result=AccuracyResult.model_validate(json.loads(text)),
+            model_name="deepseek_r1-torch-fp4",
+        )
+        gates = [r for r in ctx._check_results if r.rule == "accuracy-gate"]
+        assert any(r.severity == Severity.ERROR and "non-finite" in r.message for r in gates)
+        assert not any(r.severity == Severity.INFO for r in gates)
+
+    def test_rouge_nan_string_rejects_aggregate(self, tmp_path):
+        # RougeScorer formats each metric as a string; an empty set gives "nan".
+        ar = AccuracyResult(
+            {
+                "cnn_dailymail::llama3_8b": {
+                    "num_samples": 13368,
+                    "score": {"rouge1": "nan", "rouge2": "15.9", "rougeL": "nan"},
+                }
+            }
+        )
+        ctx = _model_ctx(tmp_path, accuracy_result=ar, model_name="Llama-3_1-8B-Instruct")
+        gates = [r for r in ctx._check_results if r.rule == "accuracy-gate"]
+        assert [r.severity for r in gates] == [Severity.ERROR]
+        assert "rouge1=nan" in gates[0].message and "rougeL=nan" in gates[0].message
+        assert "rouge2" not in gates[0].message
+
+    def test_non_finite_inline_score_does_not_block_accuracy_gate(self, tmp_path):
+        entries = self._gptoss_with_inline(accuracy_score=0.85, inline_score=float("nan"))
+        ctx = _model_ctx(
+            tmp_path, accuracy_result=self._report(entries, True), model_name="gpt-oss-120b"
+        )
+        gates = [r for r in ctx._check_results if r.rule == "accuracy-gate"]
+        assert not any(r.severity == Severity.ERROR for r in gates)
+        assert any(r.severity == Severity.INFO and "= 85.0000" in r.message for r in gates)
 
     def test_multidataset_sample_count_is_summed(self, tmp_path):
         ctx = _model_ctx(
