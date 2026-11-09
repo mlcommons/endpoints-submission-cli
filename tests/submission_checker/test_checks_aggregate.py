@@ -903,6 +903,94 @@ class TestAccuracyGateValidator:
         assert not any(r.severity == Severity.ERROR for r in gates)
         assert any(r.severity == Severity.INFO and "exact_match" in r.message for r in gates)
 
+    @pytest.mark.parametrize("native", [False, True])
+    def test_incomplete_dataset_score_rejects_aggregate(self, tmp_path, native):
+        # DeepSeek-R1 with LiveCodeBench unscored: the client still writes the text
+        # subsets' score, which would pass on its own, and marks it `complete: false`.
+        entries = {"deepseek_r1_accuracy": {"num_samples": 4388, "score": 85.0, "complete": False}}
+        ctx = _model_ctx(
+            tmp_path,
+            accuracy_result=self._report(entries, native),
+            model_name="deepseek_r1-torch-fp4",
+        )
+        gates = [r for r in ctx._check_results if r.rule == "accuracy-gate"]
+        assert any(
+            r.severity == Severity.ERROR
+            and "incomplete" in r.message
+            and "deepseek_r1_accuracy" in r.message
+            for r in gates
+        )
+        assert not any(r.severity == Severity.INFO for r in gates)
+
+    def test_incomplete_dataset_named_alone_among_complete_ones(self, tmp_path):
+        entries = {
+            "aime25::gptoss": {"num_samples": 30, "score": 1.0, "complete": True},
+            "gpqa::gptoss": {"num_samples": 198, "score": 1.0, "complete": True},
+            "livecodebench::gptoss": {"num_samples": 1055, "score": 1.0, "complete": False},
+        }
+        ctx = _model_ctx(
+            tmp_path, accuracy_result=self._report(entries, True), model_name="gpt-oss-120b"
+        )
+        errors = [
+            r
+            for r in ctx._check_results
+            if r.rule == "accuracy-gate" and r.severity == Severity.ERROR
+        ]
+        assert len(errors) == 1
+        assert "livecodebench::gptoss" in errors[0].message
+        assert "aime25::gptoss" not in errors[0].message
+        assert "gpqa::gptoss" not in errors[0].message
+
+    def test_null_and_incomplete_score_reported_once_as_unscored(self, tmp_path):
+        # The client sets `complete: false` on a null score too; one error is enough.
+        entries = {"deepseek_r1_accuracy": {"num_samples": 4388, "score": None, "complete": False}}
+        ctx = _model_ctx(
+            tmp_path,
+            accuracy_result=self._report(entries, True),
+            model_name="deepseek_r1-torch-fp4",
+        )
+        errors = [
+            r
+            for r in ctx._check_results
+            if r.rule == "accuracy-gate" and r.severity == Severity.ERROR
+        ]
+        assert len(errors) == 1
+        assert "null score" in errors[0].message
+
+    @pytest.mark.parametrize("complete", [True, None])
+    def test_complete_or_absent_flag_still_gated(self, tmp_path, complete):
+        # `complete: true`, or no flag at all (older clients), is gated as before.
+        flag = {} if complete is None else {"complete": complete}
+        entries = {"deepseek_r1_accuracy": {"num_samples": 4388, "score": 85.0, **flag}}
+        ctx = _model_ctx(
+            tmp_path,
+            accuracy_result=self._report(entries, True),
+            model_name="deepseek_r1-torch-fp4",
+        )
+        gates = [r for r in ctx._check_results if r.rule == "accuracy-gate"]
+        assert not any(r.severity == Severity.ERROR for r in gates)
+        assert any(r.severity == Severity.INFO and "exact_match" in r.message for r in gates)
+
+    def test_incomplete_inline_score_does_not_block_accuracy_gate(self, tmp_path):
+        # The inline entry is not an accuracy run (§4.3), so its flag is not gated here.
+        entries = {
+            "aime25::gptoss": {"num_samples": 30, "n_repeats": 8, "score": 1.0},
+            "gpqa::gptoss": {"num_samples": 198, "n_repeats": 5, "score": 1.0},
+            "livecodebench::gptoss": {"num_samples": 1055, "n_repeats": 3, "score": 1.0},
+            "performance": {
+                "num_samples": 6396,
+                # 1.0 keeps the mean at 1.0: the inline entry is still averaged (#176).
+                "score": 1.0,
+                "complete": False,
+                "dataset_type": "performance",
+            },
+        }
+        ctx = _model_ctx(
+            tmp_path, accuracy_result=self._report(entries, True), model_name="gpt-oss-120b"
+        )
+        gates = [r for r in ctx._check_results if r.rule == "accuracy-gate"]
+        assert not any(r.severity == Severity.ERROR for r in gates)
+
     def test_multidataset_sample_count_is_summed(self, tmp_path):
         ctx = _model_ctx(
             tmp_path, accuracy_result=AccuracyResult(self._GPTOSS), model_name="gpt-oss-120b"
