@@ -1,0 +1,166 @@
+name: Release seed sets
+
+# When the bundled seed sets change on main, release the CLI so submitters can use
+# a new set. Automatic only for a data-only release that forces nobody to upgrade:
+#   - the only file changed since the last release tag is seed_sets.yaml;
+#   - every set already published is unchanged (only new sets added);
+#   - the new version keeps PyPI's major.minor (the API forces an upgrade otherwise).
+# Anything else opens an issue for the maintainers to release by hand.
+# Version: a pre-release tag becomes its final release (1.6.1.1a1 -> 1.6.1.1);
+# otherwise the 4th number goes up (1.6.1.1 -> 1.6.1.2).
+
+on:
+  push:
+    branches: [main]
+    paths: [src/submission_checker/data/seed_sets.yaml]
+  workflow_dispatch:
+
+concurrency:
+  group: release-seed-sets
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  SEED_FILE: src/submission_checker/data/seed_sets.yaml
+
+jobs:
+  decide:
+    runs-on: ubuntu-latest
+    outputs:
+      action: ${{ steps.decide.outputs.action }}
+      version: ${{ steps.decide.outputs.version }}
+      added: ${{ steps.decide.outputs.added }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Decide
+        id: decide
+        run: |
+          # Runs in the project's environment, so the checker's own loader reads both files.
+          uv run --with packaging python - <<'PY'
+          import json, os, subprocess, sys, tempfile
+          from pathlib import Path
+          from urllib.request import urlopen
+          from packaging.version import InvalidVersion, Version
+
+          from submission_checker.seed_sets import load_seed_sets
+
+          seed_file = os.environ["SEED_FILE"]
+
+          def git(*args):
+              return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout
+
+          def version(tag):
+              try:
+                  return Version(tag.removeprefix("v"))
+              except InvalidVersion:
+                  return None
+
+          def output(**values):
+              with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+                  for key, value in values.items():
+                      out.write(f"{key}={value}\n")
+
+          tags = {t: v for t in git("tag", "--list", "v*").split() if (v := version(t))}
+          base_tag = max(tags, key=tags.get)
+          base = tags[base_tag]
+          if git("tag", "--points-at", "HEAD", "--list", "v*").split():
+              print("HEAD is already tagged; nothing to release.")
+              output(action="skip")
+              sys.exit(0)
+
+          with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
+              f.write(git("show", f"{base_tag}:{seed_file}"))
+          old = load_seed_sets(Path(f.name))
+          new = load_seed_sets(Path(seed_file))
+          added = sorted(set(new) - set(old))
+          changed = sorted(i for i in old if i not in new or old[i] != new[i])
+          if not added and not changed:
+              print(f"No seed set added or changed since {base_tag}; nothing to release.")
+              output(action="skip")
+              sys.exit(0)
+
+          if base.is_prerelease:
+              nxt = Version(base.base_version)
+          else:
+              parts = list(base.release) + [0] * (4 - len(base.release))
+              parts[3] += 1
+              nxt = Version(".".join(map(str, parts)))
+
+          with urlopen("https://pypi.org/pypi/endpoints-submission-cli/json", timeout=30) as r:
+              pypi = Version(json.load(r)["info"]["version"])
+
+          reasons = []
+          other = [p for p in git("diff", "--name-only", base_tag, "HEAD").split() if p != seed_file]
+          if other:
+              reasons.append(f"Files other than `{seed_file}` changed since `{base_tag}`: " + ", ".join(f"`{p}`" for p in other))
+          if changed:
+              reasons.append("Published sets changed or removed: " + ", ".join(changed) + ". Older CLIs would still accept the old values, so this needs a forced (minor) release.")
+          if nxt.release[:2] != pypi.release[:2]:
+              reasons.append(f"`{nxt}` would change major.minor from PyPI's `{pypi}`, which forces every submitter to upgrade.")
+
+          print(f"base {base_tag}, next {nxt}, PyPI {pypi}, added {added}, changed {changed}")
+          if reasons:
+              Path("reasons.md").write_text("\n".join(f"- {r}" for r in reasons) + "\n")
+              output(action="issue", version=str(nxt), added=",".join(added))
+          else:
+              output(action="release", version=str(nxt), added=",".join(added))
+          PY
+
+      - name: Ask the maintainers to release by hand
+        if: steps.decide.outputs.action == 'issue'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ADDED: ${{ steps.decide.outputs.added }}
+        run: |
+          set -euo pipefail
+          # Tag whoever can approve the release environment, so the list lives in one place.
+          reviewers=$(gh api "repos/$GITHUB_REPOSITORY/environments/release" --jq \
+            '[.protection_rules[] | select(.type == "required_reviewers") | .reviewers[]
+              | "@" + (.reviewer.login // "mlcommons/\(.reviewer.slug)")] | join(" ")')
+          gh issue create --title "Seed sets changed on main: release by hand" --body-file - <<EOF
+          ${reviewers:-Maintainers}: \`${SEED_FILE}\` changed in ${GITHUB_SHA::7} (new sets: ${ADDED:-none}), but it can't be released automatically:
+
+          $(cat reasons.md)
+
+          Until a release ships, the checker rejects submissions that use a new set.
+          EOF
+    permissions:
+      actions: read # read the release environment's reviewers
+      contents: read
+      issues: write
+
+  release:
+    needs: decide
+    if: needs.decide.outputs.action == 'release'
+    runs-on: ubuntu-latest
+    # Holds the endpoints automation app's secrets; limited to main. A maintainer
+    # (required reviewer on the environment) approves the job before it runs.
+    environment: release
+    steps:
+      # A release made with GITHUB_TOKEN does not start publish.yml; the app's token does.
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app
+        with:
+          client-id: ${{ secrets.ENDPOINTS_AUTOMATION_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.ENDPOINTS_AUTOMATION_APP_PVT_KEY }}
+          permission-contents: write
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          VERSION: ${{ needs.decide.outputs.version }}
+          ADDED: ${{ needs.decide.outputs.added }}
+        run: |
+          gh release create "v${VERSION}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "v${VERSION}" \
+            --notes "Adds seed set(s) ${ADDED} to \`${SEED_FILE}\`. No other changes."
