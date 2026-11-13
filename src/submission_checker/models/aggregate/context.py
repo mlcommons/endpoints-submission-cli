@@ -1059,6 +1059,20 @@ class ModelContext(BaseModel):
             self._check_results.append(
                 err("accuracy-gate", "unscored-datasets", json_path, datasets=", ".join(unscored))
             )
+        # A scorer that could not score every subset may still write a score from the
+        # subsets it did score (e.g. LegacyMLPerfDeepSeekR1Scorer without LiveCodeBench)
+        # and flag it with ``complete: false``. That partial score is not the aggregate.
+        incomplete = [name for name, entry in root.items() if entry.get("complete") is False]
+        if incomplete:
+            self._check_results.append(
+                err(
+                    "accuracy-gate",
+                    "incomplete-datasets",
+                    json_path,
+                    datasets=", ".join(incomplete),
+                )
+            )
+        if unscored or incomplete:
             return  # A mean over only the scored subsets is not the aggregate accuracy.
         per_ds = accuracy_result.metric_scores()  # {ds: {metric: float}}
         weighted: dict[str, list[tuple[float, float | None]]] = {}

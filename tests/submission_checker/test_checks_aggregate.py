@@ -866,6 +866,31 @@ class TestAccuracyGateValidator:
         )
         assert not any(r.severity == Severity.INFO for r in gates)
 
+    @pytest.mark.parametrize("native", [False, True])
+    def test_incomplete_score_is_not_gated(self, tmp_path, native):
+        # LegacyMLPerfDeepSeekR1Scorer writes a passing score from the text subsets
+        # alone when LiveCodeBench cannot be scored, and flags it `complete: false`.
+        entry = {"num_samples": 4388, "score": 81.3355, "complete": False}
+        name = "deepseek_r1_accuracy"
+        data = {"accuracy_scores": [{"dataset_name": name, **entry}]} if native else {name: entry}
+        ctx = _model_ctx(
+            tmp_path,
+            accuracy_result=AccuracyResult.model_validate(data),
+            model_name="deepseek_r1-torch-fp4",
+        )
+        gates = [r for r in ctx._check_results if r.rule == "accuracy-gate"]
+        assert any(r.severity == Severity.ERROR and name in r.message for r in gates)
+        assert not any(r.severity == Severity.INFO for r in gates)
+
+    def test_complete_true_score_is_gated(self, tmp_path):
+        ar = AccuracyResult(
+            {"deepseek_r1_accuracy": {"num_samples": 4388, "score": 81.3355, "complete": True}}
+        )
+        ctx = _model_ctx(tmp_path, accuracy_result=ar, model_name="deepseek_r1-torch-fp4")
+        gates = [r for r in ctx._check_results if r.rule == "accuracy-gate"]
+        assert not any(r.severity == Severity.ERROR for r in gates)
+        assert any(r.severity == Severity.INFO for r in gates)
+
     def test_multidataset_sample_count_is_summed(self, tmp_path):
         ctx = _model_ctx(
             tmp_path, accuracy_result=AccuracyResult(self._GPTOSS), model_name="gpt-oss-120b"

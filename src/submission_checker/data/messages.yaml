@@ -93,6 +93,10 @@ accuracy-gate:
     unscored-datasets:
       text: 'Cannot compute aggregate accuracy: null score for dataset(s): {datasets}'
       fix: Complete scoring for every accuracy dataset and include the resulting scores.
+    incomplete-datasets:
+      text: 'Cannot gate aggregate accuracy: scoring is incomplete (complete: false) for dataset(s):
+        {datasets}'
+      fix: Rerun scoring until every subset is scored and the entry reports complete true.
     warn-2: results.json exposes only an unnamed scalar accuracy score; gating it as '{only_metric}'.
       Secondary metrics (if any) are not present in results.json and are not checked.
     fail: '{matched_key} = {score:.4f} < min {lower:.4f}'
