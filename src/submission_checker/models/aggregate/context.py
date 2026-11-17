@@ -5,6 +5,7 @@ Handles accuracy and overall compliance checks.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 __all__ = ["ModelContext", "accuracy_bands", "match_accuracy_bands"]
@@ -831,13 +832,30 @@ class ModelContext(BaseModel):
         candidates = self._band_candidates()
         assignment = {c: band for band, c in match_accuracy_bands(candidates).items()}
         by_band: dict[str, list[tuple[int, float]]] = {}
+        unscored: list[str] = []
         for c, bands, _elected in candidates:
             score = self._dataset_score(c, SWEBENCH_DATASET, "agentic-accuracy-swebench")
             # Coverage rejects extras. Keep their diagnostic mean, but use the exact
             # coverage assignment for every matched result, including legacy overlaps.
             band = assignment.get(c) or (bands[0] if bands else None)
-            if score is not None and band is not None:
+            if band is None:
+                continue
+            entry = self.accuracy_by_point[c].root.get(SWEBENCH_DATASET, {})
+            if "score" in entry and entry["score"] is None:
+                unscored.append(f"r{c} ({band.replace('_', ' ')})")
+            elif score is not None:
                 by_band.setdefault(band, []).append((c, score))
+        if unscored:
+            self._check_results.append(
+                err(
+                    "agentic-accuracy-swebench",
+                    "unscored",
+                    self.points_dir,
+                    swebench_dataset=SWEBENCH_DATASET,
+                    listed=", ".join(unscored),
+                )
+            )
+            return  # A mean over only the scored bands is not the mean of N.
         if not by_band:
             self._check_results.append(
                 warn(
@@ -999,6 +1017,12 @@ class ModelContext(BaseModel):
             return  # reported once for the frontier by _check_accuracy
         thresholds, min_queries = target
         root = accuracy_result.root
+        # Only the accuracy runs are gated. The inline entry is the performance run's
+        # own score and "is not an accuracy validation run" (§4.3); a point with only
+        # that entry carries no run to gate, which accuracy-coverage reports.
+        datasets = accuracy_result.accuracy_datasets()
+        if not datasets:
+            return
 
         # MLPerf inference gates accuracy as a single aggregate over the whole dataset:
         # one total sample count and one sample-weighted score per metric. Endpoints
@@ -1009,7 +1033,8 @@ class ModelContext(BaseModel):
         # repeats, e.g. gpt-oss aime×8/gpqa×5/lcb×3), so compare in issued units, not
         # unique. n_repeats defaults to 1 (e.g. deepseek), where issued == unique.
         sample_counts: list[int] = []
-        for entry in root.values():
+        for name in datasets:
+            entry = root[name]
             raw = entry.get("num_samples")
             if raw is None:
                 continue
@@ -1051,18 +1076,65 @@ class ModelContext(BaseModel):
 
         # Sample-weighted mean per metric across subsets (the aggregate accuracy).
         unscored = [
+            name for name in datasets if "score" in root[name] and root[name]["score"] is None
+        ]
+        # The client writes `complete: false` when a score covers only part of the
+        # dataset (e.g. DeepSeek-R1 with LiveCodeBench left unscored). A null score is
+        # already reported above, so it is not reported twice.
+        incomplete = [
             name
-            for name in accuracy_result.accuracy_datasets()
-            if "score" in root[name] and root[name]["score"] is None
+            for name in datasets
+            if name not in unscored and root[name].get("complete") is False
+        ]
+        # A gated metric that is null or not a number (e.g. `"score": {"exact_match":
+        # null}`) would drop its dataset out of that metric's mean. Other fields of a
+        # legacy entry with no `score` key may be bookkeeping, so only gated names count.
+        gated = set(thresholds) | {"score"}
+        unreadable = [
+            f"{name} ({metric}={'null' if value is None else repr(value)})"
+            for name, metrics in accuracy_result.unreadable_metrics().items()
+            if name in datasets and name not in unscored
+            for metric, value in metrics.items()
+            if metric.lower() in gated
         ]
         if unscored:
             self._check_results.append(
                 err("accuracy-gate", "unscored-datasets", json_path, datasets=", ".join(unscored))
             )
+        if incomplete:
+            self._check_results.append(
+                err(
+                    "accuracy-gate",
+                    "incomplete-datasets",
+                    json_path,
+                    datasets=", ".join(incomplete),
+                )
+            )
+        if unreadable:
+            self._check_results.append(
+                err("accuracy-gate", "unreadable-metrics", json_path, metrics=", ".join(unreadable))
+            )
+        if unscored or incomplete or unreadable:
             return  # A mean over only the scored subsets is not the aggregate accuracy.
         per_ds = accuracy_result.metric_scores()  # {ds: {metric: float}}
+        # A JSON NaN (or ROUGE's "nan" string) compares false with every bound, so it
+        # would pass; +inf would pass a lower bound.
+        non_finite = [
+            f"{ds_name} ({metric}={value})"
+            for ds_name, scores in per_ds.items()
+            if ds_name in datasets
+            for metric, value in scores.items()
+            if not math.isfinite(value)
+        ]
+        if non_finite:
+            self._check_results.append(
+                err("accuracy-gate", "non-finite-scores", json_path, scores=", ".join(non_finite))
+            )
+            return
         weighted: dict[str, list[tuple[float, float | None]]] = {}
         for ds_name, scores in per_ds.items():
+            if ds_name not in datasets:
+                continue
             raw = root.get(ds_name, {}).get("num_samples")
             weight: float | None
             try:
