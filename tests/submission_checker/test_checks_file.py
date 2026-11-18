@@ -170,6 +170,30 @@ class TestRegionDeclaredValidator:
 
 
 @pytest.mark.unit
+class TestSeedSetMissing:
+    @pytest.mark.parametrize("seed", [42, 7])
+    def test_one_disclosure_error_and_no_seed_value_check(self, tmp_path, seed):
+        """§4.6: no seed set means no binding; seed 42 is not a fallback."""
+        config = PointConfig.model_validate(
+            {
+                "concurrency": 64,
+                "runtime_settings": {
+                    "runtime": {"scheduler_rng_seed": seed, "sample_index_rng_seed": seed}
+                },
+            },
+            context={"yaml_path": tmp_path / "point_64.yaml"},
+        )
+        disclosure = [
+            r
+            for r in config._check_results
+            if r.rule == "point-disclosure-complete" and r.severity == Severity.ERROR
+        ]
+        assert len(disclosure) == 1
+        assert "seed_set" in disclosure[0].message
+        assert not [r for r in config._check_results if r.rule.startswith("seed")]
+
+
+@pytest.mark.unit
 class TestAccuracyResultModel:
     def test_scores_accessible(self):
         ar = AccuracyResult(

@@ -491,47 +491,6 @@ class PointConfig(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _check_seeds_legacy(self, info: ValidationInfo) -> PointConfig:
-        """v0.7 fallback: seeds must equal 42 when the point binds no seed set.
-
-        v0.7 fixed every seed at 42. v1.0 rotates them (§4.6), so the constant is now
-        wrong for any point that names a ``seed_set`` — those are checked against the
-        published registry by
-        :class:`~submission_checker.models.aggregate.SeedBinding` instead. This rule
-        survives only to give a v0.7 bundle a comprehensible message.
-        """
-        path: Path | None = (info.context or {}).get("yaml_path")
-        if self.seed_set is not None:
-            return self
-        rt = self.runtime_settings.runtime
-        for field_name, val in (
-            ("runtime_settings.runtime.scheduler_rng_seed", rt.scheduler_rng_seed),
-            ("runtime_settings.runtime.sample_index_rng_seed", rt.sample_index_rng_seed),
-        ):
-            if val != 42:
-                self._check_results.append(
-                    err(
-                        "seed-config-legacy",
-                        "fail",
-                        path,
-                        concurrency=self.concurrency,
-                        field_name=field_name,
-                        val=val,
-                    )
-                )
-            else:
-                self._check_results.append(
-                    warn(
-                        "seed-config-legacy",
-                        "warn",
-                        path,
-                        concurrency=self.concurrency,
-                        field_name=field_name,
-                    )
-                )
-        return self
-
-    @model_validator(mode="after")
     def _check_warmup(self, info: ValidationInfo) -> PointConfig:
         """§6.3.3: warmup declaration is required for every measurement point."""
         path: Path | None = (info.context or {}).get("yaml_path")
