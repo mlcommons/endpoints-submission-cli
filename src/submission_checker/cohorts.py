@@ -4,8 +4,8 @@
 
 MLCommons publishes results on a bi-weekly cadence, two cohorts per calendar month,
 identified as ``YYYY-MM-C0`` and ``YYYY-MM-C1`` (§4.2). §4.6 then counts in cohorts:
-a seed set is adoptable for "its publication cohort and the following three", which
-only means something if a cohort has a well-defined successor. That successor lives
+a seed set is adoptable "until 4 cohort dates have passed", which only means
+something if a cohort has a well-defined successor. That successor lives
 here rather than in the seed-set loader, because it is a property of the publication
 calendar and the next rule to count in cohorts will want it too.
 """
@@ -71,8 +71,13 @@ class Cohort:
 def adoption_window(published: Cohort, length: int = 4) -> tuple[Cohort, ...]:
     """The cohorts during which a set published in *published* may be adopted.
 
-    §4.6: "Each published seed set is available for adoption by new submissions for
-    **four consecutive cohorts** — its publication cohort and the following three."
+    §4.6: "Each published seed set is available for adoption by new submissions until
+    4 cohort dates have passed and is then dropped from the sets available for
+    adoption."
+
+    §9.1 checks this per submission: the set "must have been published for
+    ``target_cohort`` or one of the three immediately preceding cohorts". So the
+    window is *published* and the three cohorts after it.
 
     Args:
         published: The cohort the set was published for.
