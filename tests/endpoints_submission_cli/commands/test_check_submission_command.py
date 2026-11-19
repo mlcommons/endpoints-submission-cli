@@ -14,10 +14,10 @@ from endpoints_submission_cli.main import app
 
 _REPO_ROOT = Path(__file__).parent.parent.parent.parent
 _TEST_SUBMISSIONS = _REPO_ROOT / "test_submissions"
-_VALID = _TEST_SUBMISSIONS / "valid_standardized"
+_VALID = _TEST_SUBMISSIONS / "ACME_Corp" / "valid_standardized"
 # sub_g's points start at 64, so under v1.0's derived boundaries (C_min clamps to
 # 32, Low Concurrency 33–45) it covers neither Ultra Low nor Low Concurrency.
-_FAILING = _TEST_SUBMISSIONS / "sub_g"
+_FAILING = _TEST_SUBMISSIONS / "Submitter-G" / "sub_g"
 
 _runner = CliRunner()
 

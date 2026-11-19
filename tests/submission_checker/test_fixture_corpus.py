@@ -17,9 +17,9 @@ import yaml
 
 from submission_checker import layout
 
-from .conftest import TEST_SUBMISSIONS
+from .conftest import FIXTURES, TEST_SUBMISSIONS
 
-_SUBMISSIONS = sorted(p for p in TEST_SUBMISSIONS.iterdir() if p.is_dir())
+_SUBMISSIONS = sorted(FIXTURES.values())
 
 #: Files no longer part of any layout the spec defines.
 _RETIRED_FILES = ("run_metadata.json", "system_desc_id.json", "results_summary.json")

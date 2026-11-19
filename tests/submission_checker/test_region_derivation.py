@@ -21,7 +21,7 @@ from submission_checker.checker import SubmissionChecker
 from submission_checker.models import CheckResult, Report, Severity
 from submission_checker.models.regions import ULTRA_LOW_CONCURRENCY_MAX, compute_regions
 
-from .conftest import TEST_SUBMISSIONS
+from .conftest import FIXTURES, copy_submission
 
 
 def _check(path: Path) -> Report:
@@ -66,7 +66,7 @@ _DERIVATION_TABLE = [
 
 @pytest.mark.parametrize("name, expected_c_max, expected_c_min", _DERIVATION_TABLE)
 def test_c_min_derivation_table(name: str, expected_c_max: int, expected_c_min: int) -> None:
-    c_max, concurrencies = _curve_facts(TEST_SUBMISSIONS / name)
+    c_max, concurrencies = _curve_facts(FIXTURES[name])
     assert c_max == expected_c_max
     assert min(min(concurrencies), ULTRA_LOW_CONCURRENCY_MAX) == expected_c_min
 
@@ -76,7 +76,7 @@ def test_reported_boundaries_match_the_derivation(
     name: str, expected_c_max: int, expected_c_min: int
 ) -> None:
     """The region-basis message states the C_min the boundaries were computed from."""
-    report = _check(TEST_SUBMISSIONS / name)
+    report = _check(FIXTURES[name])
     basis = _results(report, "region-basis")
     assert basis, f"{name}: region-basis did not run"
     assert f"C_min = {expected_c_min}" in basis[0].message
@@ -115,10 +115,7 @@ class TestPartialAndAbsentBasis:
     def test_lowest_point_corrupt_keeps_its_place_in_the_basis(
         self, valid_standardized: Path, tmp_path: Path
     ) -> None:
-        import shutil
-
-        root = tmp_path / "sub"
-        shutil.copytree(valid_standardized, root)
+        root = copy_submission(valid_standardized, tmp_path)
         self._corrupt(root, 16)  # excluding it would move C_min to the next point, 20
 
         report = _check(root)
@@ -132,10 +129,7 @@ class TestPartialAndAbsentBasis:
     def test_partial_basis_still_reports_the_corrupt_file(
         self, valid_standardized: Path, tmp_path: Path
     ) -> None:
-        import shutil
-
-        root = tmp_path / "sub"
-        shutil.copytree(valid_standardized, root)
+        root = copy_submission(valid_standardized, tmp_path)
         self._corrupt(root, 16)
         assert _results(_check(root), "point-config-valid", Severity.ERROR)
 
@@ -143,10 +137,7 @@ class TestPartialAndAbsentBasis:
         self, valid_standardized: Path, tmp_path: Path
     ) -> None:
         """With no basis at all, the rest of the report must stay useful."""
-        import shutil
-
-        root = tmp_path / "sub"
-        shutil.copytree(valid_standardized, root)
+        root = copy_submission(valid_standardized, tmp_path)
         for _system, model_dir in layout.iter_curves(root / layout.RESULTS_DIR):
             for point_dir in layout.iter_point_dirs(model_dir):
                 (point_dir / layout.POINT_YAML).write_text("{not: valid: yaml [")
@@ -167,10 +158,7 @@ class TestPartialAndAbsentBasis:
     def test_no_basis_does_not_crash_the_coverage_rules(
         self, valid_standardized: Path, tmp_path: Path
     ) -> None:
-        import shutil
-
-        root = tmp_path / "sub"
-        shutil.copytree(valid_standardized, root)
+        root = copy_submission(valid_standardized, tmp_path)
         for _system, model_dir in layout.iter_curves(root / layout.RESULTS_DIR):
             for point_dir in layout.iter_point_dirs(model_dir):
                 (point_dir / layout.POINT_YAML).write_text("{not: valid: yaml [")
@@ -189,7 +177,7 @@ class TestBoundariesFollowTheDerivedCMin:
 
     def test_a_low_starting_curve_covers_low_concurrency(self, sub_e: Path) -> None:
         """sub_e's points (1–1024) missed v0.7's fixed 33–42 window; v1.0 moves it down."""
-        c_max, concurrencies = _curve_facts(TEST_SUBMISSIONS / "sub_e")
+        c_max, concurrencies = _curve_facts(FIXTURES["sub_e"])
         regions = compute_regions(c_max, min(min(concurrencies), ULTRA_LOW_CONCURRENCY_MAX))
         assert regions.low_concurrency.start == 2
         assert any(regions.low_concurrency.contains(c) for c in concurrencies)

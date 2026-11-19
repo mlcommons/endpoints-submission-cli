@@ -52,6 +52,7 @@ __all__ = [
     "canonical_model_name",
     "iter_curves",
     "iter_point_dirs",
+    "org_dir_name",
     "parse_point_dir",
     "point_dir_name",
     "resolve_shared_path",
@@ -113,6 +114,21 @@ def canonical_model_name(name: str) -> str:
     slug = re.sub(r"[^\w\-]", "_", part)
     slug = re.sub(r"_+", "_", slug).strip("_")
     return slug[:64]
+
+
+# ── Submitting-organization directory ─────────────────────────────────────────
+
+
+def org_dir_name(submitter_org_names: str) -> str:
+    """Return the ``<submitting_organization>/`` directory name for an org name.
+
+    Turns every character other than a letter, digit, ``_`` or ``-`` into ``_``:
+    ``"ACME Corp"`` becomes ``"ACME_Corp"``. The builder names the directory with
+    this, and the checker compares the directory a submission sits under against it.
+    """
+    slug = re.sub(r"[^\w\-]", "_", submitter_org_names.strip())
+    slug = re.sub(r"_+", "_", slug).strip("_")
+    return slug[:64] or "unknown"
 
 
 # ── Pareto-point directories ──────────────────────────────────────────────────

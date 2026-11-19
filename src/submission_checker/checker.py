@@ -694,6 +694,7 @@ class SubmissionChecker:
         results.extend(sd_results)
         c_min_override, override_results = self._resolve_c_min_override(point_dirs, model_dir)
         results.extend(override_results)
+        results.extend(self._check_org_dir(sd_path))
         c_max = (
             system_desc.max_supported_concurrency
             if system_desc is not None
@@ -908,6 +909,41 @@ class SubmissionChecker:
             ]
         return [
             _ok("system-description-consistency", "pass", model_dir, present_count=len(present))
+        ]
+
+    def _check_org_dir(self, sd_path: Path | None) -> list[CheckResult]:
+        """§8.1: the submission sits under the directory its submitter's name gives.
+
+        §8.1 lays a submission out as ``<submitting_organization>/<submission_id>/``,
+        and the builder names that directory with :func:`layout.org_dir_name`. The
+        parent of the submission root is taken as the organization directory however
+        the checker was invoked, so a bundle filed under the wrong submitter fails.
+
+        ``submitter_org_names`` is optional since §8.2 dropped it in v1.0, so a
+        description without it has nothing to compare. The frontier's points already
+        agree on it (``system-description-consistency``), so one copy is enough. It is
+        read from the raw file, like C_max, so an unrelated invalid field in the
+        description does not hide this rule; a non-string value is left to
+        ``system-description-valid``.
+        """
+        data = _read_json(sd_path) if sd_path is not None else None
+        raw = data.get("submitter_org_names") if data else None
+        declared = raw.strip() if isinstance(raw, str) else ""
+        if sd_path is None or not declared:
+            return []
+        expected = layout.org_dir_name(declared)
+        actual = self.submission_path.resolve().parent.name
+        if actual == expected:
+            return [_ok("submitter-org-dir", "pass", sd_path, org=declared, actual=actual)]
+        return [
+            _err(
+                "submitter-org-dir",
+                "fail",
+                sd_path,
+                org=declared,
+                expected=expected,
+                actual=actual,
+            )
         ]
 
     def _resolve_c_min_override(

@@ -750,6 +750,16 @@ streaming-config:
   messages:
     pass: 'Point {concurrency}: stream_all_chunks={stream_all_chunks} controls client IPC forwarding;
       server streaming cannot be verified from this flag'
+submitter-org-dir:
+  title: Organization directory
+  spec: §8.1
+  messages:
+    pass: 'submitter_org_names {org!r} matches the organization directory {actual}/'
+    fail:
+      text: 'submitter_org_names {org!r} calls for the organization directory {expected}/, but the
+        submission sits under {actual}/'
+      fix: Place the submission at {expected}/<submission_id>/, or correct submitter_org_names in every
+        point's system_desc.json.
 system-description-consistency:
   title: System description consistency
   spec: §8.5
