@@ -174,6 +174,35 @@ class PointResult(BaseModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def _check_dataset_pass_multiple(self, info: ValidationInfo) -> PointResult:
+        """§6.4: issued samples cover whole passes over the recorded dataset size."""
+        path: Path | None = (info.context or {}).get("summary_path")
+        # Minimum query counts can include repeats across accuracy datasets and
+        # are not a reliable denominator. Use the resolved benchmark setting.
+        size = self.config.runtime_settings.n_samples_from_dataset
+        issued = self.summary.n_samples_issued
+        if "n_samples_issued" not in self.summary.model_fields_set:
+            self._check_results.append(warn("dataset-pass-multiple", "missing-issued", path))
+        elif issued <= 0:
+            self._check_results.append(
+                err("dataset-pass-multiple", "nonpositive-issued", path, issued=issued)
+            )
+        elif size is None:
+            self._check_results.append(
+                warn("dataset-pass-multiple", "unknown-size", path, dataset=self.config.dataset)
+            )
+        else:
+            if issued % size:
+                self._check_results.append(
+                    err("dataset-pass-multiple", "fail", path, issued=issued, size=size)
+                )
+            else:
+                self._check_results.append(
+                    ok("dataset-pass-multiple", "pass", path, issued=issued, size=size)
+                )
+        return self
+
     def _duration_basis(self) -> tuple[float, str]:
         """Return ``(duration in ms, what it measures)`` for the §6.2 comparison.
 
