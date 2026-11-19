@@ -919,12 +919,11 @@ class SubmissionChecker:
         parent of the submission root is taken as the organization directory however
         the checker was invoked, so a bundle filed under the wrong submitter fails.
 
-        ``submitter_org_names`` is optional since §8.2 dropped it in v1.0, so a
-        description without it has nothing to compare. The frontier's points already
-        agree on it (``system-description-consistency``), so one copy is enough. It is
-        read from the raw file, like C_max, so an unrelated invalid field in the
-        description does not hide this rule; a non-string value is left to
-        ``system-description-valid``.
+        The frontier's points already agree on ``submitter_org_names``
+        (``system-description-consistency``), so one copy is enough. It is read from the
+        raw file, like C_max, so an unrelated invalid field in the description does not
+        hide this rule. §8.2 requires the field, so a missing, blank or non-string value
+        is ``system-description-valid``'s to report, and leaves nothing to compare here.
         """
         data = _read_json(sd_path) if sd_path is not None else None
         raw = data.get("submitter_org_names") if data else None

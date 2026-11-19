@@ -3,7 +3,7 @@
 """``submitter-org-dir``: a submission sits under the directory its org name gives.
 
 §8.1 lays a submission out as ``<submitting_organization>/<submission_id>/``. The
-builder names that directory from ``submitter_org_names`` with
+builder names that directory from ``submitter_org_names`` (required by §8.2) with
 :func:`layout.org_dir_name`, and the checker holds a submission to the same name.
 """
 
@@ -87,14 +87,44 @@ def test_raw_org_name_as_dir_is_an_error(valid_standardized: Path, tmp_path: Pat
     assert any(r.severity == Severity.ERROR for r in _org_results(_check(root)))
 
 
-def test_absent_org_name_is_not_checked(valid_standardized: Path, tmp_path: Path) -> None:
-    """§8.2 dropped the field in v1.0; with nothing declared there is nothing to compare."""
-    root = copy_submission(valid_standardized, tmp_path)
+def _set_org_name(root: Path, value: object, *, drop: bool = False) -> None:
     for path in _system_descs(root):
         data = json.loads(path.read_text())
-        del data["submitter_org_names"]
+        if drop:
+            del data["submitter_org_names"]
+        else:
+            data["submitter_org_names"] = value
         path.write_text(json.dumps(data))
 
+
+@pytest.mark.parametrize(
+    ("value", "drop"),
+    [(None, True), ("   ", False), (None, False)],
+    ids=["absent", "blank", "null"],
+)
+def test_missing_org_name_is_invalid(
+    valid_standardized: Path, tmp_path: Path, value: object, drop: bool
+) -> None:
+    """§8.2 requires the field; its absence is the schema's to report, not this rule's."""
+    root = copy_submission(valid_standardized, tmp_path)
+    _set_org_name(root, value, drop=drop)
+
     report = _check(root)
+    assert {e.rule for e in report.errors} == {"system-description-valid"}
+    assert any("submitter_org_names" in e.message for e in report.errors)
     assert not _org_results(report)
-    assert report.passed
+
+
+def test_org_dir_still_checked_when_description_invalid(
+    valid_standardized: Path, tmp_path: Path
+) -> None:
+    """An unrelated invalid field must not hide the directory check."""
+    root = tmp_path / "Someone_Else" / "sub"
+    shutil.copytree(valid_standardized, root)
+    for path in _system_descs(root):
+        data = json.loads(path.read_text())
+        data["division"] = "Standardised"
+        path.write_text(json.dumps(data))
+
+    errors = {e.rule for e in _check(root).errors}
+    assert errors == {"system-description-valid", _RULE}

@@ -322,7 +322,7 @@ submission root (§9.1).
 | `system-description-present` | §8.2 | Every point has a `system_desc.json` |
 | `system-description-valid` | §8.2 | It parses against the `SystemDescription` schema |
 | `system-description-consistency` | §8.5 | Every point of a frontier describes the same system (parallelism, `batch` and `config_summary` may vary by point) |
-| `submitter-org-dir` | §8.1 | The directory above `<submission_id>/` is `submitter_org_names` in directory form (`ACME Corp` → `ACME_Corp/`); skipped when the field is absent |
+| `submitter-org-dir` | §8.1 | The directory above `<submission_id>/` is `submitter_org_names` in directory form (`ACME Corp` → `ACME_Corp/`). The field itself is required by `system-description-valid` |
 | `model-name-valid` | §3.2 | `point.yaml`'s `model_name` is exactly one of the round's supported models, spelled canonically |
 | `model-name-consistency` | §8.1 | It is exactly the results directory name |
 | `max-concurrency-declared` | §7 | `max_supported_concurrency` (C_max) present and > 32 |

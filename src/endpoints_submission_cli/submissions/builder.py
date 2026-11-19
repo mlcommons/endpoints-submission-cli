@@ -123,10 +123,9 @@ def build_submission_folder(
             )
 
     # Determine org name from the first run's system_info
-    # The checker's `submitter-org-dir` rule derives the directory the same way.
-    org_name = layout.org_dir_name(
-        run_data[0]["system_info"].get("submitter_org_names", "org") or "org"
-    )
+    # The checker's `submitter-org-dir` rule derives the directory the same way. §8.2
+    # requires the field, and _load_system_desc has already validated it as non-blank.
+    org_name = layout.org_dir_name(run_data[0]["system_info"]["submitter_org_names"])
     org_dir = work_dir / org_name
     # <org>/<submission_id>/ — everything below is scoped to a single submission.
     submission_dir = org_dir / (submission_id or PENDING_SUBMISSION_ID)
