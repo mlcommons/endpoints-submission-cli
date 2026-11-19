@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import copy
 import json
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +27,7 @@ from submission_checker.power_defaults import (
     switch_default,
 )
 
-from .conftest import TEST_SUBMISSIONS
+from .conftest import FIXTURES, copy_submission
 
 
 def _sv(value: float, unit: str = "value_w", source_type: str = "vendor_spec") -> dict[str, Any]:
@@ -596,9 +595,7 @@ class TestAppendixD:
 
 
 def _copy(tmp_path: Path) -> Path:
-    dest = tmp_path / "sub"
-    shutil.copytree(TEST_SUBMISSIONS / "valid_standardized", dest)
-    return dest
+    return copy_submission(FIXTURES["valid_standardized"], tmp_path)
 
 
 def _power_files(root: Path) -> list[Path]:

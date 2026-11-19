@@ -162,6 +162,7 @@ def test_node_requires_core_or_vcpu_count():
 @pytest.mark.parametrize(
     "field",
     [
+        "submitter_org_names",
         "system_name",
         "shortened_system_name",
         "system_availability_status",
@@ -182,7 +183,6 @@ def test_required_system_fields_rejected_when_missing(field):
 @pytest.mark.parametrize(
     "field",
     [
-        "submitter_org_names",
         "submitter_contact",
         "system_category",
         "model_precision",

@@ -14,7 +14,7 @@ from submission_checker.checker import SubmissionChecker
 from submission_checker.messages import Invalid
 from submission_checker.models import CheckResult, Report, Severity
 
-from .conftest import TEST_SUBMISSIONS
+from .conftest import FIXTURES
 
 #: The three §9.1 per-region coverage rules. Ultra Low Concurrency is checked
 #: separately against the fixed 1–32 band, so it is not one of these.
@@ -837,8 +837,7 @@ _EXPECTED_ERROR_RULES: dict[str, frozenset[str]] = {
 
 
 def test_every_fixture_is_profiled() -> None:
-    on_disk = {p.name for p in TEST_SUBMISSIONS.iterdir() if p.is_dir()}
-    assert on_disk == set(_EXPECTED_ERROR_RULES)
+    assert set(FIXTURES) == set(_EXPECTED_ERROR_RULES)
 
 
 @pytest.mark.parametrize(("fixture_name", "expected"), sorted(_EXPECTED_ERROR_RULES.items()))

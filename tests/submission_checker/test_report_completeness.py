@@ -22,6 +22,8 @@ from submission_checker import layout
 from submission_checker.checker import SubmissionChecker
 from submission_checker.models import CheckResult, Report, Severity
 
+from .conftest import copy_submission
+
 
 def _check(path: Path) -> Report:
     return SubmissionChecker(path).run()
@@ -39,9 +41,7 @@ def _rules(report: Report) -> set[str]:
 
 @pytest.fixture
 def submission(valid_standardized: Path, tmp_path: Path) -> Path:
-    root = tmp_path / "sub"
-    shutil.copytree(valid_standardized, root)
-    return root
+    return copy_submission(valid_standardized, tmp_path)
 
 
 @pytest.fixture

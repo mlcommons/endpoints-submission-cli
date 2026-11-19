@@ -162,7 +162,8 @@ def main(argv: list[str] | None = None) -> int:
 
     seed_set = load_seed_sets()[SEED_SET_ID]
     changes: list[str] = []
-    for submission_dir in sorted(p for p in args.root.iterdir() if p.is_dir()):
+    # §8.1: <submitting_organization>/<submission_id>/, so submissions sit one level down.
+    for submission_dir in sorted(p for p in args.root.glob("*/*") if p.is_dir()):
         changes += regenerate_submission(submission_dir, seed_set, dry_run=args.check)
 
     for change in changes:

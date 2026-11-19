@@ -203,9 +203,12 @@ class SystemDescription(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    # Org / submission metadata. §8.2 moved these out of the system description in
-    # v1.0; still read when present because the existing corpus carries them.
-    submitter_org_names: str | None = None
+    #: Required by §8.2. It names the ``<submitting_organization>/`` directory (§8.1),
+    #: which ``submitter-org-dir`` checks.
+    submitter_org_names: str
+
+    # Submission metadata §8.2 does not define; still read when present because the
+    # existing corpus carries it.
     submitter_contact: str | None = None
     submission_id: str | None = None
     submission_date: str | None = None
@@ -336,6 +339,13 @@ class SystemDescription(BaseModel):
             if normalized is not None:
                 return normalized
             raise Invalid("system-description-valid", "availability-unknown", value=v)
+        return v
+
+    @field_validator("submitter_org_names")
+    @classmethod
+    def _check_submitter_org_names(cls, v: str) -> str:
+        if not v.strip():
+            raise Invalid("system-description-valid", "org-name-empty")
         return v
 
     @field_validator("shortened_system_name")

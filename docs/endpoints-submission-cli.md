@@ -453,7 +453,8 @@ layouts that put `result_summary.json` at the top level are not accepted by
 }
 ```
 
-§8.2 requires `shortened_system_name` (at most 20 characters), `availability_url` when
+§8.2 requires `submitter_org_names`, which also names the `<submitting_organization>/`
+directory (§8.1), and `shortened_system_name` (at most 20 characters), `availability_url` when
 the system is Available, and `target_availability_date` (`YYYY-MM-DD`) when it is
 Preview. `submissions create` overwrites `system_availability_status` with
 `--availability`, and writes `--target-availability-date` into the description when given.

@@ -29,13 +29,13 @@ class TestCheckSubmission:
     """Runs the real CLI in a subprocess, as the server does."""
 
     def test_passing_submission(self) -> None:
-        report = mcp_server.check_submission(str(_FIXTURES / "valid_standardized"))
+        report = mcp_server.check_submission(str(_FIXTURES / "ACME_Corp" / "valid_standardized"))
         assert report["results"]
         assert not [r for r in report["results"] if r["severity"] == "error"]
 
     def test_failing_submission_is_a_result_not_an_error(self) -> None:
         """The CLI exits 1 on a failing submission; the report is still the answer."""
-        report = mcp_server.check_submission(str(_FIXTURES / "invalid_submission"))
+        report = mcp_server.check_submission(str(_FIXTURES / "Invalid_Corp" / "invalid_submission"))
         assert [r for r in report["results"] if r["severity"] == "error"]
 
     def test_strict_is_passed_through(self, mocker) -> None:

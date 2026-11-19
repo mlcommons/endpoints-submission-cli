@@ -750,6 +750,16 @@ streaming-config:
   messages:
     pass: 'Point {concurrency}: stream_all_chunks={stream_all_chunks} controls client IPC forwarding;
       server streaming cannot be verified from this flag'
+submitter-org-dir:
+  title: Organization directory
+  spec: §8.1
+  messages:
+    pass: 'submitter_org_names {org!r} matches the organization directory {actual}/'
+    fail:
+      text: 'submitter_org_names {org!r} calls for the organization directory {expected}/, but the
+        submission sits under {actual}/'
+      fix: Place the submission at {expected}/<submission_id>/, or correct submitter_org_names in every
+        point's system_desc.json.
 system-description-consistency:
   title: System description consistency
   spec: §8.5
@@ -790,6 +800,10 @@ system-description-valid:
       text: system_availability_status is Preview but target_availability_date is missing
       fix: Add target_availability_date, the expected availability date as YYYY-MM-DD (§8.2).
     availability-date-invalid: target_availability_date {value!r} is not an ISO 8601 date (YYYY-MM-DD)
+    org-name-empty:
+      text: submitter_org_names is empty
+      fix: Give submitter_org_names, the submitting organization's name; it also names the
+        <submitting_organization>/ directory (§8.1).
     shortened-name-empty:
       text: shortened_system_name is empty
       fix: Give shortened_system_name, a shortened system_name of at most 20 characters (§8.2).
