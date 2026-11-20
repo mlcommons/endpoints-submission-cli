@@ -1,0 +1,98 @@
+# Tolerances for the submission reviewer's heuristics (rules §9.2).
+#
+# These are review hints, not compliance limits: crossing one adds a finding to the
+# PR comment for a person to look at. Override any subset with
+# `endpoints-submission-reviewer --thresholds FILE`; keys left out keep these values.
+#
+# Ratios are fractions (0.05 = 5 %). Dedicated Offline points are left out of every
+# curve-shape heuristic: their concurrency is the dataset size, not a load level.
+
+pareto:
+  # A system_tps drop of more than this between consecutive points, followed by a
+  # later point that recovers above the pre-drop level, is a dip rather than
+  # saturation. Real curves wobble by a few percent near the plateau.
+  dip_tolerance: 0.05
+  # Throughput may grow at most linearly with concurrency. Flag growth above
+  # (c2 / c1) * (1 + this).
+  superlinear_tolerance: 0.10
+  # system_tps / concurrency is the mean output rate of one user. It cannot exceed
+  # the rate the median TPOT allows (1000 / tpot_p50_ms) by more than this factor.
+  per_user_rate_factor: 1.5
+  # TTFT p50 should not fall as concurrency rises. A fall of more than `note` is a
+  # note; more than `attention` asks for attention.
+  ttft_drop_note: 0.20
+  ttft_drop_attention: 0.50
+  # tps_per_user should not rise with concurrency by more than this.
+  tps_per_user_rise_note: 0.10
+  # A point is dominated when another point beats it by more than this margin on
+  # both system_tps and tps_per_user.
+  dominance_margin: 0.01
+  # Little's law: the concurrency implied by latency.total / duration_ns should not
+  # exceed the target (a closed loop cannot hold more in flight) nor sit far below it.
+  littles_law_high: 1.15
+  littles_law_low: 0.60
+
+distributions:
+  # TTFT is "uniform across very different concurrency levels" when the points span
+  # at least this concurrency ratio (max / min) ...
+  uniform_ttft_min_span: 8
+  # ... and the coefficient of variation of their TTFT p50 is below this.
+  uniform_ttft_max_cv: 0.05
+  # A latency distribution whose p90 / p50 is below this is suspiciously narrow.
+  narrow_ratio: 1.01
+  # Identical percentile blocks on at least this many points look copied.
+  identical_block_min_points: 2
+  # system_tps values that are whole multiples of `round_step` on at least
+  # `round_min_points` points look hand-entered.
+  round_step: 100
+  round_min_points: 3
+
+updates:
+  # A per-point metric that moved by more than this between the original submission
+  # and the update is reported. An improvement asks for attention: Submission Rules
+  # §6.3 requires any improvement to performance metrics to be justified.
+  metric_change: 0.01
+
+outputs:
+  # A point whose mean output length differs from its curve's median by more than
+  # this looks padded or truncated. Points with fewer completed samples are skipped.
+  osl_deviation_note: 0.25
+  osl_min_samples: 500
+  # Share of responses that stopped at the token limit (finish_reason "length").
+  length_finish_note: 0.5
+
+logs:
+  # Per-request checks read each point's events.jsonl. Full response text is kept for
+  # this many performance responses per point, each cut to max_text_chars.
+  max_text_samples: 2000
+  max_text_chars: 20000
+  # Share of streamed responses whose first fragment (the text that stopped the TTFT
+  # clock) is only whitespace, punctuation or control characters.
+  ttft_trivial_note: 0.05
+  ttft_trivial_attention: 0.50
+  # Median, over responses, of (second chunk - first chunk) divided by the mean gap
+  # between the later chunks. A token emitted early to stop the clock leaves a long
+  # pause after it. Prefill/decode disaggregation can also cause one.
+  first_gap_ratio_note: 5.0
+  # A response duplicates content across fields when this share of the shorter
+  # field's 8-word shingles also appear in the longer one.
+  duplicate_containment: 0.9
+  duplicate_min_words: 100
+  duplicate_share_note: 0.02
+  duplicate_share_attention: 0.50
+  # A response is repetitive when this share of its 8-word shingles are repeats.
+  repetition_ratio: 0.5
+  repetition_min_words: 50
+  repetition_share_note: 0.05
+  repetition_share_attention: 0.20
+  # A response ends in filler when its last this-many characters are one repeated
+  # character (spaces included).
+  filler_run: 50
+  filler_share_note: 0.001
+  filler_share_attention: 0.05
+  # Offline: share of pass-N completions that finish before the median completion
+  # of pass N-1, and share of consecutive completions that are the same dataset
+  # sample from different passes (sorting across passes).
+  offline_cross_pass_note: 0.02
+  offline_cross_pass_attention: 0.10
+  offline_same_sample_attention: 0.05

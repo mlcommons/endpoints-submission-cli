@@ -21,6 +21,7 @@ dependencies = [
 [project.scripts]
 endpoints-submission-cli = "endpoints_submission_cli.main:main"
 endpoints-submission-mcp = "endpoints_submission_cli.mcp_server:main"
+endpoints-submission-reviewer = "submission_reviewer.cli:main"
 
 [project.optional-dependencies]
 dev = [
@@ -57,6 +58,8 @@ packages = [
     "submission_checker.models",
     "submission_checker.models.aggregate",
     "submission_checker.models.file",
+    "submission_reviewer",
+    "submission_reviewer.checks",
 ]
 
 [tool.setuptools.package-dir]
@@ -66,6 +69,8 @@ packages = [
 # The published seed sets (§4.6) ship as data so a newly published set can be
 # supplied without a checker release; see submission_checker.seed_sets.
 submission_checker = ["data/*.yaml"]
+# Heuristic tolerances for the §9.2 reviewer; see submission_reviewer.thresholds.
+submission_reviewer = ["data/*.yaml"]
 endpoints_submission_cli = ["skills/*/SKILL.md"]
 
 [tool.pytest.ini_options]
@@ -118,7 +123,7 @@ ignore = [
 convention = "google"
 
 [tool.ruff.lint.isort]
-known-first-party = ["submission_checker"]
+known-first-party = ["submission_checker", "submission_reviewer"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = [
