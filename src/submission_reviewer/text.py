@@ -160,18 +160,21 @@ _DOC_BUDGET = 2_000_000  # characters; docs are prose, this is far beyond any re
 def read_docs_text(root: Path) -> str:
     """The concatenated text of a submission's ``docs/`` and ``src/*/README.md`` files.
 
-    Bounded by a character budget so a submission that ships large data files under
-    ``docs/`` cannot make the review slow.
+    Bounded by a character budget, applied while reading, so a submission that ships
+    large data files under ``docs/`` cannot make the review slow or exhaust memory.
     """
     files = sorted(p for p in (root / "docs").rglob("*") if p.suffix.lower() in _DOC_SUFFIXES)
     files += sorted((root / "src").glob("*/README.md"))
     chunks: list[str] = []
     used = 0
     for path in files:
-        if used >= _DOC_BUDGET or not path.is_file():
+        if used >= _DOC_BUDGET:
+            break
+        if not path.is_file():
             continue
         try:
-            text = path.read_text(encoding="utf-8", errors="replace")[: _DOC_BUDGET - used]
+            with path.open(encoding="utf-8", errors="replace") as handle:
+                text = handle.read(_DOC_BUDGET - used)
         except OSError:
             continue
         chunks.append(text)

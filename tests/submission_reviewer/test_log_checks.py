@@ -66,6 +66,8 @@ def test_text_budget(tmp_path: Path) -> None:
     log = parse_events(_REFERENCE, keep_texts=1, max_chars=4)
     p2, p1 = log.completions("performance")[:2]
     assert (p2.output, p1.output) == ("\nThe", None)
+    # The end of the response is kept whole, reasoning first.
+    assert (p2.tail, p1.tail) == ("Short.\nThe dog ran.", None)
 
 
 def test_not_an_events_log(tmp_path: Path) -> None:
@@ -297,6 +299,19 @@ def test_trailing_filler(logged) -> None:
     assert (found.level, "r64 10% of 50" in found.detail) == (Level.ATTENTION, True)
 
 
+def test_filler_past_the_text_budget(logged) -> None:
+    # Kept texts are cut at max_text_chars (20,000); the filler is beyond that.
+    long = build_log(text=lambda i: _answer(i) * 100 + ("." * 60 if i < 5 else ""))
+    (found,) = titled(logged({64: long}, edit_config=_no_warmup), "filler")
+    assert "r64 10% of 50" in found.detail
+
+
+def test_a_run_at_the_text_budget_is_not_filler(logged) -> None:
+    # Only the truncated prefix ends in a run of one character; the response does not.
+    cut = build_log(text=lambda i: "a" * 25_000 + " and then the real ending.")
+    assert titled(logged({64: cut}, edit_config=_no_warmup), "filler") == []
+
+
 # ── Offline reordering ────────────────────────────────────────────────────────
 
 
@@ -400,6 +415,26 @@ def test_unreadable_log_is_a_note(tmp_path: Path) -> None:
     (root / _CURVE / "r64" / "events.jsonl").write_text("garbage\n" * 50)
     report = review(root)
     assert any("`r64`: events.jsonl" in n and "not JSON" in n for n in report.notes)
+
+
+def _outcome(report, check: str):
+    (outcome,) = [o for o in report.outcomes if o.check == check]
+    return outcome
+
+
+def test_only_unreadable_logs_skip_the_log_checks(tmp_path: Path) -> None:
+    root = write_submission(tmp_path / "sub", clean_curve(), edit_config=_no_warmup)
+    (root / _CURVE / "r64" / "events.jsonl").write_text("garbage\n" * 50)
+    outcome = _outcome(review(root), "ttft_fragments")
+    assert (outcome.status, "could be read" in outcome.reason) == ("skipped", True)
+
+
+def test_some_unreadable_logs_are_partial_coverage(tmp_path: Path) -> None:
+    root = write_submission(tmp_path / "sub", clean_curve(), edit_config=_no_warmup)
+    (root / _CURVE / "r64" / "events.jsonl").write_text("garbage\n" * 50)
+    (root / _CURVE / "r16" / "events.jsonl").write_text("\n".join(build_log()) + "\n")
+    outcome = _outcome(review(root), "ttft_fragments")
+    assert (outcome.status, outcome.reason.startswith("1 of 2 logs")) == ("ran", True)
 
 
 def test_cli_logs_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

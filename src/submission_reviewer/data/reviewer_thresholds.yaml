@@ -86,7 +86,7 @@ logs:
   repetition_share_note: 0.05
   repetition_share_attention: 0.20
   # A response ends in filler when its last this-many characters are one repeated
-  # character (spaces included).
+  # character (spaces included). At most 1000, the end kept of each response.
   filler_run: 50
   filler_share_note: 0.001
   filler_share_attention: 0.05

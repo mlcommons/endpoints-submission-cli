@@ -8,8 +8,10 @@ requests, so they carry noise; the heuristics below look for values that are too
 regular, too identical, or impossible:
 
 - **Uniform TTFT.** Points spanning a wide concurrency range whose TTFT barely moves.
-- **Identical percentile blocks.** Two points reporting exactly the same percentiles
-  for a metric, which separate runs essentially never do.
+- **Identical percentile blocks.** Two points reporting exactly the same timing
+  percentiles (TTFT, TPOT or latency), which separate runs essentially never do. Output
+  lengths are left out: a deterministic model answering the same dataset at two loads
+  can legitimately produce identical length distributions.
 - **Percentile order.** A higher percentile below a lower one, or outside min/max.
 - **Narrow distributions.** A p90 hardly above the p50.
 - **Round throughput.** Several points whose system_tps is a round number.
@@ -42,6 +44,10 @@ _BLOCKS: dict[str, tuple[str, float]] = {
     "latency": ("ms", 1e6),
     "output_sequence_lengths": ("tokens", 1.0),
 }
+#: The blocks compared between points. Timing differs between any two runs; output
+#: lengths need not, since the same dataset and a deterministic model give the same
+#: responses at any load.
+_TIMING_BLOCKS = ("ttft", "tpot", "latency")
 
 
 def _finding(
@@ -127,7 +133,8 @@ def _uniform_ttft(curve: Curve, t: DistributionThresholds) -> list[Finding]:
 
 def _identical_blocks(curve: Curve, t: DistributionThresholds) -> list[Finding]:
     out: list[Finding] = []
-    for name, (unit, divisor) in _BLOCKS.items():
+    for name in _TIMING_BLOCKS:
+        unit, divisor = _BLOCKS[name]
         groups: dict[tuple[tuple[float, float], ...], list[Point]] = defaultdict(list)
         for p in curve.points:
             block = _block(p, name)

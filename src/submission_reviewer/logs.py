@@ -40,6 +40,7 @@ from typing import IO, Any
 __all__ = [
     "LOG_NAMES",
     "SAMPLE_INDEX_MAP",
+    "TAIL_CHARS",
     "LogError",
     "LogStore",
     "Phase",
@@ -52,6 +53,9 @@ __all__ = [
 LOG_NAMES = ("events.jsonl", "events.jsonl.gz")
 #: The client's ``{phase_name: {sample_uuid: dataset_index}}`` map, beside the log.
 SAMPLE_INDEX_MAP = "sample_idx_map.json"
+#: How much of each kept response's end is kept untruncated, for the checks that look
+#: at how a response ends.
+TAIL_CHARS = 1000
 
 #: §6.3.1 salting: the client prepends ``[<16 hex digits>] `` to a salted prompt.
 SALT_RE = re.compile(r"^\[[0-9a-f]{16}\] ")
@@ -99,6 +103,8 @@ class SampleRecord:
             response was not streamed, or started with a tool call.
         output: The visible output, when its text was kept.
         reasoning: The reasoning trace, when its text was kept.
+        tail: The last :data:`TAIL_CHARS` characters of the whole response, reasoning
+            then output, before any truncation; kept with the texts.
         finish_reason: As reported by the endpoint.
     """
 
@@ -116,6 +122,7 @@ class SampleRecord:
     first_fragment: str | None = None
     output: str | None = None
     reasoning: str | None = None
+    tail: str | None = None
     finish_reason: str | None = None
 
 
@@ -230,7 +237,8 @@ def parse_events(path: Path, keep_texts: int = 2000, max_chars: int = 20_000) ->
         path: An ``events.jsonl`` file, optionally gzip-compressed.
         keep_texts: Keep the full text of this many performance responses, the first
             to complete; the rest keep only their first fragment.
-        max_chars: Truncate each kept text to this many characters.
+        max_chars: Truncate each kept text to this many characters. The end of the
+            response is kept separately, in :attr:`SampleRecord.tail`.
 
     Raises:
         LogError: If the file cannot be read, or too much of it is not JSON.
@@ -297,8 +305,10 @@ def parse_events(path: Path, keep_texts: int = 2000, max_chars: int = 20_000) ->
                     reasoning = out[1] if len(out) > 1 else None
                     sample.first_fragment = _first_fragment(output, reasoning)
                     if sample.phase in performance and kept < keep_texts:
-                        sample.output = _text(output)[:max_chars]
-                        sample.reasoning = _text(reasoning)[:max_chars] or None
+                        full_output, full_reasoning = _text(output), _text(reasoning)
+                        sample.output = full_output[:max_chars]
+                        sample.reasoning = full_reasoning[:max_chars] or None
+                        sample.tail = (full_reasoning[-TAIL_CHARS:] + full_output)[-TAIL_CHARS:]
                         kept += 1
     except (OSError, EOFError, gzip.BadGzipFile) as exc:
         raise LogError(f"{path.name} could not be read: {exc}") from exc
@@ -336,6 +346,8 @@ class LogStore:
         self.keep_texts = keep_texts
         self.max_chars = max_chars
         self.problems: list[str] = []
+        #: Point directories whose log was asked for, since the last :meth:`track`.
+        self.requested: set[Path] = set()
         self._cache: dict[Path, PointLog | None] = {}
 
     def __bool__(self) -> bool:
@@ -352,6 +364,7 @@ class LogStore:
         """
         if point_dir not in self.paths:
             return None
+        self.requested.add(point_dir)
         if point_dir not in self._cache:
             try:
                 self._cache[point_dir] = parse_events(
@@ -361,6 +374,14 @@ class LogStore:
                 self.problems.append(f"`{point_dir.name}`: {exc}; its log checks were skipped.")
                 self._cache[point_dir] = None
         return self._cache[point_dir]
+
+    def track(self) -> None:
+        """Start recording, in :attr:`requested`, which logs are asked for."""
+        self.requested = set()
+
+    def unreadable(self, point_dirs: set[Path]) -> set[Path]:
+        """Those of *point_dirs* whose log was found but could not be parsed."""
+        return {d for d in point_dirs if d in self._cache and self._cache[d] is None}
 
     @staticmethod
     def find(point_dirs: list[tuple[Path, Path]], logs_dir: Path | None) -> dict[Path, Path]:

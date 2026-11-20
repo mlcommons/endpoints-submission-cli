@@ -22,6 +22,16 @@ _CORPUS = Path(__file__).resolve().parents[2] / "test_submissions"
 # ── Runner ────────────────────────────────────────────────────────────────────
 
 
+def test_a_file_that_is_not_utf8_is_a_note(tmp_path: Path) -> None:
+    root = write_submission(tmp_path / "sub", clean_curve())
+    (bad,) = [p for p in root.rglob("result_summary.json") if p.parent.name == "r64"]
+    bad.write_bytes(b'{"system_tps": "\xff\xfe"}')
+    report = review(root)
+    assert any("r64/result_summary.json" in n and "did not load" in n for n in report.notes)
+    statuses = {o.check: o.status for o in report.outcomes}
+    assert statuses["pareto_shape"] == "ran"
+
+
 def test_missing_summaries_skip_the_checks_and_say_why(tmp_path: Path) -> None:
     root = write_submission(tmp_path / "sub", clean_curve()[:3])
     for summary in root.rglob("result_summary.json"):

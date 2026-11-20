@@ -1,0 +1,21 @@
+{"event_type":"session.started","timestamp_ns":0,"sample_uuid":"","conversation_id":"","turn":null,"data":null}
+{"event_type":"session.phase_start","timestamp_ns":1,"sample_uuid":"","conversation_id":"","turn":null,"data":["PhaseData","warmup",true,2,0]}
+{"event_type":"sample.issued","timestamp_ns":2,"sample_uuid":"w1","conversation_id":"","turn":null,"data":["PromptData","[0123456789abcdef] Summarize: the cat sat.",null,null,null,null,null,null]}
+{"event_type":"sample.issued","timestamp_ns":3,"sample_uuid":"w2","conversation_id":"","turn":null,"data":["PromptData","A synthetic warmup prompt.",null,null,null,null,null,null]}
+{"event_type":"sample.recv_first","timestamp_ns":10,"sample_uuid":"w1","conversation_id":"","turn":null,"data":null}
+{"event_type":"sample.recv_first","timestamp_ns":11,"sample_uuid":"w2","conversation_id":"","turn":null,"data":null}
+{"event_type":"session.phase_start","timestamp_ns":20,"sample_uuid":"","conversation_id":"","turn":null,"data":["PhaseData","performance",true,2,0]}
+{"event_type":"session.start_performance_tracking","timestamp_ns":20,"sample_uuid":"","conversation_id":"","turn":null,"data":null}
+{"event_type":"sample.issued","timestamp_ns":21,"sample_uuid":"p1","conversation_id":"","turn":null,"data":["PromptData","Summarize: the cat sat.",null,null,null,null,null,null]}
+{"event_type":"sample.issued","timestamp_ns":22,"sample_uuid":"p2","conversation_id":"","turn":null,"data":["PromptData","Summarize: the dog ran.",null,null,null,null,null,null]}
+{"event_type":"sample.issued","timestamp_ns":23,"sample_uuid":"p3","conversation_id":"","turn":null,"data":["PromptData",null,null,[{"role":"user","content":"Call the tool."}],null,null,null,null]}
+{"event_type":"sample.recv_first","timestamp_ns":30,"sample_uuid":"p1","conversation_id":"","turn":null,"data":null}
+{"event_type":"sample.recv_non_first","timestamp_ns":31,"sample_uuid":"p1","conversation_id":"","turn":null,"data":null}
+{"event_type":"sample.recv_non_first","timestamp_ns":33,"sample_uuid":"p1","conversation_id":"","turn":null,"data":null}
+{"event_type":"sample.recv_first","timestamp_ns":32,"sample_uuid":"p2","conversation_id":"","turn":null,"data":null}
+{"event_type":"sample.recv_first","timestamp_ns":34,"sample_uuid":"p3","conversation_id":"","turn":null,"data":null}
+{"event_type":"sample.complete","timestamp_ns":40,"sample_uuid":"p2","conversation_id":"","turn":null,"data":["TextModelOutput",["\n","The dog ran."],["","Short."],null],"finish_reason":"stop","worker_id":1}
+{"event_type":"sample.complete","timestamp_ns":41,"sample_uuid":"p1","conversation_id":"","turn":null,"data":["TextModelOutput",["The"," cat sat."],null,null],"finish_reason":"stop","worker_id":0}
+{"event_type":"sample.complete","timestamp_ns":42,"sample_uuid":"p3","conversation_id":"","turn":null,"data":["TextModelOutput","",null,[[],[{"index":0,"function":{"name":"f","arguments":"{}"}}]]],"finish_reason":"tool_calls","worker_id":0}
+{"event_type":"session.stop_performance_tracking","timestamp_ns":50,"sample_uuid":"","conversation_id":"","turn":null,"data":null}
+{"event_type":"session.ended","timestamp_ns":51,"sample_uuid":"","conversation_id":"","turn":null,"data":null}

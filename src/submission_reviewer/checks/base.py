@@ -97,6 +97,9 @@ class PointMetrics:
         tpot_p50_ms: Median TPOT.
         implied_concurrency: ``latency.total / duration_ns``: the mean number of
             requests in flight, by Little's law.
+        e2e_avg_interactivity: The agentic metric (§4.1), output tokens per second
+            across completed turns, derived as §9.1 does; ``None`` when the summary
+            lacks its inputs.
     """
 
     point: Point
@@ -107,6 +110,7 @@ class PointMetrics:
     ttft_p90_ms: float | None
     tpot_p50_ms: float | None
     implied_concurrency: float | None
+    e2e_avg_interactivity: float | None = None
 
     @property
     def name(self) -> str:
@@ -137,6 +141,7 @@ def metrics(point: Point) -> PointMetrics:
         implied_concurrency=(
             latency_total / s.duration_ns if latency_total and s.duration_ns > 0 else None
         ),
+        e2e_avg_interactivity=_positive(s.e2e_avg_interactivity),
     )
 
 

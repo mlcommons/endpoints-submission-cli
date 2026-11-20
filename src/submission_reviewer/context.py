@@ -15,8 +15,10 @@ checker does.
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, TypeVar
 
 from submission_checker import layout
 from submission_checker.models.file import (
@@ -198,22 +200,37 @@ def _rel(path: Path, root: Path) -> str:
         return str(path)
 
 
+_Model = TypeVar("_Model")
+
+
+def _load(loader: Callable[..., tuple[_Model | None, Any]], *args: Any) -> _Model | None:
+    """Call one of the checker's loaders, and treat a file that is not UTF-8 as unloaded.
+
+    The loaders report parse and I/O errors as results but let ``UnicodeDecodeError``
+    through, and one such file must not stop the whole review.
+    """
+    try:
+        return loader(*args)[0]
+    except UnicodeDecodeError:
+        return None
+
+
 def _load_point(point_dir: Path, root: Path, notes: list[str]) -> Point:
     def note(filename: str, what: str) -> None:
         notes.append(f"`{_rel(point_dir / filename, root)}` {what}")
 
     yaml_path = point_dir / layout.POINT_YAML
-    config, _ = load_point_config(yaml_path, {"yaml_path": yaml_path})
+    config = _load(load_point_config, yaml_path, {"yaml_path": yaml_path})
     if config is None:
         note(layout.POINT_YAML, "did not load; the point's concurrency is read from its name.")
 
     summary_path = point_dir / layout.RESULT_SUMMARY_JSON
-    summary, _ = load_result_summary(summary_path)
+    summary = _load(load_result_summary, summary_path)
     if summary is None:
         note(layout.RESULT_SUMMARY_JSON, "did not load; the point is left out of metric checks.")
 
     desc_path = point_dir / layout.SYSTEM_DESC_JSON
-    system_desc, _ = load_system_description(desc_path)
+    system_desc = _load(load_system_description, desc_path)
     if system_desc is None and desc_path.exists():
         note(layout.SYSTEM_DESC_JSON, "did not load.")
 
@@ -233,7 +250,7 @@ def _load_power(system_dir: Path, root: Path, notes: list[str]) -> SystemPower |
     path = system_dir / layout.SYSTEM_POWER_JSON
     if not path.exists():
         return None  # optional outside Standardized; §9.1 reports a missing one
-    power, _ = load_system_power(path)
+    power = _load(load_system_power, path)
     if power is None:
         notes.append(f"`{_rel(path, root)}` did not load; it is left out of hardware checks.")
     return power

@@ -44,6 +44,15 @@ def test_identical_percentile_blocks(run_review) -> None:
     assert found.evidence["points"] == "r16,r64"
 
 
+def test_identical_output_lengths_are_not_flagged(run_review) -> None:
+    # A deterministic model on the same dataset gives the same lengths at any load.
+    lengths = {"total": 1.0, "percentiles": {"50": 180.0, "90": 240.0, "99": 300.0}}
+    specs = [
+        replace(spec, overrides={"output_sequence_lengths": {**lengths}}) for spec in clean_curve()
+    ]
+    assert titled(run_review(specs), "Identical output_sequence_lengths") == []
+
+
 def test_out_of_order_percentiles(run_review) -> None:
     specs = with_point(
         clean_curve(),

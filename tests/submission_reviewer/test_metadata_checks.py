@@ -5,12 +5,13 @@
 from __future__ import annotations
 
 import datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from submission_checker.cohorts import Cohort
-from submission_reviewer import Level
+from submission_reviewer import Level, text
 from submission_reviewer.text import (
     UrlProblem,
     accelerator_counts,
@@ -18,6 +19,7 @@ from submission_reviewer.text import (
     cohort_date,
     is_placeholder,
     name_key,
+    read_docs_text,
     url_problem,
 )
 
@@ -66,6 +68,15 @@ def test_accelerator_families_and_counts() -> None:
     assert accelerator_families("sys_gb300_72gpu") == set()
     assert accelerator_families("8x MI355X, TPU v5p pods") == {"MI355X", "TPUV5P"}
     assert accelerator_counts("2 nodes, 8x NVIDIA H100 each") == [(8, "H100")]
+
+
+def test_docs_reading_stops_at_the_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(text, "_DOC_BUDGET", 10)
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "a.md").write_text("a" * 6)
+    (tmp_path / "docs" / "b.json").write_text("b" * 1000)
+    (tmp_path / "docs" / "c.md").write_text("c" * 6)
+    assert read_docs_text(tmp_path) == "aaaaaa\nbbbb"
 
 
 def test_name_key() -> None:

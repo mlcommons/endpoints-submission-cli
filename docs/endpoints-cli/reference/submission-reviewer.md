@@ -29,7 +29,7 @@ checklist.
 | §9.2 focus area | Check | Needs | What it looks for |
 |---|---|---|---|
 | Pareto curve plausibility | `pareto_shape` | `result_summary.json` | Throughput dips that later recover; throughput growing faster than concurrency; per-user rate above what the median TPOT allows; TTFT falling as load rises; `tps_per_user` rising with load; dominated points; Little's law (`latency.total / duration` vs concurrency) |
-| Metric distributions | `metric_distributions` | `result_summary.json` | TTFT flat across a wide concurrency span; identical percentile blocks on different points; percentiles out of order or outside min/max; very narrow distributions; round throughput values |
+| Metric distributions | `metric_distributions` | `result_summary.json` | TTFT flat across a wide concurrency span; identical timing percentiles (TTFT, TPOT, latency) on different points; percentiles out of order or outside min/max; very narrow distributions; round throughput values |
 | TTFT-triggering fragments | `ttft_fragments` | `events.jsonl` | Share of responses whose first streamed fragment is only whitespace, punctuation or control characters; a long pause after the first chunk |
 | Duplicated or padded output | `output_padding` | `result_summary.json` | A point's mean output length out of line with its curve; most responses stopping at the token limit |
 | | `output_padding_text` | `events.jsonl` | Output repeating the reasoning trace; mostly-repeated passages; trailing filler |
@@ -105,7 +105,9 @@ repository (`endpoints_submissions`, and the test repository). That workflow sho
 - Check out the PR head with its full history (`fetch-depth: 0`), because the original
   submission is read from it, and with `persist-credentials: false`.
 - Install a pinned `endpoints-submission-cli` from PyPI into a virtual environment
-  outside the checkout.
+  outside the checkout, and run Python there with `-I`. `python -m venv` run from the
+  checkout would import a `venv.py` the submission ships, in a job holding a write
+  token.
 - Run `endpoints-submission-reviewer . --pr-base "$PR_BASE" -o review.md`, with
   `PR_BASE` set from `github.event.pull_request.base.sha` through `env`.
 - Post `review.md` as a PR comment, or update the earlier one. The comment starts with

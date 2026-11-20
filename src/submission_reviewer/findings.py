@@ -209,7 +209,8 @@ class CheckOutcome(BaseModel):
         check: The check's name.
         focus_area: The §9.2 focus area it informs.
         status: ``ran``; ``skipped`` when its inputs are absent; ``error`` when it raised.
-        reason: Why it was skipped or what went wrong; empty when it ran.
+        reason: Why it was skipped or what went wrong. For a check that ran, what it
+            could not cover (some unreadable logs); empty when it covered everything.
     """
 
     model_config = ConfigDict(frozen=True)

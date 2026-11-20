@@ -14,7 +14,9 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+from .logs import TAIL_CHARS
 
 __all__ = [
     "DistributionThresholds",
@@ -82,7 +84,7 @@ class LogThresholds(_Section):
     repetition_min_words: int
     repetition_share_note: float
     repetition_share_attention: float
-    filler_run: int
+    filler_run: int = Field(gt=0, le=TAIL_CHARS)
     filler_share_note: float
     filler_share_attention: float
     offline_cross_pass_note: float

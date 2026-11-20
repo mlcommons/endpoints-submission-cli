@@ -136,8 +136,9 @@ def _repetitive(text: str, t: LogThresholds) -> bool:
     return bool(shingles) and 1 - len(set(shingles)) / len(shingles) >= t.repetition_ratio
 
 
-def _filler(text: str, t: LogThresholds) -> bool:
-    tail = text[-t.filler_run :]
+def _filler(sample: SampleRecord, t: LogThresholds) -> bool:
+    # The kept texts are truncated; the tail holds the response's real end.
+    tail = (sample.tail or "")[-t.filler_run :]
     return len(tail) == t.filler_run and len(set(tail)) == 1
 
 
@@ -160,12 +161,15 @@ def _text_curve(curve: Curve, ctx: ReviewContext) -> list[Finding]:
         for key, hits in (
             ("dup", [s for _, s in texts if _duplicated(s, t)]),
             ("rep", [s for text, s in texts if _repetitive(text, t)]),
-            ("fill", [s for text, s in texts if _filler(text, t)]),
+            ("fill", [s for _, s in texts if _filler(s, t)]),
         ):
             if hits:
                 example = _example((hits[0].reasoning or "") + (hits[0].output or ""))
                 if key == "dup":
                     example = _example(hits[0].output or "")
+                elif key == "fill":
+                    # The end is the point, and stripping would erase a whitespace run.
+                    example = repr("…" + (hits[0].tail or "")[-60:])
                 rows[key].append((point.name, len(hits) / len(kept), len(kept), example))
 
     specs = {

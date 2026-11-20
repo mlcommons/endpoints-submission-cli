@@ -18,7 +18,15 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from .findings import FOCUS_AREAS, LEVEL_BADGE, LEVEL_ORDER, FocusArea, Level, ReviewReport
+from .findings import (
+    FOCUS_AREAS,
+    LEVEL_BADGE,
+    LEVEL_ORDER,
+    CheckOutcome,
+    FocusArea,
+    Level,
+    ReviewReport,
+)
 
 __all__ = ["MARKER", "MAX_COMMENT_CHARS", "render_comment"]
 
@@ -60,6 +68,14 @@ def _counts_line(report: ReviewReport) -> str:
     return " · ".join(parts)
 
 
+def _gap(outcome: CheckOutcome) -> str:
+    """What *outcome* left unevaluated, or ``""`` when its check covered everything."""
+    if outcome.status == "ran" and not outcome.reason:
+        return ""
+    verb = {"error": "failed", "skipped": "skipped", "ran": "covered only part"}
+    return f"`{outcome.check}` {verb[outcome.status]}: {outcome.reason}"
+
+
 def _area_section(area: FocusArea, report: ReviewReport) -> list[str]:
     found = sorted(
         (f for f in report.findings if f.focus_area == area.key),
@@ -74,16 +90,9 @@ def _area_section(area: FocusArea, report: ReviewReport) -> list[str]:
     ]
     if area.scope:
         lines += [f"Checked automatically: {area.scope}", ""]
-    skipped = [o for o in report.outcomes if o.focus_area == area.key and o.status != "ran"]
-    if skipped:
-        lines += [
-            "Not evaluated: "
-            + "; ".join(
-                f"`{o.check}` {'failed' if o.status == 'error' else 'skipped'}: {o.reason}"
-                for o in skipped
-            ),
-            "",
-        ]
+    gaps = [_gap(o) for o in report.outcomes if o.focus_area == area.key and _gap(o)]
+    if gaps:
+        lines += ["Not evaluated: " + "; ".join(gaps), ""]
     table = ["| | Where | Finding | Details |", "| --- | --- | --- | --- |"]
     for f in found[:MAX_ROWS_PER_AREA]:
         where = " ".join(part for part in (f"`{f.curve}`" if f.curve else "", f.point) if part)
@@ -128,12 +137,8 @@ def _report_section(report: ReviewReport) -> list[str]:
         elif not outcomes:
             manual.append(f"**{area.title}** — {area.question} {area.manual_note}".rstrip())
         else:
-            reasons = "; ".join(
-                f"`{o.check}` {'failed' if o.status == 'error' else 'skipped'}: {o.reason}"
-                for o in outcomes
-                if o.status != "ran"
-            )
-            if all(o.status == "ran" for o in outcomes):
+            reasons = "; ".join(_gap(o) for o in outcomes if _gap(o))
+            if not reasons:
                 clean.append(f"**{area.title}**" + (f" — {area.scope}" if area.scope else ""))
             elif any(o.status == "ran" for o in outcomes):
                 clean.append(f"**{area.title}** — partly; {reasons}")

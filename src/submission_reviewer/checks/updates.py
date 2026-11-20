@@ -203,6 +203,12 @@ def _metric_changes(
         ("system_tps", old.system_tps, new.system_tps, True),
         ("tps_per_user", old.tps_per_user, new.tps_per_user, True),
         ("ttft_p90_ms", old.ttft_p90_ms, new.ttft_p90_ms, False),
+        (
+            "e2e_avg_interactivity",
+            old.e2e_avg_interactivity,
+            new.e2e_avg_interactivity,
+            True,
+        ),
     ):
         if a is None or b is None or a <= 0:
             continue

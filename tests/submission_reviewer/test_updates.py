@@ -155,6 +155,25 @@ def test_performance_improvement_asks_for_attention(repo) -> None:
     assert found.detail.startswith("r64 (system_tps 6,243.9 → 7,492.7 (+20.0%))")
 
 
+def test_interactivity_improvement_asks_for_attention(repo) -> None:
+    repo_dir, root, _ = repo
+    summary = root / _CURVE / "r64" / "result_summary.json"
+
+    def agentic(seconds: float) -> Callable[[dict[str, Any]], None]:
+        def edit(body: dict[str, Any]) -> None:
+            body.update(output_tokens_per_turn_total=10_000, e2e_turn_time_seconds_total=seconds)
+
+        return edit
+
+    _edit_json(summary, agentic(100.0))
+    base = _commit(repo_dir, "Report the agentic totals")
+    # Only the per-turn time changes: throughput, TPOT and TTFT stay as they were.
+    _edit_json(summary, agentic(50.0))
+    _commit(repo_dir, "Halve the turn time")
+    (found,) = titled(review(root, base_ref=base), "Performance improved")
+    assert "e2e_avg_interactivity 100.0 → 200.0 (+100.0%)" in found.detail
+
+
 def test_regression_is_a_note(repo) -> None:
     repo_dir, root, base = repo
 

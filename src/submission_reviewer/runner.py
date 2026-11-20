@@ -15,6 +15,7 @@ from .context import (
     INPUT_POINT_CONFIGS,
     INPUT_SUMMARIES,
     INPUT_SYSTEM_DESCRIPTIONS,
+    ReviewContext,
     build_context,
 )
 from .findings import CheckOutcome, Finding, ReviewReport
@@ -34,6 +35,33 @@ _MISSING_INPUT: dict[str, str] = {
     INPUT_LOGS: "needs the per-request logs (events.jsonl), which are not in the submission "
     "(pass --logs-dir)",
 }
+
+
+def _ran(check: Check, ctx: ReviewContext) -> CheckOutcome:
+    """The outcome of a check that ran, accounting for the logs it could not read.
+
+    A log check that asked only for unreadable logs evaluated nothing, so it is
+    skipped; one that read only some of them covered the focus area in part.
+    """
+    if INPUT_LOGS in check.requires:
+        requested = ctx.logs.requested
+        unreadable = ctx.logs.unreadable(requested)
+        if unreadable and unreadable == requested:
+            return CheckOutcome(
+                check=check.name,
+                focus_area=check.focus_area,
+                status="skipped",
+                reason="no log it needed could be read (see the notes)",
+            )
+        if unreadable:
+            return CheckOutcome(
+                check=check.name,
+                focus_area=check.focus_area,
+                status="ran",
+                reason=f"{len(unreadable)} of {len(requested)} logs could not be read "
+                "(see the notes)",
+            )
+    return CheckOutcome(check=check.name, focus_area=check.focus_area, status="ran")
 
 
 def review(
@@ -73,6 +101,7 @@ def review(
                 )
             )
             continue
+        ctx.logs.track()
         try:
             found = check.run(ctx)
         except Exception as exc:  # isolate one check's failure from the rest
@@ -87,7 +116,7 @@ def review(
             )
             continue
         findings.extend(found)
-        outcomes.append(CheckOutcome(check=check.name, focus_area=check.focus_area, status="ran"))
+        outcomes.append(_ran(check, ctx))
     return ReviewReport(
         submission=ctx.label,
         findings=findings,
