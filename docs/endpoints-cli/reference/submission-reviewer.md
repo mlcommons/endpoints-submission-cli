@@ -3,8 +3,8 @@
 `endpoints-submission-reviewer` runs heuristics over an MLPerf Endpoints submission and
 reports what looks out of the ordinary for the **§9.2 Manual Review Focus Areas** of the
 [Endpoints Rules](https://github.com/mlcommons/endpoints_policies/blob/main/endpoints_rules.md#92-manual-review-focus-areas).
-On a review PR it posts the result as one comment, updated in place on every push, so
-reviewers know where to start.
+Its Markdown output is meant to be posted on the review PR as one comment, updated in
+place on every push, so reviewers know where to start.
 
 It complements the §9.1 checker (`check-submission`) and never replaces it:
 
@@ -12,7 +12,7 @@ It complements the §9.1 checker (`check-submission`) and never replaces it:
 |---|---|---|
 | Decides | Compliance; failures reject the submission | Nothing; every finding is a hint for a person |
 | Exit status | Non-zero on errors | 0 whatever it finds |
-| Review-repo workflow | `Check submission`, which gates the lifecycle | `Review hints`, advisory only |
+| Review-repo workflow | `Check submission`, which gates the lifecycle | Advisory only, under another name |
 
 The reviewer reads a submission exactly as the checker does (same loaders, same tree
 walk) but leniently. A file that does not load becomes a note, and only the checks that
@@ -92,65 +92,45 @@ and result files are extracted.
 Syncs never delete files on the branch, so a point withdrawn in storage still appears in
 the PR tree. `updates` reports only the removals that reach the branch.
 
-## The review-repo workflow
+## Running it on review PRs
 
-`.github/workflows/review-submission.yml` in this repository is a reusable workflow. In
-the review repository (`endpoints_submissions`, and the test repository), add:
+The command is meant to run on every review PR, from a workflow kept in the review
+repository (`endpoints_submissions`, and the test repository). That workflow should:
 
-```yaml
-# .github/workflows/review-hints.yml
-name: Review hints
-on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-permissions: {}
-jobs:
-  hints:
-    permissions:
-      contents: read
-      pull-requests: write
-    uses: mlcommons/endpoints-submission-cli/.github/workflows/review-submission.yml@v1.7.0.0
-    with:
-      cli-version: "1.7.0.0"   # pin the same release as the workflow ref
-```
-
-Choose names other than `Check submission` and `Run submission checker`. The lifecycle
-manager matches those exact names to hand a submission over to review, and a second
-workflow carrying them would confuse that gate.
-
-The job checks out the PR head with its full history, keeping no credentials. It
-installs the pinned CLI from PyPI into a virtual environment outside the checkout, and
-runs the reviewer with `--pr-base` set to the PR's base commit. It then posts or updates
-a comment. It finds its earlier comment by the hidden marker `<!-- submission-reviewer -->`,
-and only among comments written by `github-actions[bot]`. If the reviewer cannot run (for
-example, a placeholder PR with no results yet), it logs a warning and posts nothing.
-
-Inputs:
-
-| Input | Default | Meaning |
-|---|---|---|
-| `cli-version` | latest | `endpoints-submission-cli` version to install. Pin it. |
-| `path` | `.` | Where to look for submissions in the checkout. |
-| `logs-artifact` | none | An artifact, uploaded by an earlier job of the calling workflow, laid out like `results/` with each point's `events.jsonl`. Enables the four log checks. |
-| `thresholds-yaml` | none | YAML overriding any tolerance. |
+- Run on `pull_request` (`opened`, `synchronize`, `reopened`), only for the lifecycle
+  manager's branches: `if: startsWith(github.head_ref, 'submission/')`.
+- Use names other than `Check submission` and `Run submission checker`. The lifecycle
+  manager matches those exact names to hand a submission over to review, and a second
+  workflow carrying them would confuse that gate.
+- Check out the PR head with its full history (`fetch-depth: 0`), because the original
+  submission is read from it, and with `persist-credentials: false`.
+- Install a pinned `endpoints-submission-cli` from PyPI into a virtual environment
+  outside the checkout.
+- Run `endpoints-submission-reviewer . --pr-base "$PR_BASE" -o review.md`, with
+  `PR_BASE` set from `github.event.pull_request.base.sha` through `env`.
+- Post `review.md` as a PR comment, or update the earlier one. The comment starts with
+  the hidden marker `<!-- submission-reviewer -->`; look for it only among comments
+  written by `github-actions[bot]`, so a comment quoting it is never overwritten. This
+  needs `pull-requests: write`, and `contents: read` for the checkout.
+- Treat a non-zero exit as nothing to review (for example, a placeholder PR with no
+  results yet): log a warning and post nothing.
 
 ### Supplying the per-request logs
 
 The review PR holds what `submissions create` bundles, which does not include
 `events.jsonl`. The run archives in MLCommons storage do. Until the lifecycle manager
 ships the logs with the PR, the log checks are listed as *not evaluated*. To enable them,
-add a job before `hints` that downloads each point's `events.jsonl` (and
-`sample_idx_map.json`) into `<system>/<model>/r<N>/` and uploads the folder as an
-artifact. Then pass that artifact's name as `logs-artifact` and declare
-`needs: [that-job]`. That job needs storage credentials, so keep it out of the reviewer
-job.
+download each point's `events.jsonl` (and `sample_idx_map.json`) into
+`<system>/<model>/r<N>/` under one folder and pass it with `--logs-dir`. Downloading
+needs storage credentials, so do it in a separate job that hands the folder over as an
+artifact, and keep the credentials out of the reviewer job.
 
 ### Security
 
 The reviewer runs on content a submitter controls, and it only ever parses it:
 
-- No code from the PR runs. The CLI comes from PyPI, and checks only read files.
-- The checkout keeps no credentials.
+- No code from the PR runs: the checks only read files. Install the CLI from PyPI, never
+  from the checkout.
 - Git is used through read-only plumbing commands, with external diff drivers and
   textconv disabled.
 - Logs are streamed, and file sizes are bounded where it matters: extraction skips blobs
@@ -158,8 +138,8 @@ The reviewer runs on content a submitter controls, and it only ever parses it:
 
 Workflows triggered by `pull_request` run the workflow files from the PR's own branch.
 Anyone who can push to a `submission/<id>` branch could therefore change them. That is
-true of every workflow in the review repo, including `Check submission`. This job holds
-nothing beyond the `pull-requests: write` token.
+true of every workflow in the review repo, including `Check submission`, so give the
+reviewer's job nothing beyond the `pull-requests: write` token.
 
 ## Thresholds and calibration
 
