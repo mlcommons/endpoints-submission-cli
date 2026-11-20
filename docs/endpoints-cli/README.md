@@ -34,6 +34,7 @@ endpoints-submission-cli submissions create \
 | [Usage: submissions](usage/submissions.md) | All submission commands with flags and examples |
 | [API mapping](reference/api-mapping.md) | CLI command → HTTP endpoint reference |
 | [Architecture](reference/architecture.md) | Module map and command flow diagrams |
+| [Submission reviewer](reference/submission-reviewer.md) | §9.2 review hints on review PRs: checks, CLI, running on review PRs |
 
 The legacy combined reference is also available at [../endpoints-submission-cli.md](../endpoints-submission-cli.md).
 
