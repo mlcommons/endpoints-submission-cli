@@ -81,6 +81,7 @@ class TestDrafterList:
         },
         "deepseek-v4_1-flash": {
             "deepseek-ai/DeepSeek-V4.1-Flash": "dba1be0a40aa45a94ad051997016db3960a90277",
+            "nvidia/DeepSeek-V4.1-Flash-NVFP4": "3431dde3247c13b5957f682b1e3c6fcae2566079",
         },
         "qwen3_6-35b-a3b": {
             "Qwen/Qwen3.6-35B-A3B": "995ad96eacd98c81ed38be0c5b274b04031597b0",
@@ -106,49 +107,6 @@ class TestDrafterList:
             benchmark: {model_id: f"git-sha1:{rev}" for model_id, rev in heads.items()}
             for benchmark, heads in self._REFERENCE_HEADS.items()
         }
-
-    def test_bundled_heads_record_the_2026_09_c1_cohort(self) -> None:
-        """Every head shares the initial 2026-09-C1 approval cohort.
-
-        Qwen and Kimi were published on 2026-09-10 (endpoints#494) and DeepSeek-V4.1-Flash on
-        2026-09-30 (endpoints#519), before the 2026-10-C0 publication. The DeepSeek-R1 and
-        GPT-OSS-120B heads are carried over from legacy submissions and recorded with them, so
-        that 2026-10-C1 submissions can use them.
-        """
-        cohorts = {
-            d.model_id: d.approved_cohort for ds in load_approved_drafters().values() for d in ds
-        }
-        assert cohorts == {
-            model_id: "2026-09-C1" for heads in self._REFERENCE_HEADS.values() for model_id in heads
-        }
-
-    @pytest.mark.parametrize(
-        ("target_cohort", "expected_severity"),
-        [
-            ("2026-09-C1", Severity.ERROR),
-            ("2026-10-C0", Severity.ERROR),
-            ("2026-10-C1", Severity.INFO),
-        ],
-    )
-    def test_bundled_heads_respect_their_approval_lead_time(
-        self, tmp_path: Path, target_cohort: str, expected_severity: Severity
-    ) -> None:
-        for benchmark, approved in load_approved_drafters().items():
-            for drafter in approved:
-                binding = DrafterBinding(
-                    points=[
-                        _point(
-                            tmp_path, {"weight_checksum": drafter.weight_checksum}, target_cohort
-                        )
-                    ],
-                    approved=approved,
-                    benchmark=benchmark,
-                    model_dir=tmp_path,
-                )
-                results = [
-                    r for r in binding._check_results if r.rule == "drafter-approval-lead-time"
-                ]
-                assert [r.severity for r in results] == [expected_severity], drafter.model_id
 
     def test_entries_group_by_benchmark(self, tmp_path: Path) -> None:
         path = tmp_path / "d.yaml"

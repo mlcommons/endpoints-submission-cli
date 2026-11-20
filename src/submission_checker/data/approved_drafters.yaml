@@ -64,6 +64,10 @@ drafters:
     approved_cohort: 2026-09-C1
     model_id: deepseek-ai/DeepSeek-V4.1-Flash
     weight_checksum: git-sha1:dba1be0a40aa45a94ad051997016db3960a90277
+  - benchmark: deepseek-v4_1-flash
+    approved_cohort: 2026-11-C1
+    model_id: nvidia/DeepSeek-V4.1-Flash-NVFP4
+    weight_checksum: git-sha1:3431dde3247c13b5957f682b1e3c6fcae2566079
 
   # Qwen3.6-35B-A3B: the native MTP heads in each approved checkpoint (endpoints#494).
   - benchmark: qwen3_6-35b-a3b
