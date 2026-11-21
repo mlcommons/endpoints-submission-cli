@@ -34,7 +34,6 @@ uv sync --extra dev
 ## Requirements
 
 - Python 3.10 or later
-- [`gh` CLI](https://cli.github.com/) — required for creating, updating, and withdrawing submissions
 
 ## Authentication
 
