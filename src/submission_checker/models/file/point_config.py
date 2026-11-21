@@ -47,13 +47,6 @@ _VALID_OFFLINE = frozenset({OFFLINE_DEDICATED, OFFLINE_ELECTED, OFFLINE_NONE})
 #: §6.1's load patterns. Both are fixed-concurrency: "All measurement points except
 #: the Offline point must use the benchmark-defined fixed-concurrency load pattern …
 #: Other load patterns (``Poisson`` and similar) are not valid."
-#:
-#: §6.1 names only the generic pattern; ``agentic_inference`` is the name the reference
-#: implementation gives its fixed-concurrency agentic scheduler, and it is the *only*
-#: signal in any file this checker reads that distinguishes an agentic benchmark from a
-#: single-turn one. Four §9.1 rows turn on that distinction (§5.3's point minimum and
-#: accuracy count, §5.7's Offline point, §9.1's "Offline point present"), so it is read
-#: as the benchmark-type declaration until §8.3 grows an explicit field.
 LOAD_PATTERN_CONCURRENCY = "concurrency"
 LOAD_PATTERN_AGENTIC = "agentic_inference"
 _VALID_LOAD_PATTERNS = frozenset({LOAD_PATTERN_CONCURRENCY, LOAD_PATTERN_AGENTIC})

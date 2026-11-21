@@ -116,9 +116,14 @@ class TestTargetLookup:
 
 @pytest.mark.unit
 class TestGateScope:
+    @pytest.mark.parametrize("model", ["llama3_1-8b", "gpt-oss-120b", "deepseek-r1"])
+    def test_single_turn_model_rejects_agentic_runs(self, tmp_path: Path, model: str) -> None:
+        ctx = _ctx(tmp_path, model_name=model)
+        assert _errors(ctx, "benchmark-type-consistency")
+
     def test_single_turn_curve_is_untouched(self, tmp_path: Path) -> None:
         pts = [(tmp_path / "p.yaml", _config(concurrency=64))]
-        ctx = _model_ctx(tmp_path, model_name="kimi-k3", valid_points=pts)
+        ctx = _model_ctx(tmp_path, model_name="llama3_1-8b", valid_points=pts)
         assert not _hits(ctx, "agentic-accuracy-inline")
 
     def test_unknown_agentic_model_warns(self, tmp_path: Path) -> None:
