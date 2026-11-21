@@ -624,6 +624,44 @@ class TestSubmissionsCreate:
         assert meta["command"] == "create"
         assert "cli_version" in meta and "created_at" in meta
 
+    def test_shared_file_warning_uses_stderr(
+        self, run_archive: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        docs = tmp_path / "docs"
+        docs.mkdir()
+        (docs / "calibration.adoc").write_text("Updated calibration\n")
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        monkeypatch.setenv("FORCE_COLOR", "1")
+        with (
+            patch(
+                "endpoints_submission_cli.runs.api.download_run_archive", return_value=run_archive
+            ),
+            patch("endpoints_submission_cli.commands.submissions.create._run_submission_checker"),
+        ):
+            result = _runner.invoke(
+                app,
+                [
+                    "submissions",
+                    "create",
+                    "--division",
+                    "standardized",
+                    "--scenario",
+                    "cop",
+                    "--availability",
+                    "available",
+                    "--run-ids",
+                    RUN_ID,
+                    "--shared-docs",
+                    str(docs),
+                    "--dry-run",
+                    *_TOKEN_ARGS,
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        assert "WARNING" in result.stderr
+        assert "\x1b[" in result.stderr
+        assert "WARNING" not in result.stdout
+
     def test_shared_tree_flags_reach_the_builder(self, tmp_path: Path) -> None:
         """``--shared-src`` / ``--shared-docs`` are passed through as given, repeatably."""
         import contextlib
