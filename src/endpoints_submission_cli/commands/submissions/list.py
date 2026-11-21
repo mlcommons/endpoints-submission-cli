@@ -24,7 +24,13 @@ __all__ = ["submissions_list"]
     help="PRISM API key (mlc_...).",
 )
 @click.option("-j", "--json", "as_json", is_flag=True, default=False, help="Output raw JSON.")
-def submissions_list(token: str | None, as_json: bool) -> None:
+@click.option(
+    "--status",
+    "statuses",
+    multiple=True,
+    help="Filter by status. Repeat to include more. SUBMITTED includes compliance and review.",
+)
+def submissions_list(token: str | None, as_json: bool, statuses: tuple[str, ...]) -> None:
     """List all submissions for the authenticated user."""
     resolved_token = _get_token(token)
     try:
@@ -32,6 +38,13 @@ def submissions_list(token: str | None, as_json: bool) -> None:
     except APIError as exc:
         _console.print(f"[bold red]Error:[/bold red] {exc}")
         sys.exit(1)
+
+    if statuses:
+        selected = {status.upper() for status in statuses}
+        if "SUBMITTED" in selected:
+            selected.remove("SUBMITTED")
+            selected.update({"COMPLIANCE_CHECKING", "REVIEW_PENDING"})
+        sub_list = [sub for sub in sub_list if sub.get("status") in selected]
 
     if as_json:
         output_json(sub_list)

@@ -28,12 +28,13 @@ Additional statuses set by the review workflow (server-side, not by the CLI):
 List all submissions for the authenticated account.
 
 ```bash
-endpoints-submission-cli submissions list [--token TOKEN] [-j]
+endpoints-submission-cli submissions list [--token TOKEN] [--status STATUS] [-j]
 ```
 
 | Flag | Description |
 |---|---|
 | `--token TOKEN` | API key. Falls back to `PRISM_USER_API_TOKEN`. |
+| `--status STATUS` | Filter by status, ignoring case. Repeat to include more statuses. `SUBMITTED` includes `COMPLIANCE_CHECKING` and `REVIEW_PENDING`. |
 | `-j` / `--json` | Print raw JSON instead of the Rich table. |
 
 **Example:**
@@ -42,6 +43,8 @@ endpoints-submission-cli submissions list [--token TOKEN] [-j]
 endpoints-submission-cli submissions list
 
 endpoints-submission-cli submissions list -j
+
+endpoints-submission-cli submissions list --status SUBMITTED
 ```
 
 ---
