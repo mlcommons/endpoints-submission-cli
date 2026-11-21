@@ -491,9 +491,7 @@ validation by the service or reviewers.
 | `load-pattern` | §6.1 | `load_pattern` is `concurrency` or `agentic_inference`, with a positive level |
 | `streaming-config` | §6.5 | Reports client IPC chunk forwarding; either flag value is accepted and neither proves server streaming |
 | `point-duration` | §6.2 | Steady-state window's issue-time span meets the region minimum: 600 s at concurrency ≤ 32, otherwise 1,200 s, or 2,400 s for agentic (warn) |
-| `steady-state-valid` | §4.4 | `status`, `verdict` and gating `state` use the spec's vocabulary |
-| `steady-state-consistency` | §4.4 | The reported status agrees with the window it describes |
-| `steady-state-basis` | §4.4 | Which basis supplies the official result; flags fallbacks and drift (warn) |
+| `steady-state-basis` | §4.4 | Reads the client's verdict from `result_summary.json` and reports which basis supplies the official result; flags fallbacks and drift. Fixed-concurrency points only (warn) |
 | `min-query-count` | §6.4 | `n_samples_completed` meets the dataset minimum |
 | `warmup-present` | §6.3.3 | Warmup declaration present; concurrency zero is valid only with zero duration and request counts |
 | `warmup-logs-retained` | §6.3.2 | Warmup log retention declared when warmup was performed (warn) |

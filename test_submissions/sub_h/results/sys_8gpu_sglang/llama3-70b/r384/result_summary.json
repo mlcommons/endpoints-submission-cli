@@ -25,5 +25,42 @@
     }
   },
   "system_tps": 9928.3767,
-  "tps_per_user": 181.8182
+  "tps_per_user": 181.8182,
+  "steady_state": {
+    "found": true,
+    "reason": null,
+    "superpass_size": 1000,
+    "n_super_passes": 5,
+    "warmup": 1,
+    "window": {
+      "sp_lo": 0,
+      "sp_hi": 4,
+      "n_super_passes": 4,
+      "n_samples": 4000,
+      "start_ns": 1000000000000,
+      "end_ns": 2200000000000,
+      "plateau_index": 0,
+      "n_plateaus": 1,
+      "skipped_short": 0
+    },
+    "anomaly": {
+      "detected": false,
+      "change_point_sp": null,
+      "delta_pct": 0.0,
+      "pettitt": null,
+      "plateaus": [
+        [
+          0,
+          4
+        ]
+      ]
+    },
+    "global_trend": {
+      "ttft_p50": "steady",
+      "ttft_p90": "steady",
+      "tpot_p50": "steady",
+      "tpot_p90": "steady"
+    },
+    "drifting_up": []
+  }
 }

@@ -45,6 +45,9 @@ What it does, per submission tree:
 11. **Exactly ``N`` accuracy results** (§4.3, §5.3). v0.7 ran accuracy at most points;
     v1.0 allows one per mandatory band plus the Offline point and none at a
     submitter's-choice point, so the surplus ``accuracy_results.json`` files are removed.
+12. **§4.4 verdict in ``result_summary.json``.** The checker reads the steady-state
+    verdict where the client writes it, so each summary gains a clean ``windowable``
+    block in the client's shape and ``point.yaml`` loses the hand-written one.
 
 Run with ``uv run python tests/tools/regenerate_fixtures.py``; ``--check`` exits 1 if
 anything would change, which is what the idempotence test asserts.
@@ -237,6 +240,7 @@ def _regenerate_curve(
         changes += _write_json(point_dir / layout.SYSTEM_DESC_JSON, desc, dry_run=dry_run)
 
         summary = _modernise_summary(summaries[point_dir], legacy_meta)
+        summary = _with_steady_state(summary, point_dir)
         changes += _write_json(point_dir / layout.RESULT_SUMMARY_JSON, summary, dry_run=dry_run)
 
         changes += _write_point_yaml(point_dir, concurrency, base_desc, seed_set, dry_run=dry_run)
@@ -604,6 +608,60 @@ def _modernise_summary(summary: dict[str, Any], legacy_meta: dict[str, Any]) -> 
     return out
 
 
+def _with_steady_state(summary: dict[str, Any], point_dir: Path) -> dict[str, Any]:
+    """Give the summary a §4.4 verdict in the shape the client writes.
+
+    The corpus is synthetic, so the verdict is a clean ``windowable`` result: the point
+    of the fixtures is to exercise the rules, and a corpus that fell back to ``total``
+    everywhere would never reach them. The window spans four super-passes after one
+    warmup super-pass and lasts the point's ``min_duration_ms`` (1,200 s when unset).
+    """
+    if "steady_state" in summary:
+        return summary
+    path = point_dir / layout.POINT_YAML
+    point = yaml.safe_load(path.read_text()) if path.exists() else None
+    runtime_settings = point.get("runtime_settings") if isinstance(point, dict) else None
+    min_ms = (runtime_settings or {}).get("min_duration_ms") or 0
+    duration_ns = int(float(min_ms) * 1e6) or 1_200_000_000_000
+    start_ns = 1_000_000_000_000
+    steady = "steady"
+    return {
+        **summary,
+        "steady_state": {
+            "found": True,
+            "reason": None,
+            "superpass_size": 1000,
+            "n_super_passes": 5,
+            "warmup": 1,
+            "window": {
+                "sp_lo": 0,
+                "sp_hi": 4,
+                "n_super_passes": 4,
+                "n_samples": 4000,
+                "start_ns": start_ns,
+                "end_ns": start_ns + duration_ns,
+                "plateau_index": 0,
+                "n_plateaus": 1,
+                "skipped_short": 0,
+            },
+            "anomaly": {
+                "detected": False,
+                "change_point_sp": None,
+                "delta_pct": 0.0,
+                "pettitt": None,
+                "plateaus": [[0, 4]],
+            },
+            "global_trend": {
+                "ttft_p50": steady,
+                "ttft_p90": steady,
+                "tpot_p50": steady,
+                "tpot_p90": steady,
+            },
+            "drifting_up": [],
+        },
+    }
+
+
 def _dataset_type(value: object) -> str:
     """Normalise a dataset_type to one of §8.3's three spellings."""
     text = str(value or "Performance").strip().lower()
@@ -680,29 +738,8 @@ def _write_point_yaml(
     runtime_settings["runtime"] = runtime
     point["runtime_settings"] = runtime_settings
 
-    # §4.4 makes the steady-state window the official reporting basis. The corpus is
-    # synthetic, so the block is synthesised as a clean `windowable` result: the point
-    # of the fixtures is to exercise the rules, and a corpus that fell back to `total`
-    # everywhere would never reach them.
-    if "steady_state" not in point:
-        duration_s = float(point.get("runtime_settings", {}).get("min_duration_ms", 0)) / 1000.0
-        point["steady_state"] = {
-            "status": "windowable",
-            "verdict": "STEADY STATE",
-            "window": {
-                "super_pass_start": 1,
-                "super_pass_end": 4,
-                "super_pass_size": 1000,
-                "n_samples": 4000,
-                "duration_s": duration_s or 1200.0,
-            },
-            "state": {
-                "ttft_p50": "Plateau",
-                "ttft_p90": "Plateau",
-                "tpot_p50": "Plateau",
-                "tpot_p90": "Plateau",
-            },
-        }
+    # The §4.4 verdict now lives in result_summary.json (see _with_steady_state).
+    point.pop("steady_state", None)
 
     warmup = point.get("warmup")
     if isinstance(warmup, dict):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
@@ -77,6 +78,17 @@ class PointSummary(BaseModel):
     #: e2e_turn_time excludes tool-call execution time.
     output_tokens_per_turn_total: float | None = None
     e2e_turn_time_seconds_total: float | None = None
+
+    #: §4.4 verdict, as the client writes it. ``None`` when detection did not run;
+    #: absent altogether from clients that predate it (see :attr:`has_steady_state_key`).
+    #: Kept raw so a malformed block is reported by ``steady-state-basis`` rather than
+    #: failing the whole summary.
+    steady_state: Any = None
+
+    @property
+    def has_steady_state_key(self) -> bool:
+        """True when the summary carries ``steady_state`` at all, even as ``null``."""
+        return "steady_state" in self.model_fields_set
 
     @computed_field  # type: ignore[prop-decorator]
     @property
