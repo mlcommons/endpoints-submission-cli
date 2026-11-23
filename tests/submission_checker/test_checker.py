@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 import yaml
 
 from submission_checker import layout
-from submission_checker.checker import SubmissionChecker
+from submission_checker.checker import (
+    SubmissionChecker,
+    _point_parallelism,
+    _system_desc_identity,
+)
 from submission_checker.messages import Invalid
 from submission_checker.models import CheckResult, Report, Severity
 
@@ -849,3 +854,164 @@ def test_fixture_error_profile(request, fixture_name, expected):
         f"{fixture_name}: unexpected {sorted(actual - expected)}, "
         f"missing {sorted(expected - actual)}"
     )
+
+
+@pytest.mark.unit
+class TestParallelismPlacement:
+    """§8.2.1 declares the parallelism fields inside each ``node_types`` entry.
+
+    Older bundles carry them at the top level, with ``config_summary`` as a further
+    fallback, and both have to keep working.
+    """
+
+    @staticmethod
+    def _desc(tmp_path: Path, **top: Any) -> Path:
+        path = tmp_path / "system_desc.json"
+        path.write_text(json.dumps({"node_types": [], **top}))
+        return path
+
+    def test_node_types_placement_is_read(self, tmp_path: Path) -> None:
+        path = self._desc(
+            tmp_path,
+            node_types=[{"tensor_parallel": 8, "data_parallel": 2, "disaggregated": 0}],
+        )
+
+        para = _point_parallelism(path)
+
+        assert para is not None
+        assert para.tensor_parallel == 8
+        assert para.data_parallel == 2
+        assert para.disaggregated is False
+        # §4.5.3: A_replica = TP·PP·EP, A_used = DP·A_replica.
+        assert para.replica == 8
+        assert para.accelerators_used == 16
+
+    def test_top_level_placement_still_works(self, tmp_path: Path) -> None:
+        path = self._desc(tmp_path, tensor_parallel=8, data_parallel=2)
+
+        para = _point_parallelism(path)
+
+        assert para is not None
+        assert para.tensor_parallel == 8
+        assert para.accelerators_used == 16
+
+    def test_config_summary_is_still_the_last_fallback(self, tmp_path: Path) -> None:
+        path = self._desc(tmp_path, config_summary={"tensor_parallel": 4})
+
+        para = _point_parallelism(path)
+
+        assert para is not None
+        assert para.tensor_parallel == 4
+
+    def test_node_types_wins_over_the_top_level(self, tmp_path: Path) -> None:
+        """The node-type placement is the current format, so it is the one believed."""
+        path = self._desc(
+            tmp_path,
+            tensor_parallel=2,
+            config_summary={"tensor_parallel": 3},
+            node_types=[{"tensor_parallel": 8}],
+        )
+
+        para = _point_parallelism(path)
+
+        assert para is not None
+        assert para.tensor_parallel == 8
+
+    def test_the_two_placements_mix_per_field(self, tmp_path: Path) -> None:
+        """A bundle part-way through the move still resolves every field."""
+        path = self._desc(tmp_path, data_parallel=2, node_types=[{"tensor_parallel": 8}])
+
+        para = _point_parallelism(path)
+
+        assert para is not None
+        assert (para.tensor_parallel, para.data_parallel) == (8, 2)
+
+    def test_agreeing_node_types_resolve(self, tmp_path: Path) -> None:
+        path = self._desc(
+            tmp_path,
+            node_types=[{"tensor_parallel": 4}, {"tensor_parallel": 4}],
+        )
+
+        para = _point_parallelism(path)
+
+        assert para is not None
+        assert para.tensor_parallel == 4
+
+    def test_disagreeing_node_types_decline_rather_than_pick(self, tmp_path: Path) -> None:
+        """§4.5.3 computes one A_replica for the whole SUT, so there is no honest
+        single answer. Normalising against a replica size no node type has would be
+        worse than skipping the check."""
+        path = self._desc(
+            tmp_path,
+            node_types=[{"tensor_parallel": 4}, {"tensor_parallel": 8}],
+        )
+
+        assert _point_parallelism(path) is None
+
+    def test_any_disaggregated_node_type_disaggregates_the_sut(self, tmp_path: Path) -> None:
+        path = self._desc(
+            tmp_path,
+            node_types=[
+                {"tensor_parallel": 4, "disaggregated": 0},
+                {"tensor_parallel": 4, "disaggregated": 2},
+            ],
+        )
+
+        para = _point_parallelism(path)
+
+        assert para is not None
+        assert para.disaggregated is True
+
+    def test_declaring_nothing_is_still_none(self, tmp_path: Path) -> None:
+        assert _point_parallelism(self._desc(tmp_path)) is None
+
+    def test_a_node_types_config_summary_is_read(self, tmp_path: Path) -> None:
+        """§8.2.1 keeps config_summary beside the fields it concatenates."""
+        path = self._desc(tmp_path, node_types=[{"config_summary": {"tensor_parallel": 4}}])
+
+        para = _point_parallelism(path)
+
+        assert para is not None
+        assert para.tensor_parallel == 4
+
+    def test_a_node_types_own_field_beats_its_config_summary(self, tmp_path: Path) -> None:
+        path = self._desc(
+            tmp_path,
+            node_types=[{"tensor_parallel": 8, "config_summary": {"tensor_parallel": 4}}],
+        )
+
+        para = _point_parallelism(path)
+
+        assert para is not None
+        assert para.tensor_parallel == 8
+
+
+@pytest.mark.unit
+class TestSystemDescIdentity:
+    """Per-point fields are stripped at both depths, so §8.5's cross-point comparison
+    does not fire on a frontier that tunes its replica size per point.
+    """
+
+    def test_node_types_parallelism_is_not_part_of_identity(self) -> None:
+        a = {"system_name": "s", "node_types": [{"host_networking": "eth", "tensor_parallel": 4}]}
+        b = {"system_name": "s", "node_types": [{"host_networking": "eth", "tensor_parallel": 8}]}
+
+        assert _system_desc_identity(a) == _system_desc_identity(b)
+
+    def test_node_types_config_summary_is_not_part_of_identity(self) -> None:
+        a = {"node_types": [{"cooling": "air", "config_summary": "TP=4"}]}
+        b = {"node_types": [{"cooling": "air", "config_summary": "TP=8"}]}
+
+        assert _system_desc_identity(a) == _system_desc_identity(b)
+
+    def test_real_hardware_differences_still_count(self) -> None:
+        a = {"node_types": [{"cooling": "air", "tensor_parallel": 4}]}
+        b = {"node_types": [{"cooling": "liquid", "tensor_parallel": 4}]}
+
+        assert _system_desc_identity(a) != _system_desc_identity(b)
+
+    def test_a_malformed_node_types_is_passed_through(self) -> None:
+        """The identity helper must not be the thing that raises on bad input."""
+        data = {"node_types": ["not-an-object"]}
+
+        assert _system_desc_identity(data) == data
