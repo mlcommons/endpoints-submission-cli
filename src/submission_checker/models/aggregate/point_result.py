@@ -139,7 +139,14 @@ class PointResult(BaseModel):
 
     @model_validator(mode="after")
     def _check_min_query_count(self, info: ValidationInfo) -> PointResult:
-        """§12: n_samples_completed must meet the dataset's minimum query count (§6.4).
+        """§12: sample counts must satisfy the dataset's §6.4 requirements.
+
+        Two conditions, each reported on its own:
+
+        - ``n_samples_completed`` meets the dataset's minimum query count;
+        - ``n_samples_issued`` is a positive integer multiple of the dataset size
+          ("the total number of samples issued MUST be a positive integer multiple
+          of the dataset size"), so no point runs a fractional dataset pass.
 
         Skipped when the dataset is not in MIN_QUERY_COUNT (unknown datasets are
         not yet mapped; add them as the spec is ratified).
@@ -150,7 +157,11 @@ class PointResult(BaseModel):
         if min_queries is None:
             return self
         completed = self.summary.n_samples_completed
+        issued = self.summary.n_samples_issued
+        passes, remainder = divmod(issued, min_queries)
+        failed = False
         if completed < min_queries:
+            failed = True
             self._check_results.append(
                 err(
                     "min-query-count",
@@ -161,7 +172,20 @@ class PointResult(BaseModel):
                     min_queries=min_queries,
                 )
             )
-        else:
+        if passes < 1 or remainder != 0:
+            failed = True
+            self._check_results.append(
+                err(
+                    "min-query-count",
+                    "fail-2",
+                    summary_path,
+                    dataset=dataset,
+                    issued=issued,
+                    min_queries=min_queries,
+                    ratio=issued / min_queries,
+                )
+            )
+        if not failed:
             self._check_results.append(
                 ok(
                     "min-query-count",
@@ -170,6 +194,8 @@ class PointResult(BaseModel):
                     dataset=dataset,
                     completed=completed,
                     min_queries=min_queries,
+                    issued=issued,
+                    passes=passes,
                 )
             )
         return self

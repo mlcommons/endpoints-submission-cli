@@ -396,7 +396,7 @@ class TestMinQueryCountValidator:
             run_result = PointResult.model_validate(
                 {
                     "config": _config_with_dataset(dataset),
-                    "summary": _summary(n_completed=min_q),
+                    "summary": _summary(n_completed=min_q, n_issued=min_q),
                     "yaml_path": tmp_path / "run_64.yaml",
                 },
                 context={"summary_path": tmp_path / "summary.json"},
@@ -449,7 +449,11 @@ class TestMinQueryCountValidator:
         )
 
         ok_result = PointResult.model_validate(
-            {"config": _config_with_dataset("aime25"), "summary": _summary(n_completed=30), **base},
+            {
+                "config": _config_with_dataset("aime25"),
+                "summary": _summary(n_completed=30, n_issued=30),
+                **base,
+            },
             context=ctx,
         )
         assert not any(
@@ -472,12 +476,47 @@ class TestMinQueryCountValidator:
         )
 
         ok_result = PointResult.model_validate(
-            {"config": _config_with_dataset("gpqa"), "summary": _summary(n_completed=198), **base},
+            {
+                "config": _config_with_dataset("gpqa"),
+                "summary": _summary(n_completed=198, n_issued=198),
+                **base,
+            },
             context=ctx,
         )
         assert not any(
             r.rule == "min-query-count" and r.severity == Severity.ERROR
             for r in ok_result._check_results
+        )
+
+    @pytest.mark.parametrize("passes", [1, 2, 3])
+    def test_issued_whole_multiple_ok(self, tmp_path, passes):
+        """§6.4: issuing a positive whole number of dataset passes is accepted."""
+        issued = 198 * passes
+        run_result = PointResult.model_validate(
+            {
+                "config": _config_with_dataset("gpqa"),
+                "summary": _summary(n_completed=issued, n_issued=issued),
+                "yaml_path": tmp_path / "run_64.yaml",
+            },
+            context={"summary_path": tmp_path / "summary.json"},
+        )
+        results = [r for r in run_result._check_results if r.rule == "min-query-count"]
+        assert results and all(r.severity != Severity.ERROR for r in results)
+
+    @pytest.mark.parametrize("issued", [0, 99, 247, 341, 445])
+    def test_issued_fractional_multiple_errors(self, tmp_path, issued):
+        """§6.4: 0, 0.5, 1.25, 1.72 and 2.25 dataset passes are all rejected (#167)."""
+        run_result = PointResult.model_validate(
+            {
+                "config": _config_with_dataset("gpqa"),
+                "summary": _summary(n_completed=198, n_issued=issued, n_failed=0),
+                "yaml_path": tmp_path / "run_64.yaml",
+            },
+            context={"summary_path": tmp_path / "summary.json"},
+        )
+        assert any(
+            r.rule == "min-query-count" and r.severity == Severity.ERROR and r.key == "fail-2"
+            for r in run_result._check_results
         )
 
 
