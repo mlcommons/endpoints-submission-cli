@@ -70,6 +70,16 @@ def test_text_budget(tmp_path: Path) -> None:
     assert (p2.tail, p1.tail) == ("Short.\nThe dog ran.", None)
 
 
+@pytest.mark.parametrize(
+    "content", ["", "garbage\n" * 5, '{"foo": 1}\n' * 20], ids=["empty", "garbage", "unrelated"]
+)
+def test_a_log_without_sample_events_is_rejected(tmp_path: Path, content: str) -> None:
+    log = tmp_path / "events.jsonl"
+    log.write_text(content)
+    with pytest.raises(LogError):
+        parse_events(log)
+
+
 def test_not_an_events_log(tmp_path: Path) -> None:
     junk = tmp_path / "events.jsonl"
     junk.write_text("not json\n" * 20)
@@ -213,11 +223,14 @@ def _no_warmup(config: dict[str, Any], concurrency: int) -> None:
 
 
 def test_clean_logs_have_no_findings(logged) -> None:
-    report = logged({64: build_log(), 256: build_log()}, edit_config=_no_warmup)
+    every_point = {spec.concurrency: build_log() for spec in clean_curve()}
+    report = logged(every_point, edit_config=_no_warmup)
     assert report.findings == []
-    statuses = {o.check: o.status for o in report.outcomes}
-    for name in ("ttft_fragments", "output_padding_text", "offline_reordering", "warmup_prompts"):
-        assert statuses[name] == "ran"
+    outcomes = {o.check: (o.status, o.reason) for o in report.outcomes}
+    for name in ("ttft_fragments", "output_padding_text", "warmup_prompts"):
+        assert outcomes[name] == ("ran", "")
+    # The clean curve has no dedicated Offline point to check.
+    assert outcomes["offline_reordering"] == ("skipped", "no point it applies to")
 
 
 # ── TTFT fragments ────────────────────────────────────────────────────────────
@@ -422,19 +435,29 @@ def _outcome(report, check: str):
     return outcome
 
 
-def test_only_unreadable_logs_skip_the_log_checks(tmp_path: Path) -> None:
+def test_only_unusable_logs_skip_the_log_checks(tmp_path: Path) -> None:
     root = write_submission(tmp_path / "sub", clean_curve(), edit_config=_no_warmup)
-    (root / _CURVE / "r64" / "events.jsonl").write_text("garbage\n" * 50)
+    (root / _CURVE / "r64" / "events.jsonl").write_text("")  # no sample events
     outcome = _outcome(review(root), "ttft_fragments")
-    assert (outcome.status, "could be read" in outcome.reason) == ("skipped", True)
+    assert outcome.status == "skipped"
+    assert "unreadable log for r64 (see the notes)" in outcome.reason
+    assert "no log for r1, r4, r16, r256, r1024" in outcome.reason
 
 
-def test_some_unreadable_logs_are_partial_coverage(tmp_path: Path) -> None:
+def test_missing_logs_are_partial_coverage(tmp_path: Path) -> None:
     root = write_submission(tmp_path / "sub", clean_curve(), edit_config=_no_warmup)
-    (root / _CURVE / "r64" / "events.jsonl").write_text("garbage\n" * 50)
-    (root / _CURVE / "r16" / "events.jsonl").write_text("\n".join(build_log()) + "\n")
+    _put(root, 64, build_log())
     outcome = _outcome(review(root), "ttft_fragments")
-    assert (outcome.status, outcome.reason.startswith("1 of 2 logs")) == ("ran", True)
+    points = len(clean_curve())
+    assert outcome.status == "ran"
+    assert outcome.reason == f"1 of {points} points evaluated; no log for r1, r4, r16, r256, r1024"
+
+
+def test_offline_point_without_a_log_is_not_checked(tmp_path: Path) -> None:
+    root = write_submission(tmp_path / "sub", _offline_specs(), edit_config=_no_warmup)
+    _put(root, 64, build_log())
+    outcome = _outcome(review(root), "offline_reordering")
+    assert (outcome.status, outcome.reason) == ("skipped", "no log for r5000")
 
 
 def test_cli_logs_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

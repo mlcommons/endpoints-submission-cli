@@ -96,6 +96,24 @@ def _updates(report):
 # ── Running or not ────────────────────────────────────────────────────────────
 
 
+def test_unreadable_original_files_are_reported(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "submission/abc")
+    root = write_submission(repo / "ACME" / "abc", clean_curve())
+    summary = root / _CURVE / "r64" / "result_summary.json"
+    good = summary.read_text()
+    summary.write_text("{not json")
+    base = _commit(repo, "Original submission")
+    summary.write_text(good)
+    _commit(repo, "Repair r64")
+    report = review(root, base_ref=base)
+    assert any(
+        n.startswith(f"In the original submission (`{base}`)") and "r64/result_summary.json" in n
+        for n in report.notes
+    )
+
+
 def test_skipped_without_a_base_ref(repo) -> None:
     _, root, _ = repo
     (outcome,) = [o for o in review(root).outcomes if o.check == "updates"]
@@ -217,6 +235,23 @@ def test_hardware_software_and_cosmetic_edits_are_graded(repo) -> None:
     assert "`node_types[0].driver`: 1.0 → 560.10" in stack.detail
     assert "`system_name`" in other.detail
     assert system.curve == SYSTEM
+
+
+def test_concurrency_bounds_are_compared_on_every_curve(repo) -> None:
+    repo_dir, root, _ = repo
+    second = root / "results" / SYSTEM / "other-model"
+    shutil.copytree(root / _CURVE, second)
+    base = _commit(repo_dir, "Add a second curve on the same system")
+
+    def raise_cmax(desc: dict[str, Any]) -> None:
+        desc["max_supported_concurrency"] *= 2
+
+    for path in second.glob("r*/system_desc.json"):
+        _edit_json(path, raise_cmax)
+    _commit(repo_dir, "Raise C_max on the second curve")
+    (found,) = titled(review(root, base_ref=base), "Declared concurrency bounds changed")
+    assert (found.level, found.curve) == (Level.ATTENTION, f"{SYSTEM}/other-model")
+    assert "max_supported_concurrency" in found.detail
 
 
 def test_points_added_and_removed(repo) -> None:

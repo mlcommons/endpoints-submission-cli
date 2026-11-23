@@ -269,6 +269,8 @@ def _load_base(
     except history.GitError as exc:
         notes.append(f"The original submission could not be read from `{base_ref}`: {exc}.")
         return None, ()
+    # Without these, a comparison missing for an unreadable original goes unexplained.
+    notes.extend(f"In the original submission (`{base_ref}`): {note}" for note in base.notes)
     return base, changes
 
 

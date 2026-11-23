@@ -208,7 +208,7 @@ def test_prose_names_another_accelerator(run_review) -> None:
 def test_prose_count_matches_no_node_type(run_review) -> None:
     report = run_review(edit_desc=_desc(node_config="4x H100 per node"))
     (found,) = titled(report, "Prose contradicts")
-    assert "says 4× H100, but the node types declare 8" in found.detail
+    assert "says 4× H100, but the node types declare 8 H100" in found.detail
 
 
 def test_prose_total_count_is_accepted(run_review) -> None:
@@ -220,6 +220,71 @@ def test_prose_total_count_is_accepted(run_review) -> None:
         p["node_sets"][0]["nodes_provisioned"] = 2
 
     assert titled(run_review(edit_desc=edit, edit_power=power), "Prose contradicts") == []
+
+
+def test_node_count_comes_from_the_ensemble_total(run_review) -> None:
+    # number_of_nodes is optional: with one node type, the total says it has 2 nodes.
+    def edit(desc: dict[str, Any]) -> None:
+        del desc["node_types"][0]["number_of_nodes"]
+        desc["config_summary"]["tensor_parallel"] = 16
+        desc.update(system_node_ensemble_total=2, system_size="2 nodes", node_config="16x H100")
+
+    def power(p: dict[str, Any]) -> None:
+        p["node_sets"][0]["nodes_provisioned"] = 2
+
+    report = run_review(edit_desc=edit, edit_power=power)
+    assert titled(report, "Parallelism exceeds") == []
+    assert titled(report, "Prose contradicts") == []
+
+
+def test_unknown_node_counts_skip_total_comparisons(run_review) -> None:
+    # Two node types without number_of_nodes: the split of the 3 nodes is unknown.
+    def edit(desc: dict[str, Any]) -> None:
+        first = desc["node_types"][0]
+        del first["number_of_nodes"]
+        second = {**first, "system_node_ensemble_id": 1}
+        desc["node_types"].append(second)
+        desc["config_summary"]["tensor_parallel"] = 16
+        desc.update(
+            system_node_ensemble_count=2, system_node_ensemble_total=3, node_config="24x H100"
+        )
+
+    report = run_review(edit_desc=edit)
+    assert titled(report, "Parallelism exceeds") == []
+    assert titled(report, "Prose contradicts") == []  # 24 may be 3 nodes of 8
+
+
+def test_unknown_node_counts_still_check_per_node_prose(run_review) -> None:
+    def edit(desc: dict[str, Any]) -> None:
+        del desc["node_types"][0]["number_of_nodes"]
+        desc.update(system_node_ensemble_total=0, node_config="12x H100")
+
+    (found,) = titled(run_review(edit_desc=edit), "Prose contradicts")
+    assert "says 12× H100, but the node types declare 8 H100" in found.detail
+
+
+def _mixed_node(desc: dict[str, Any]) -> None:
+    accelerator = desc["node_types"][0]["accelerator_info"][0]
+    accelerator["accelerators_per_node"] = 4
+    other = {**accelerator, "accelerator_model_name": "NVIDIA H200 SXM 141GB"}
+    desc["node_types"][0]["accelerator_info"].append(other)
+
+
+def test_prose_counts_are_per_family(run_review) -> None:
+    def edit(desc: dict[str, Any]) -> None:
+        _mixed_node(desc)
+        desc["node_config"] = "4x H100 and 4x H200 per node"
+
+    assert titled(run_review(edit_desc=edit), "Prose contradicts") == []
+
+
+def test_prose_count_of_all_families_is_flagged(run_review) -> None:
+    def edit(desc: dict[str, Any]) -> None:
+        _mixed_node(desc)
+        desc["node_config"] = "8x H100 and 4x H200 per node"
+
+    (found,) = titled(run_review(edit_desc=edit), "Prose contradicts")
+    assert "says 8× H100, but the node types declare 4 H100" in found.detail
 
 
 def test_framework_without_matching_src(run_review) -> None:

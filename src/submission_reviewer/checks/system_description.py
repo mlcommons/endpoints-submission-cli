@@ -82,15 +82,78 @@ def _accelerators_per_node(desc: SystemDescription) -> dict[int, int]:
     return out
 
 
+def _node_counts(desc: SystemDescription) -> list[int] | None:
+    """How many nodes of each node type, in ``node_types`` order, or ``None`` if unknown.
+
+    ``number_of_nodes`` is optional. One missing count is the remainder of
+    ``system_node_ensemble_total`` (the whole total for a single node type); with more
+    missing, or no usable total, the counts are unknown rather than guessed.
+    """
+    counts = [
+        n.number_of_nodes if n.number_of_nodes is not None and n.number_of_nodes > 0 else None
+        for n in desc.node_types
+    ]
+    missing = [i for i, c in enumerate(counts) if c is None]
+    if not missing:
+        return [c for c in counts if c is not None]
+    total = desc.system_node_ensemble_total
+    if len(missing) > 1 or not total or total <= 0:
+        return None
+    remainder = total - sum(c for c in counts if c is not None)
+    if remainder <= 0:
+        return None
+    counts[missing[0]] = remainder
+    return [c for c in counts if c is not None]
+
+
 def _total_accelerators(desc: SystemDescription) -> int | None:
     per_node = _accelerators_per_node(desc)
-    if len(per_node) != len(desc.node_types):
+    nodes = _node_counts(desc)
+    if len(per_node) != len(desc.node_types) or nodes is None:
         return None
     total = 0
     for index, node in enumerate(desc.node_types):
         key = node.system_node_ensemble_id if node.system_node_ensemble_id is not None else index
-        total += per_node[key] * (node.number_of_nodes or 1)
+        total += per_node[key] * nodes[index]
     return total
+
+
+def _family_counts(desc: SystemDescription) -> dict[str, tuple[set[int], int | None]]:
+    """For each accelerator family, its counts per node and its system total.
+
+    The counts per node are those of every node type that has the family; the total is
+    ``None`` when the node counts are unknown. A family with any unknown
+    ``accelerators_per_node`` is left out, so its prose is not compared.
+    """
+    nodes = _node_counts(desc)
+    per_node: dict[str, list[int]] = {}
+    totals: dict[str, int] = {}
+    unknown: set[str] = set()
+    for index, node in enumerate(desc.node_types):
+        in_node: dict[str, int] = {}
+        for acc in node.accelerator_info:
+            for family in accelerator_families(acc.accelerator_model_name):
+                if acc.accelerators_per_node is None:
+                    unknown.add(family)
+                else:
+                    in_node[family] = in_node.get(family, 0) + acc.accelerators_per_node
+        for family, count in in_node.items():
+            per_node.setdefault(family, []).append(count)
+            if nodes is not None:
+                totals[family] = totals.get(family, 0) + count * nodes[index]
+    return {
+        family: (set(counts), totals.get(family))
+        for family, counts in per_node.items()
+        if family not in unknown
+    }
+
+
+def _count_fits(count: int, per_node: set[int], total: int | None) -> bool:
+    """Whether prose stating *count* accelerators of a family can be right."""
+    if count in per_node or count == total:
+        return True
+    # Without node counts the total is unknown; any whole number of nodes may be meant.
+    return total is None and any(count % c == 0 for c in per_node if c > 0)
 
 
 def _declared_families(desc: SystemDescription) -> set[str]:
@@ -176,8 +239,7 @@ def _prose(label: str, desc: SystemDescription) -> list[Finding]:
     declared = _declared_families(desc)
     if not declared:
         return []
-    per_node = set(_accelerators_per_node(desc).values())
-    total = _total_accelerators(desc)
+    allowed = _family_counts(desc)
     texts: list[tuple[str, str]] = [
         (name, getattr(desc, name)) for name in _PROSE_TOP if isinstance(getattr(desc, name), str)
     ]
@@ -194,11 +256,14 @@ def _prose(label: str, desc: SystemDescription) -> list[Finding]:
             )
             continue
         for count, family in accelerator_counts(text):
-            if family in declared and count not in per_node and count != total:
+            if family not in allowed:
+                continue
+            per_node, total = allowed[family]
+            if not _count_fits(count, per_node, total):
                 expected = sorted(per_node | ({total} if total else set()))
                 problems.append(
                     f"`{field}` (“{text}”) says {count}× {family}, but the node types declare "
-                    f"{' or '.join(str(e) for e in expected)}"
+                    f"{' or '.join(str(e) for e in expected)} {family}"
                 )
     if not problems:
         return []

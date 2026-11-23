@@ -315,6 +315,9 @@ def parse_events(path: Path, keep_texts: int = 2000, max_chars: int = 20_000) ->
 
     if log.lines and log.bad_lines > max(10, _MAX_BAD_FRACTION * log.lines):
         raise LogError(f"{path.name}: {log.bad_lines} of {log.lines} lines are not JSON objects")
+    if not log.samples:
+        # An empty file or unrelated JSON would otherwise pass as a log with nothing odd.
+        raise LogError(f"{path.name} has no sample events; it is not an events log")
     log.dataset_index = _read_index_map(path.parent / SAMPLE_INDEX_MAP)
     return log
 
@@ -346,7 +349,8 @@ class LogStore:
         self.keep_texts = keep_texts
         self.max_chars = max_chars
         self.problems: list[str] = []
-        #: Point directories whose log was asked for, since the last :meth:`track`.
+        #: Point directories whose log was asked for since the last :meth:`track`,
+        #: whether or not one was found.
         self.requested: set[Path] = set()
         self._cache: dict[Path, PointLog | None] = {}
 
@@ -362,9 +366,9 @@ class LogStore:
 
         An unreadable log is recorded in :attr:`problems` once.
         """
+        self.requested.add(point_dir)
         if point_dir not in self.paths:
             return None
-        self.requested.add(point_dir)
         if point_dir not in self._cache:
             try:
                 self._cache[point_dir] = parse_events(
@@ -378,6 +382,10 @@ class LogStore:
     def track(self) -> None:
         """Start recording, in :attr:`requested`, which logs are asked for."""
         self.requested = set()
+
+    def missing(self, point_dirs: set[Path]) -> set[Path]:
+        """Those of *point_dirs* for which no log was found."""
+        return {d for d in point_dirs if d not in self.paths}
 
     def unreadable(self, point_dirs: set[Path]) -> set[Path]:
         """Those of *point_dirs* whose log was found but could not be parsed."""

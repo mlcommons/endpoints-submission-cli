@@ -10,9 +10,9 @@ produce under a fixed-concurrency closed loop:
   level before the fall. A fall that never recovers is saturation, which is expected.
 - **Superlinear scaling.** Throughput grows faster than concurrency between two points.
   Batching amortizes cost, but it cannot make each user faster as more users arrive.
-- **Per-user rate above the TPOT bound.** ``system_tps / concurrency`` is one user's
-  mean output rate. It cannot meaningfully exceed ``1000 / tpot_p50_ms``, the rate the
-  reported median TPOT allows.
+- **Per-user rate high for the TPOT.** ``system_tps / concurrency`` is one user's mean
+  output rate, which is normally below ``1000 / tpot_p50_ms``. It is not a hard bound:
+  TPOT leaves out the first chunk, which can carry many tokens, so this is a hint.
 - **TTFT falling with load.** More concurrent requests queue for prefill, so TTFT
   should not drop sharply as concurrency rises.
 - **tps_per_user rising with load.** Per-user speed should fall as load grows.
@@ -123,12 +123,13 @@ def _per_user_rate(curve: Curve, pts: list[PointMetrics], t: ParetoThresholds) -
         if rate > bound * t.per_user_rate_factor:
             out.append(
                 _finding(
-                    Level.ATTENTION,
-                    "Throughput exceeds what TPOT allows",
-                    f"system_tps / concurrency is {fmt(rate)} tokens/s per user, but the "
-                    f"median TPOT of {fmt(p.tpot_p50_ms, 2)} ms allows about {fmt(bound)}. "
-                    "The throughput, the TPOT, or the concurrency does not describe the "
-                    "same run.",
+                    Level.NOTE,
+                    "Throughput is high for the TPOT",
+                    f"system_tps / concurrency is {fmt(rate)} tokens/s per user, while the "
+                    f"median TPOT of {fmt(p.tpot_p50_ms, 2)} ms suggests about {fmt(bound)}. "
+                    "TPOT leaves out the first chunk, so this happens when responses arrive "
+                    "in few large chunks; otherwise check that the throughput, TPOT and "
+                    "concurrency come from the same run.",
                     curve,
                     p.name,
                     "§9.2, §4.1",

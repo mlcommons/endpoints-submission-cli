@@ -47,6 +47,9 @@ _PER_POINT_DESC = frozenset(
         "config_summary_notes",
     }
 )
+#: system_desc.json fields that belong to one frontier (§5.4, §8.2), not to the
+#: hardware, so they are compared on every curve rather than once per system.
+_FRONTIER_DESC = frozenset({"max_supported_concurrency", "c_min_override"})
 #: Changing these means the result describes a different system or curve.
 _SYSTEM_IDENTITY = frozenset(
     {
@@ -144,17 +147,22 @@ def _listing(changes: Iterable[tuple[str, str]]) -> str:
     return shown + (f"; and {len(items) - _MAX_LISTED} more" if len(items) > _MAX_LISTED else "")
 
 
-def _desc_dump(desc: SystemDescription) -> dict[str, object]:
-    return desc.model_dump(mode="json", exclude=set(_PER_POINT_DESC))
+def _desc_dump(desc: SystemDescription, frontier: bool) -> dict[str, object]:
+    """The fields compared once per system, or with *frontier* those of one curve."""
+    if frontier:
+        return desc.model_dump(mode="json", include=set(_FRONTIER_DESC))
+    return desc.model_dump(mode="json", exclude=set(_PER_POINT_DESC | _FRONTIER_DESC))
 
 
-def _system_changes(system: str, old: SystemDescription, new: SystemDescription) -> list[Finding]:
+def _system_changes(
+    where: str, old: SystemDescription, new: SystemDescription, *, frontier: bool = False
+) -> list[Finding]:
     groups: dict[Level, list[tuple[str, str]]] = {
         Level.ATTENTION: [],
         Level.NOTE: [],
         Level.INFO: [],
     }
-    for path, change in _diff(_desc_dump(old), _desc_dump(new)):
+    for path, change in _diff(_desc_dump(old, frontier), _desc_dump(new, frontier)):
         key = _leaf_key(path)
         level = (
             Level.ATTENTION
@@ -176,6 +184,12 @@ def _system_changes(system: str, old: SystemDescription, new: SystemDescription)
         ),
         Level.INFO: ("Other system description edits", ""),
     }
+    if frontier:
+        titles[Level.ATTENTION] = (
+            "Declared concurrency bounds changed",
+            "They decide the curve's regions (§5.4); confirm the committee asked for this "
+            "correction.",
+        )
     out = []
     for level, changes in groups.items():
         if changes:
@@ -185,7 +199,7 @@ def _system_changes(system: str, old: SystemDescription, new: SystemDescription)
                     level,
                     title,
                     _listing(changes) + (f". {why}" if why else "."),
-                    curve=system,
+                    curve=where,
                     spec_ref=_SPEC,
                     count=len(changes),
                 )
@@ -408,6 +422,8 @@ def run(ctx: ReviewContext) -> list[Finding]:
             )
         )
         out.extend(_point_changes(curve, before, threshold))
+        if before.system_desc is not None and curve.system_desc is not None:
+            out.extend(_system_changes(label, before.system_desc, curve.system_desc, frontier=True))
         system = curve.system_dir.name
         if system in seen_systems:
             continue

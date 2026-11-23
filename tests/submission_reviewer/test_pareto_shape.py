@@ -47,10 +47,11 @@ def test_superlinear_scaling(run_review) -> None:
 
 
 def test_per_user_rate_above_tpot_bound(run_review) -> None:
-    # 400 tokens/s per user, but a 5.2 ms median TPOT allows about 192.
+    # 400 tokens/s per user, but a 5.2 ms median TPOT suggests about 192. Not a hard
+    # bound (TPOT leaves out the first chunk), so it is a note.
     specs = with_point(clean_curve(), 4, system_tps=1600.0)
-    (found,) = titled(run_review(specs), "exceeds what TPOT allows")
-    assert found.level is Level.ATTENTION
+    (found,) = titled(run_review(specs), "high for the TPOT")
+    assert found.level is Level.NOTE
     assert found.point == "r4"
 
 

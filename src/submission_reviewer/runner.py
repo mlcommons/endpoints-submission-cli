@@ -37,31 +37,53 @@ _MISSING_INPUT: dict[str, str] = {
 }
 
 
-def _ran(check: Check, ctx: ReviewContext) -> CheckOutcome:
-    """The outcome of a check that ran, accounting for the logs it could not read.
+#: Point names listed in a coverage gap before the rest are counted.
+_MAX_NAMES = 6
 
-    A log check that asked only for unreadable logs evaluated nothing, so it is
-    skipped; one that read only some of them covered the focus area in part.
+
+def _names(point_dirs: set[Path]) -> str:
+    names = sorted({d.name for d in point_dirs}, key=lambda n: (len(n), n))
+    shown = ", ".join(names[:_MAX_NAMES])
+    return shown + (f" and {len(names) - _MAX_NAMES} more" if len(names) > _MAX_NAMES else "")
+
+
+def _ran(check: Check, ctx: ReviewContext) -> CheckOutcome:
+    """The outcome of a check that ran, accounting for the logs it could not use.
+
+    A log check covers the points it asked a log for. With none asked for, or no usable
+    log among them, it evaluated nothing and is skipped; with some missing or unreadable,
+    it covered the focus area in part, and the reason names the points left out.
     """
-    if INPUT_LOGS in check.requires:
-        requested = ctx.logs.requested
-        unreadable = ctx.logs.unreadable(requested)
-        if unreadable and unreadable == requested:
-            return CheckOutcome(
-                check=check.name,
-                focus_area=check.focus_area,
-                status="skipped",
-                reason="no log it needed could be read (see the notes)",
-            )
-        if unreadable:
-            return CheckOutcome(
-                check=check.name,
-                focus_area=check.focus_area,
-                status="ran",
-                reason=f"{len(unreadable)} of {len(requested)} logs could not be read "
-                "(see the notes)",
-            )
-    return CheckOutcome(check=check.name, focus_area=check.focus_area, status="ran")
+    if INPUT_LOGS not in check.requires:
+        return CheckOutcome(check=check.name, focus_area=check.focus_area, status="ran")
+    requested = ctx.logs.requested
+    if not requested:
+        return CheckOutcome(
+            check=check.name,
+            focus_area=check.focus_area,
+            status="skipped",
+            reason="no point it applies to",
+        )
+    missing = ctx.logs.missing(requested)
+    unreadable = ctx.logs.unreadable(requested)
+    gaps = []
+    if missing:
+        gaps.append(f"no log for {_names(missing)}")
+    if unreadable:
+        gaps.append(f"unreadable log for {_names(unreadable)} (see the notes)")
+    usable = len(requested) - len(missing) - len(unreadable)
+    if not gaps:
+        return CheckOutcome(check=check.name, focus_area=check.focus_area, status="ran")
+    if usable == 0:
+        return CheckOutcome(
+            check=check.name, focus_area=check.focus_area, status="skipped", reason="; ".join(gaps)
+        )
+    return CheckOutcome(
+        check=check.name,
+        focus_area=check.focus_area,
+        status="ran",
+        reason=f"{usable} of {len(requested)} points evaluated; " + "; ".join(gaps),
+    )
 
 
 def review(

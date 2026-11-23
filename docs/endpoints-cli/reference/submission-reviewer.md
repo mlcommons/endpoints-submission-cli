@@ -28,7 +28,7 @@ checklist.
 
 | §9.2 focus area | Check | Needs | What it looks for |
 |---|---|---|---|
-| Pareto curve plausibility | `pareto_shape` | `result_summary.json` | Throughput dips that later recover; throughput growing faster than concurrency; per-user rate above what the median TPOT allows; TTFT falling as load rises; `tps_per_user` rising with load; dominated points; Little's law (`latency.total / duration` vs concurrency) |
+| Pareto curve plausibility | `pareto_shape` | `result_summary.json` | Throughput dips that later recover; throughput growing faster than concurrency; per-user rate high for the median TPOT (a hint: TPOT leaves out the first chunk); TTFT falling as load rises; `tps_per_user` rising with load; dominated points; Little's law (`latency.total / duration` vs concurrency) |
 | Metric distributions | `metric_distributions` | `result_summary.json` | TTFT flat across a wide concurrency span; identical timing percentiles (TTFT, TPOT, latency) on different points; percentiles out of order or outside min/max; very narrow distributions; round throughput values |
 | TTFT-triggering fragments | `ttft_fragments` | `events.jsonl` | Share of responses whose first streamed fragment is only whitespace, punctuation or control characters; a long pause after the first chunk |
 | Duplicated or padded output | `output_padding` | `result_summary.json` | A point's mean output length out of line with its curve; most responses stopping at the token limit |
@@ -126,6 +126,12 @@ download each point's `events.jsonl` (and `sample_idx_map.json`) into
 `<system>/<model>/r<N>/` under one folder and pass it with `--logs-dir`. Downloading
 needs storage credentials, so do it in a separate job that hands the folder over as an
 artifact, and keep the credentials out of the reviewer job.
+
+A log check counts only the points it reads a log for. When some logs are missing, or
+unreadable (including a file with no sample events), the area is marked as partly
+checked and the comment names those points. When none can be used, or no point applies
+(for example, no dedicated Offline point for `offline_reordering`), the check is listed
+as *not evaluated*.
 
 ### Security
 
