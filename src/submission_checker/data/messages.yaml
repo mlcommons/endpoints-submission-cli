@@ -495,8 +495,8 @@ point-duration:
   title: Point duration
   spec: §6.2
   messages:
-    warn: 'Point {c} ({region}): {basis} duration {duration_ms:.0f} ms < minimum {min_ms} ms'
-    pass: 'Point {c}: {basis} duration {duration_ms:.0f} ms meets minimum for {region}'
+    warn: 'Point {c}: {basis} duration {duration_ms:.0f} ms < minimum {min_ms} ms ({table}, concurrency {tier})'
+    pass: 'Point {c}: {basis} duration {duration_ms:.0f} ms meets minimum {min_ms} ms ({table}, concurrency {tier})'
 point-rules-skipped:
   title: Point rules skipped
   spec: §1

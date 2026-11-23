@@ -11,8 +11,8 @@ from pydantic import BaseModel, ConfigDict, PrivateAttr, ValidationInfo, model_v
 
 from ..file.point_config import OFFLINE_DEDICATED, PointConfig
 from ..file.point_summary import PointSummary
-from ..regions import classify_concurrency, min_duration_ms
 from ..results import CheckResult, err, ok, warn
+from ..run_requirements import concurrency_tier, min_duration_ms
 
 _TPS_TOLERANCE = 0.01  # 1% relative tolerance for stored-vs-derived comparisons
 
@@ -44,7 +44,12 @@ class PointResult(BaseModel):
 
     @model_validator(mode="after")
     def _check_point_duration(self, info: ValidationInfo) -> PointResult:
-        """§6.2: warn when the measured duration is below the per-region minimum.
+        """§6.2: warn when the measured duration is below the concurrency's minimum.
+
+        §6.2 keys its thresholds on concurrency, "independently of its §5.4 region or
+        ``c_min_override``", so this never consults the frontier's region boundaries:
+        it runs when they cannot be computed, on a point outside them, and on a
+        dedicated Offline run, to which §6.2 "applies … unchanged".
 
         §4.4 changed what "measured duration" means. The minimum is now checked
         against the steady-state window's **issue-time span**, not wall-clock: the
@@ -57,15 +62,16 @@ class PointResult(BaseModel):
         The point's own load pattern decides; a frontier whose points disagree is
         reported by ``benchmark-type-consistency``.
         """
-        regions = (info.context or {}).get("regions")
         summary_path: Path | None = (info.context or {}).get("summary_path")
-        if regions is None:
-            return self
         c = self.config.concurrency
-        region = classify_concurrency(c, regions)
-        if region is None:
-            return self  # already flagged by concurrency-in-range
-        min_ms = min_duration_ms(region, c, agentic=self.config.is_agentic)
+        agentic = self.config.is_agentic
+        min_ms = min_duration_ms(c, agentic=agentic)
+        params = {
+            "c": c,
+            "table": "agentic" if agentic else "Legacy LLM",
+            "tier": concurrency_tier(c),
+            "min_ms": min_ms,
+        }
         duration_ms, basis = self._duration_basis()
         if duration_ms < min_ms:
             self._check_results.append(
@@ -73,11 +79,9 @@ class PointResult(BaseModel):
                     "point-duration",
                     "warn",
                     summary_path,
-                    c=c,
-                    region=region,
                     basis=basis,
                     duration_ms=duration_ms,
-                    min_ms=min_ms,
+                    **params,
                 )
             )
         else:
@@ -86,10 +90,9 @@ class PointResult(BaseModel):
                     "point-duration",
                     "pass",
                     summary_path,
-                    c=c,
                     basis=basis,
                     duration_ms=duration_ms,
-                    region=region,
+                    **params,
                 )
             )
         return self

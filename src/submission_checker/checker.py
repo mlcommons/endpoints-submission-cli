@@ -1076,7 +1076,7 @@ class SubmissionChecker:
         # PointResult validates point-duration and metric-consistency
         point_result = PointResult.model_validate(
             {"config": point.config, "summary": summary, "yaml_path": point.yaml_path},
-            context={"regions": regions, "summary_path": summary_path},
+            context={"summary_path": summary_path},
         )
         results.extend(point_result._check_results)
         loaded_points.append((point.config, summary))

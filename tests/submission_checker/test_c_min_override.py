@@ -13,7 +13,8 @@ from submission_checker.checker import SubmissionChecker
 from submission_checker.models import ModelContext, Severity, SystemDescription
 from submission_checker.models.aggregate.context import accuracy_bands
 from submission_checker.models.aggregate.point_placement import RegionPlacement
-from submission_checker.models.regions import compute_regions, min_duration_ms
+from submission_checker.models.regions import compute_regions
+from submission_checker.models.run_requirements import min_duration_ms
 
 from .conftest import _config, _system_desc
 from .test_checks_agentic_accuracy import _accuracy, _agentic_config
@@ -152,8 +153,8 @@ def test_accuracy_range_uses_override_only_when_declared(overridden, expected):
     regions = compute_regions(1024, 16, c_min_overridden=overridden)
     assert accuracy_bands(24, regions) == expected
     assert accuracy_bands(16, regions) == ["ultra_low_concurrency"]
-    assert min_duration_ms("low_concurrency", 24, agentic=False) == 600_000
-    assert min_duration_ms("low_concurrency", 24, agentic=True) == 600_000
+    assert min_duration_ms(24, agentic=False) == 600_000
+    assert min_duration_ms(24, agentic=True) == 600_000
 
 
 @pytest.mark.parametrize("accuracy_point", [16, 32])

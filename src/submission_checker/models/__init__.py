@@ -28,14 +28,13 @@ from .file import (
     SystemPower,
 )
 from .regions import (
-    AGENTIC_MIN_DURATION_MS,
-    MIN_DURATION_MS,
     RegionBounds,
     Regions,
     classify_concurrency,
     compute_regions,
 )
 from .results import CheckResult, Report, Severity, err, ok, warn
+from .run_requirements import AGENTIC_MIN_DURATION_MS, MIN_DURATION_MS, min_duration_ms
 from .structure import ModelDir, SrcDir, SubmissionDir
 
 __all__ = [
@@ -75,6 +74,7 @@ __all__ = [
     "classify_concurrency",
     "compute_regions",
     "err",
+    "min_duration_ms",
     "ok",
     "warn",
 ]
