@@ -243,7 +243,7 @@ def test_trivial_first_fragments(logged) -> None:
     (found,) = checked(report, "ttft_fragments")
     assert found.level is Level.ATTENTION
     assert "r64 60% of 50, r256 10% of 50" in found.detail
-    assert "'\\n' ×30" in found.detail
+    assert "`'\\n'` ×30" in found.detail
 
 
 def test_offline_points_are_not_checked_for_ttft(logged) -> None:
@@ -421,6 +421,45 @@ def test_logs_dir_mirror(tmp_path: Path) -> None:
     (mirror / "events.jsonl").write_text("\n".join(build_log(first=lambda i: "\n")))
     assert checked(review(root), "ttft_fragments") == []
     assert checked(review(root, logs_dir=tmp_path / "logs"), "ttft_fragments")
+
+
+def _mirror(tmp_path: Path, concurrency: int, lines: list[str]) -> Path:
+    """A --logs-dir holding *lines* as the stored log of one point."""
+    mirror = tmp_path / "logs" / SYSTEM / MODEL / f"r{concurrency}"
+    mirror.mkdir(parents=True)
+    (mirror / "events.jsonl").write_text("\n".join(lines) + "\n")
+    return tmp_path / "logs"
+
+
+def test_stored_logs_win_over_logs_in_the_submission(tmp_path: Path) -> None:
+    root = write_submission(tmp_path / "sub", clean_curve(), edit_config=_no_warmup)
+    _put(root, 64, build_log())  # a clean log committed in the PR
+    logs = _mirror(tmp_path, 64, build_log(first=lambda i: "\n"))
+    report = review(root, logs_dir=logs)
+    assert checked(report, "ttft_fragments")  # found in the stored log
+    assert any(
+        "`" + f"{SYSTEM}/{MODEL}/r64/events.jsonl` in the submission differs" in n
+        for n in report.notes
+    )
+
+
+def test_a_submission_log_without_a_stored_one_is_not_used(tmp_path: Path) -> None:
+    root = write_submission(tmp_path / "sub", clean_curve(), edit_config=_no_warmup)
+    _put(root, 64, build_log())
+    _put(root, 256, build_log(first=lambda i: "\n"))  # only in the PR
+    report = review(root, logs_dir=_mirror(tmp_path, 64, build_log()))
+    assert checked(report, "ttft_fragments") == []
+    assert any("r256/events.jsonl` in the submission is not used" in n for n in report.notes)
+    assert "no log for r1, r4, r16, r256, r1024" in _outcome(report, "ttft_fragments").reason
+
+
+def test_identical_logs_need_no_note(tmp_path: Path) -> None:
+    root = write_submission(tmp_path / "sub", clean_curve(), edit_config=_no_warmup)
+    lines = build_log()
+    _put(root, 64, lines)
+    report = review(root, logs_dir=_mirror(tmp_path, 64, lines))
+    assert not any("events.jsonl" in n for n in report.notes)
+    assert _outcome(report, "ttft_fragments").status == "ran"
 
 
 def test_unreadable_log_is_a_note(tmp_path: Path) -> None:

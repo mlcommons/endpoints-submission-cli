@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -12,7 +13,8 @@ from click.testing import CliRunner
 
 from submission_reviewer import CheckOutcome, Finding, Level, ReviewReport, review
 from submission_reviewer.cli import main
-from submission_reviewer.render import MARKER, MAX_COMMENT_CHARS, render_comment
+from submission_reviewer.render import MARKER, MAX_COMMENT_CHARS, escape, render_comment
+from submission_reviewer.text import quote
 
 from .conftest import clean_curve, with_point, write_submission
 
@@ -96,6 +98,15 @@ def test_long_tables_fold_and_cap() -> None:
     assert "…and 10 more" in text
 
 
+def _well_formed(text: str) -> None:
+    """Nothing was cut mid-line: every table row closes and every block is closed."""
+    assert len(text) <= MAX_COMMENT_CHARS
+    assert text.count("<details>") == text.count("</details>")
+    for line in text.splitlines():
+        if line.startswith("| "):
+            assert line.endswith(" |"), line
+
+
 def test_comment_fits_github_limit() -> None:
     findings = [
         _finding(check="x", focus_area=area, point=f"r{i}", detail="d" * 400)
@@ -104,8 +115,123 @@ def test_comment_fits_github_limit() -> None:
     ]
     reports = [_report(findings) for _ in range(5)]
     text = render_comment(reports)
-    assert len(text) <= MAX_COMMENT_CHARS
-    assert "cut to fit GitHub's size limit" in text
+    _well_formed(text)
+    assert "shortened to fit GitHub's size limit: fewer findings are listed" in text
+    assert "--format json" in text.splitlines()[-1]
+    # Every submission keeps its checklist.
+    assert text.count("#### 👀 Manual review only") == 5
+    assert all(f"### `{r.submission}`" in text for r in reports)
+
+
+def test_whole_submissions_are_left_out_last() -> None:
+    notes = [f"note {i} " + "n" * 400 for i in range(50)]
+    reports = [
+        ReviewReport(submission=f"Org/sub{i:02d}", findings=[_finding()], notes=notes)
+        for i in range(8)
+    ]
+    text = render_comment(reports)
+    _well_formed(text)
+    shown = [r.submission for r in reports if f"### `{r.submission}`" in text]
+    assert shown == [r.submission for r in reports[: len(shown)]]
+    assert 0 < len(shown) < len(reports)
+    warning = text.splitlines()[-1]
+    assert f"{len(reports) - len(shown)} submission(s) are left out" in warning
+    assert f"`Org/sub{len(shown):02d}`" in warning
+
+
+def test_one_long_value_cannot_push_sections_out(tmp_path: Path) -> None:
+    root = write_submission(tmp_path / "sub", with_point(clean_curve(), 256, system_tps=5000.0))
+    for desc_path in root.rglob("system_desc.json"):
+        desc = json.loads(desc_path.read_text())
+        desc["availability_url"] = "https://example.com/" + "x" * 70_000
+        desc["node_types"][0]["hw_notes"] = "TBD"
+        desc_path.write_text(json.dumps(desc))
+    text = render_comment([review(root, label="Org/sub")])
+    _well_formed(text)
+    assert "x" * 300 not in text
+    for heading in ("System description", "Division eligibility", "Manual review only"):
+        assert heading in text
+
+
+# ── Submitter text ────────────────────────────────────────────────────────────
+
+_PAYLOAD = (
+    "TBD ![x](https://evil.test/p.png) [Approve](https://phish.example) "
+    "</details><!-- submission-reviewer --> <img src=x> @octocat #1 www.phish.example"
+)
+
+
+def _html(text: str) -> str:
+    """*text* as an independent CommonMark parser renders it, tables enabled."""
+    markdown_it = pytest.importorskip("markdown_it")
+    return markdown_it.MarkdownIt("commonmark").enable("table").render(text)
+
+
+def _outside_code(html: str) -> str:
+    return re.sub(r"<code>.*?</code>", "", html, flags=re.DOTALL)
+
+
+def test_escape_keeps_code_spans_and_neutralizes_the_rest() -> None:
+    assert escape("a `[x](y)` b") == "a `[x](y)` b"
+    assert escape("``a ` b`` [c]") == r"``a ` b`` \[c\]"
+    # A backtick run that never closes is shown literally, and cannot open a span.
+    assert escape("`[x](y)") == r"\`\[x\](y)"
+    # A backslash before a backtick is itself escaped, so the backtick still opens a span.
+    assert escape(r"\`<b>`") == r"\\`<b>`"
+    assert escape("@user #12") == "@\u200buser #\u200b12"
+    assert escape("https://x.example www.y.example") == r"https\://x.example www\.y.example"
+
+
+def test_quote_is_one_capped_code_span() -> None:
+    assert quote("a `b`\n c") == "`a 'b' c`"
+    assert quote("") == '`""`'
+    assert quote("x" * 300) == "`" + "x" * 199 + "…`"
+
+
+def test_submitter_text_cannot_add_markup() -> None:
+    report = ReviewReport(
+        submission="Org/abc",
+        findings=[
+            # A check that quoted the value, and one that (wrongly) did not.
+            _finding(detail=f"hw_notes is {quote(_PAYLOAD)}", curve=_PAYLOAD + " `x"),
+            _finding(title=_PAYLOAD, detail=_PAYLOAD, point="r1"),
+        ],
+        outcomes=[
+            CheckOutcome(
+                check="pareto_shape", focus_area="pareto_shape", status="ran", reason=_PAYLOAD
+            )
+        ],
+        notes=[_PAYLOAD, "`" + _PAYLOAD],
+    )
+    text = render_comment([report])
+    html = _outside_code(_html(text))
+    # The only link is the rules link in the header; no image, no raw HTML from the payload.
+    assert html.count("<a ") == 1
+    assert "<img" not in html
+    assert html.count("<details>") == html.count("</details>") == 1  # the notes block
+    assert html.count("<!--") == 1  # the marker
+    # GitHub links @-mentions and issue references in plain text. (Bare URLs too, which
+    # this parser does not; test_escape_keeps_code_spans_and_neutralizes_the_rest
+    # covers the escape that stops GitHub.)
+    assert "@octocat" not in html
+    assert "#1" not in html
+
+
+def test_submitter_text_in_a_real_review(tmp_path: Path) -> None:
+    root = write_submission(tmp_path / "sub", clean_curve())
+    for desc_path in root.rglob("system_desc.json"):
+        desc = json.loads(desc_path.read_text())
+        desc["availability_url"] = _PAYLOAD
+        desc["node_types"][0]["hw_notes"] = "N/A"
+        desc["node_types"][0]["node_config"] = "8x B200 " + _PAYLOAD
+        desc_path.write_text(json.dumps(desc))
+    text = render_comment([review(root, label="Org/sub")])
+    assert "Availability URL" in text  # the payload did reach a finding
+    html = _outside_code(_html(text))
+    assert html.count("<a ") == 1
+    assert "<img" not in html
+    assert html.count("<details>") == html.count("</details>")
+    assert "@octocat" not in html
 
 
 def test_real_review_renders(tmp_path: Path) -> None:

@@ -27,6 +27,7 @@ from collections import Counter
 from ..context import INPUT_LOGS, Curve, Point, ReviewContext
 from ..findings import Finding, Level
 from ..logs import PointLog
+from ..text import quote
 from ..thresholds import LogThresholds
 from .base import Check, finding_factory, pct, points_label
 
@@ -85,7 +86,7 @@ def _curve(curve: Curve, ctx: ReviewContext, t: LogThresholds) -> list[Finding]:
         common: Counter[str] = Counter()
         for _, _, _, fragments in trivial_rows:
             common.update(fragments)
-        shown = ", ".join(f"{frag!r} ×{n}" for frag, n in common.most_common(5))
+        shown = ", ".join(f"{quote(repr(frag))} ×{n}" for frag, n in common.most_common(5))
         out.append(
             _finding(
                 Level.ATTENTION if worst > t.ttft_trivial_attention else Level.NOTE,

@@ -31,7 +31,7 @@ from submission_checker.models.file.system import Division, SystemAvailabilitySt
 
 from ..context import INPUT_SYSTEM_DESCRIPTIONS, Curve, ReviewContext
 from ..findings import Finding, Level
-from ..text import UrlProblem, cohort_date, read_docs_text, url_problem
+from ..text import UrlProblem, cohort_date, quote, read_docs_text, url_problem
 from .base import Check, finding_factory, points_label
 
 __all__ = ["CHECK"]
@@ -177,7 +177,7 @@ def _serviced(curve: Curve, desc: SystemDescription, docs: str) -> list[Finding]
             _finding(
                 level,
                 "Serviced endpoint URL is not a public endpoint",
-                f"endpoint_url “{url}” {problem}. A Serviced result must be measured on the "
+                f"endpoint_url {quote(url)} {problem}. A Serviced result must be measured on the "
                 "endpoint any paying customer uses in production.",
                 curve=label,
                 spec_ref="§9.2, §2.3, Submission Rules §7.2.5",
@@ -190,7 +190,7 @@ def _serviced(curve: Curve, desc: SystemDescription, docs: str) -> list[Finding]
                 _finding(
                     Level.NOTE,
                     "Serviced endpoint looks like a non-production tier",
-                    f"The endpoint host “{host}” suggests a preview, beta or staging tier. "
+                    f"The endpoint host {quote(host)} suggests a preview, beta or staging tier. "
                     "Serviced results need the full GA production endpoint.",
                     curve=label,
                     spec_ref="§9.2, Submission Rules §7.2.5",
@@ -232,7 +232,7 @@ def _availability_url(label: str, desc: SystemDescription) -> list[Finding]:
         _finding(
             Level.NOTE,
             "Availability URL can't be checked",
-            f"availability_url “{desc.availability_url}” {problem}. Available status needs "
+            f"availability_url {quote(desc.availability_url)} {problem}. Available status needs "
             "public evidence of shipment that a reviewer can open.",
             curve=label,
             spec_ref="§9.2, Submission Rules §7.2.1",

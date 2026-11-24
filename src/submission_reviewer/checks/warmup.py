@@ -32,7 +32,7 @@ from submission_checker.models.file import PointConfig
 
 from ..context import INPUT_POINT_CONFIGS, Curve, Point, ReviewContext
 from ..findings import Finding, Level
-from ..text import normalize, url_problem
+from ..text import normalize, quote, url_problem
 from .base import Check, finding_factory, points_label
 
 __all__ = ["CHECK"]
@@ -60,7 +60,7 @@ def _salted(config: PointConfig) -> bool:
 
 def _sources(entries: list[tuple[Point, PointConfig]]) -> str:
     distinct = sorted({c.warmup.data_source for _, c in entries if c.warmup})
-    shown = "; ".join(f"“{s}”" for s in distinct[:3])
+    shown = "; ".join(quote(s) for s in distinct[:3])
     return shown + (f" and {len(distinct) - 3} more" if len(distinct) > 3 else "")
 
 

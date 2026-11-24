@@ -30,6 +30,7 @@ import statistics
 from ..context import INPUT_LOGS, INPUT_SUMMARIES, Curve, Point, ReviewContext
 from ..findings import Finding, Level
 from ..logs import SampleRecord
+from ..text import quote
 from ..thresholds import LogThresholds
 from .base import Check, finding_factory, fmt, pct, points_label
 
@@ -144,7 +145,7 @@ def _filler(sample: SampleRecord, t: LogThresholds) -> bool:
 
 def _example(text: str) -> str:
     snippet = text.strip()
-    return repr(snippet[:80] + ("…" if len(snippet) > 80 else ""))
+    return quote(repr(snippet[:80] + ("…" if len(snippet) > 80 else "")))
 
 
 def _text_curve(curve: Curve, ctx: ReviewContext) -> list[Finding]:
@@ -169,7 +170,7 @@ def _text_curve(curve: Curve, ctx: ReviewContext) -> list[Finding]:
                     example = _example(hits[0].output or "")
                 elif key == "fill":
                     # The end is the point, and stripping would erase a whitespace run.
-                    example = repr("…" + (hits[0].tail or "")[-60:])
+                    example = quote(repr("…" + (hits[0].tail or "")[-60:]))
                 rows[key].append((point.name, len(hits) / len(kept), len(kept), example))
 
     specs = {

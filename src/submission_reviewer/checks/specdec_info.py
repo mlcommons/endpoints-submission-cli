@@ -17,6 +17,7 @@ import json
 
 from ..context import INPUT_POINT_CONFIGS, ReviewContext
 from ..findings import Finding, Level
+from ..text import quote
 from .base import Check, finding_factory, points_label
 
 __all__ = ["CHECK"]
@@ -41,8 +42,7 @@ def _summary(declaration: dict[str, object], limit: int = 5) -> str:
     keys += [k for k in declaration if k not in keys]
     parts = []
     for key in keys[:limit]:
-        value = str(declaration[key])
-        parts.append(f"{key}={value if len(value) <= 40 else value[:39] + '…'}")
+        parts.append(quote(f"{key}={declaration[key]}", limit=60))
     return ", ".join(parts) or "(empty declaration)"
 
 

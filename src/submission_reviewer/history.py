@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -44,9 +45,9 @@ _REGULAR_FILE_MODES = frozenset({"100644", "100755"})
 #: Commit subjects the lifecycle manager writes on a review branch
 #: (``lifecycle_manager.lifecycle``): the initial archive, possibly in several batches
 #: with the same subject; a placeholder when the archive was not ready yet; and syncs.
-_ADD_SUBJECT = re.compile(r"^Add submission \S+$")
+_ADD_SUBJECT = re.compile(r"^Add submission (\S+)$")
 _PLACEHOLDER_SUBJECT = re.compile(r"^Placeholder for \S+")
-_SYNC_SUBJECT = re.compile(r"^Update submission \S+$")
+_SYNC_SUBJECT = re.compile(r"^Update submission (\S+)$")
 #: Batches of one archive are committed back to back; a later sync of the same
 #: submission comes on another lifecycle run, hours apart. Same-subject commits
 #: further apart than this are separate pushes.
@@ -210,44 +211,88 @@ def changed_files(root: Path, ref: str) -> list[tuple[str, str]]:
     return changes
 
 
-def find_original(path: Path, pr_base: str) -> str:
+def _tip(top: Path, base: str) -> str:
+    """The PR's head commit, even when the checkout is GitHub's test merge.
+
+    That is ``HEAD``, or its second parent when ``HEAD`` merges the PR into *base*,
+    which is what ``actions/checkout`` checks out by default.
+    """
+    parents = _git(top, "rev-list", "--parents", "-n", "1", "HEAD").decode().split()
+    if len(parents) == 3 and parents[1] == base:
+        return parents[2]
+    return parents[0]
+
+
+def find_original(path: Path, pr_base: str, submission_ids: Collection[str] = ()) -> str:
     """The commit holding a review PR's original submission.
 
     The lifecycle manager opens a review PR by committing the submission archive on a
     branch made from the base, as one or more commits titled ``Add submission <id>``
-    (a large archive is split into batches). Later syncs add ``Update submission <id>``
-    commits, and people may add their own. When the archive was not ready, the first
-    commit is a ``Placeholder for <id>`` and the archive arrives with the first sync.
+    (a large archive is split into batches, each the parent of the next). Later syncs
+    add ``Update submission <id>`` commits, and people may add their own. When the
+    archive was not ready, the first commit is a ``Placeholder for <id>`` and the
+    archive arrives with the first sync.
 
-    So the original is the last commit of the leading run of commits sharing the first
-    real commit's subject, when that subject is the manager's ``Add`` or ``Update``,
-    each committed within :data:`_BATCH_WINDOW_S` of the one before; otherwise it is
-    the first commit after any placeholders. The time limit keeps a later sync, which
-    has the same subject as the first one, out of the original.
+    So the original is the last commit of the leading run of commits that share the
+    first real commit's subject and author, when that subject is the manager's ``Add``
+    or ``Update``; otherwise it is the first commit after any placeholders. Each commit
+    of the run must be authored no earlier than the one before and at most
+    :data:`_BATCH_WINDOW_S` after it, which keeps a later sync, with the same subject
+    as the first one, out of the original.
+
+    The branch is walked along first parents, so commits that a merge of the base
+    branch brings in are not taken for the PR's own. Author dates are used because a
+    rebase keeps them, while it resets every committer date to the same moment.
+
+    Commit metadata is only as trustworthy as the people who can push to the branch;
+    they can also change the workflow that runs this, so it is not a defence against
+    them.
 
     Args:
         path: Any directory inside the checkout.
         pr_base: The PR's base commit; the PR's commits are ``pr_base..HEAD``.
+        submission_ids: The names of the submission directories under review. When
+            given, the ``<id>`` in the manager's subject must begin one of them.
 
     Raises:
-        GitError: If git fails, *pr_base* is not a commit, or the PR has no commits.
+        GitError: If git fails, *pr_base* is not a commit, the PR has no commits, or its
+            first commit names another submission.
     """
     top, _ = _locate(path)
     base = _resolve(top, pr_base)
-    out = _git(top, "log", "--reverse", "--format=%H%x1f%ct%x1f%s", f"{base}..HEAD").decode()
-    commits: list[tuple[str, int, str]] = []
+    out = _git(
+        top,
+        "log",
+        "--first-parent",
+        "--reverse",
+        "--format=%H%x1f%at%x1f%an <%ae>%x1f%s",
+        f"{base}..{_tip(top, base)}",
+    ).decode(errors="replace")
+    commits: list[tuple[str, int, str, str]] = []
     for line in out.splitlines():
-        parts = line.split("\x1f", 2)
-        if len(parts) == 3 and parts[1].isdigit():
-            commits.append((parts[0], int(parts[1]), parts[2]))
-    while commits and _PLACEHOLDER_SUBJECT.match(commits[0][2]):
+        parts = line.split("\x1f", 3)
+        if len(parts) == 4 and parts[1].isdigit():
+            commits.append((parts[0], int(parts[1]), parts[2], parts[3]))
+    while commits and _PLACEHOLDER_SUBJECT.match(commits[0][3]):
         commits = commits[1:]
     if not commits:
         raise GitError(f"the PR has no commits after {pr_base} besides placeholders")
-    sha, when, subject = commits[0]
-    if _ADD_SUBJECT.match(subject) or _SYNC_SUBJECT.match(subject):
-        for next_sha, next_when, next_subject in commits[1:]:
-            if next_subject != subject or next_when - when > _BATCH_WINDOW_S:
-                break
-            sha, when = next_sha, next_when
+    sha, when, author, subject = commits[0]
+    match = _ADD_SUBJECT.match(subject) or _SYNC_SUBJECT.match(subject)
+    if match is None:
+        return sha
+    named = match.group(1)
+    if submission_ids and not any(name.startswith(named) for name in submission_ids):
+        raise GitError(
+            f"the PR's first commit names submission {named}, which is not the one under "
+            f"review ({', '.join(sorted(submission_ids))})"
+        )
+    for next_sha, next_when, next_author, next_subject in commits[1:]:
+        if (
+            next_subject != subject
+            or next_author != author
+            or not 0 <= next_when - when <= _BATCH_WINDOW_S
+        ):
+            break
+        sha, when = next_sha, next_when
     return sha

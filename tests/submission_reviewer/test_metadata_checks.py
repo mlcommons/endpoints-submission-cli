@@ -185,8 +185,8 @@ def test_placeholder_and_missing_fields(run_review) -> None:
     (found,) = titled(run_review(edit_desc=edit), "Missing or placeholder")
     assert found.level is Level.NOTE
     assert found.curve == "sys_test"
-    assert "`driver` is “TBD”" in found.detail
-    assert "`hw_notes` is “N/A”" in found.detail
+    assert "`driver` is `TBD`" in found.detail
+    assert "`hw_notes` is `N/A`" in found.detail
     assert "`container_link` is missing" in found.detail
 
 
@@ -195,7 +195,7 @@ def test_placeholder_links(run_review) -> None:
         config["link_to_model"] = "https://example.com/model"
 
     (found,) = titled(run_review(edit_config=edit), "Links a reviewer can't open")
-    assert "link_to_model (https://example.com/model) is a placeholder" in found.detail
+    assert "link_to_model `https://example.com/model` is a placeholder" in found.detail
 
 
 def test_prose_names_another_accelerator(run_review) -> None:
@@ -290,7 +290,7 @@ def test_prose_count_of_all_families_is_flagged(run_review) -> None:
 def test_framework_without_matching_src(run_review) -> None:
     report = run_review(edit_desc=_desc(serving_framework="SGLang"))
     (found,) = titled(report, "no matching code")
-    assert "src/ holds vllm" in found.detail
+    assert "src/ holds `vllm`" in found.detail
 
 
 def test_framework_alias_matches(run_review) -> None:
@@ -338,7 +338,7 @@ def test_power_descriptor_describes_other_accelerators(run_review) -> None:
     (found,) = titled(run_review(edit_power=power), "Power descriptor describes")
     assert found.level is Level.ATTENTION
     assert "4 accelerators per node in system_power.json, 8 in system_desc.json" in found.detail
-    assert "“NVIDIA B200” in system_power.json, H100 in system_desc.json" in found.detail
+    assert "`NVIDIA B200` in system_power.json, H100 in system_desc.json" in found.detail
 
 
 def test_power_descriptor_node_and_cpu_counts(run_review) -> None:
@@ -500,7 +500,10 @@ def test_speculative_decoding_is_listed(run_review) -> None:
     (found,) = checked(report, "specdec_info")
     assert found.level is Level.INFO
     assert found.focus_area == "speculative_decoding"
-    assert "r64: model_id=acme/eagle3-llama, weight_checksum=abc, algorithm=EAGLE-3" in found.detail
+    assert (
+        "r64: `model_id=acme/eagle3-llama`, `weight_checksum=abc`, `algorithm=EAGLE-3`"
+        in found.detail
+    )
 
 
 def test_drafter_differs_between_points(run_review) -> None:

@@ -59,8 +59,10 @@ endpoints-submission-reviewer PATH [--format markdown|json] [-o FILE]
 - `--pr-base REV` finds the original in a review PR instead; see below.
 - `--logs-dir DIR` points at a directory laid out like `results/`
   (`<system>/<model>/r<N>/events.jsonl` or `events.jsonl.gz`, with `sample_idx_map.json`
-  beside it). Use it when the submission does not ship its logs. Logs in the point
-  directories themselves are always used.
+  beside it), holding the stored run logs. When it is given, logs are read from it
+  only. A log committed in the submission is then not used, and a note says so when it
+  differs from the stored one or has no stored counterpart. Without `--logs-dir`, the
+  logs in the point directories are used.
 - `--thresholds FILE` overrides any subset of the packaged tolerances in
   [`reviewer_thresholds.yaml`](../../../src/submission_reviewer/data/reviewer_thresholds.yaml).
 - The Markdown is also appended to `$GITHUB_STEP_SUMMARY` when that is set
@@ -79,11 +81,25 @@ changed files, and people may add commits of their own through the web UI. When 
 archive was not ready, the first commit is `Placeholder for <id>`, and the archive arrives
 with the first sync.
 
-`--pr-base` takes the PR's base commit. It skips placeholders, then takes the leading run
-of commits that share the first commit's title, as long as each came within ten minutes
-of the one before. The original is the last commit of that run. The time limit keeps the
-next day's sync, which has the same title, out of the original. If the commit titles are
-not the manager's, the PR's first commit is used.
+`--pr-base` takes the PR's base commit. It walks the PR's commits along first parents,
+so commits that a merge of the base branch ("Update branch") brings in are not counted.
+It also follows a checkout of GitHub's test merge commit back to the PR head.
+
+It skips placeholders. Then it takes the leading run of commits that share the first
+commit's title and author, each authored no earlier than the one before and at most ten
+minutes after it. The original is the last commit of that run.
+
+- The time limit keeps the next day's sync, which has the same title, out of the
+  original.
+- Author dates are used because a rebase keeps them but gives every commit the same
+  committer date.
+- The `<id>` in the title must begin the name of the submission directory under review;
+  otherwise the original is reported as not found.
+- If the commit titles are not the manager's, the PR's first commit is used.
+
+Commit titles, authors and dates can be written by anyone who can push to the branch.
+Those people can also change the workflow itself, so this is no defence against them.
+A stronger source would be the lifecycle manager recording the original commit itself.
 
 The original is read with `git ls-tree` and `git cat-file`, never `git archive`, so the
 submission's own `.gitattributes` cannot hide or rewrite files. Only the small metadata
@@ -127,6 +143,10 @@ download each point's `events.jsonl` (and `sample_idx_map.json`) into
 needs storage credentials, so do it in a separate job that hands the folder over as an
 artifact, and keep the credentials out of the reviewer job.
 
+Logs committed in the review PR are not trusted over the stored ones: with
+`--logs-dir`, only its logs are read, and a committed log that differs, or that has no
+stored counterpart, is listed in the notes.
+
 A log check counts only the points it reads a log for. When some logs are missing, or
 unreadable (including a file with no sample events), the area is marked as partly
 checked and the comment names those points. When none can be used, or no point applies
@@ -141,8 +161,17 @@ The reviewer runs on content a submitter controls, and it only ever parses it:
   from the checkout.
 - Git is used through read-only plumbing commands, with external diff drivers and
   textconv disabled.
+- A file that fails to load in any way, including deeply nested JSON, becomes a note;
+  the rest of the review goes on.
 - Logs are streamed, and file sizes are bounded where it matters: extraction skips blobs
   over 20 MB, docs reading is capped, and response text is truncated.
+- Submitter text cannot add markup to the comment, which github-actions[bot] posts.
+  Values from the submission are shown as code spans, capped at 200 characters. All
+  other text is escaped so that it cannot form a link, an image, raw HTML, an autolink,
+  an @-mention or an issue reference.
+- A comment over GitHub's size limit is shortened by whole lines: first fewer findings
+  per focus area, then whole submissions from the end. Every submission shown keeps its
+  checklist, and a warning says what was left out.
 
 Workflows triggered by `pull_request` run the workflow files from the PR's own branch.
 Anyone who can push to a `submission/<id>` branch could therefore change them. That is

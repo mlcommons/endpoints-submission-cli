@@ -27,6 +27,7 @@ __all__ = [
     "is_placeholder",
     "name_key",
     "normalize",
+    "quote",
     "read_docs_text",
     "url_problem",
 ]
@@ -41,6 +42,25 @@ _PLACEHOLDER = re.compile(
 def is_placeholder(value: object) -> bool:
     """Whether *value* is a stand-in such as ``TBD``, ``N/A`` or ``<fill in>``."""
     return isinstance(value, str) and _PLACEHOLDER.match(value) is not None
+
+
+#: How much of one submitter value a finding quotes.
+QUOTE_CHARS = 200
+
+
+def quote(value: object, limit: int = QUOTE_CHARS) -> str:
+    """Show a submitter-supplied *value* in a finding, as a Markdown code span.
+
+    Everything inside a code span is literal on GitHub: no link, image, HTML or
+    @-mention. Backticks, which would end the span, become ``'``; runs of whitespace
+    become one space, so the value stays on one line; and the value is cut at *limit*
+    characters, so one long field cannot crowd the rest out of the comment. Use
+    ``quote(repr(text))`` where invisible characters matter.
+    """
+    text = " ".join(str(value).replace("`", "'").split())
+    if len(text) > limit:
+        text = text[: limit - 1] + "…"
+    return f"`{text}`" if text else '`""`'
 
 
 def normalize(text: str) -> str:

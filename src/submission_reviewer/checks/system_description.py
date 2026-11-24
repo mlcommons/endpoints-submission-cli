@@ -34,6 +34,7 @@ from ..text import (
     accelerator_families,
     is_placeholder,
     name_key,
+    quote,
     url_problem,
 )
 from .base import Check, finding_factory, points_label
@@ -205,7 +206,7 @@ def _describe(value: object) -> str:
         return "missing"
     if not str(value).strip():
         return "empty"
-    return f"“{value}”"
+    return quote(value)
 
 
 def _links(label: str, desc: SystemDescription, curve: Curve) -> list[Finding]:
@@ -213,14 +214,14 @@ def _links(label: str, desc: SystemDescription, curve: Curve) -> list[Finding]:
     for node in desc.node_types:
         problem = url_problem(node.container_link)
         if problem:
-            problems.append(f"container_link ({node.container_link}) {problem}")
+            problems.append(f"container_link {quote(node.container_link)} {problem}")
     config = next((c for _, c in curve.configs()), None)
     if config is not None:
         for name in ("link_to_model", "link_to_model_transformation", "dataset_link"):
             value = getattr(config, name, None)
             problem = url_problem(value)
             if problem:
-                problems.append(f"point.yaml {name} ({value}) {problem}")
+                problems.append(f"point.yaml {name} {quote(value)} {problem}")
     if not problems:
         return []
     return [
@@ -251,8 +252,8 @@ def _prose(label: str, desc: SystemDescription) -> list[Finding]:
         foreign = accelerator_families(text) - declared
         if foreign:
             problems.append(
-                f"`{field}` (“{text}”) names {', '.join(sorted(foreign))}, but accelerator_info "
-                f"lists {', '.join(sorted(declared))}"
+                f"`{field}` ({quote(text)}) names {', '.join(sorted(foreign))}, but "
+                f"accelerator_info lists {', '.join(sorted(declared))}"
             )
             continue
         for count, family in accelerator_counts(text):
@@ -262,7 +263,7 @@ def _prose(label: str, desc: SystemDescription) -> list[Finding]:
             if not _count_fits(count, per_node, total):
                 expected = sorted(per_node | ({total} if total else set()))
                 problems.append(
-                    f"`{field}` (“{text}”) says {count}× {family}, but the node types declare "
+                    f"`{field}` ({quote(text)}) says {count}× {family}, but the node types declare "
                     f"{' or '.join(str(e) for e in expected)} {family}"
                 )
     if not problems:
@@ -296,7 +297,8 @@ def _framework(label: str, desc: SystemDescription, ctx: ReviewContext) -> list[
         _finding(
             Level.NOTE,
             "Serving framework has no matching code",
-            f"serving_framework is “{framework}”, but src/ holds {', '.join(impls)}. "
+            f"serving_framework is {quote(framework)}, but src/ holds "
+            f"{', '.join(quote(i) for i in impls)}. "
             "Confirm the shipped implementation is the one that ran.",
             curve=label,
             spec_ref="§9.2, §8.1",
@@ -400,7 +402,7 @@ def _system_size(label: str, desc: SystemDescription) -> list[Finding]:
         _finding(
             Level.NOTE,
             "system_size disagrees with the node types",
-            f"system_size “{size}” " + "; ".join(problems) + ".",
+            f"system_size {quote(size)} " + "; ".join(problems) + ".",
             curve=label,
             spec_ref=_SPEC,
         )
@@ -437,7 +439,7 @@ def _power(label: str, desc: SystemDescription, power: SystemPower) -> list[Find
             }
             if power_families and desc_families and not power_families & desc_families:
                 attention.append(
-                    f"{where}: accelerator “{accelerator.model}” in system_power.json, "
+                    f"{where}: accelerator {quote(accelerator.model)} in system_power.json, "
                     f"{', '.join(sorted(desc_families))} in system_desc.json"
                 )
         cpu = components.cpu if components else None

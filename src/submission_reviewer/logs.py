@@ -28,6 +28,7 @@ log is parsed at most once, on first use, and shared by every check.
 
 from __future__ import annotations
 
+import filecmp
 import gzip
 import hashlib
 import json
@@ -36,6 +37,8 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any
+
+from .text import quote
 
 __all__ = [
     "LOG_NAMES",
@@ -392,20 +395,52 @@ class LogStore:
         return {d for d in point_dirs if d in self._cache and self._cache[d] is None}
 
     @staticmethod
-    def find(point_dirs: list[tuple[Path, Path]], logs_dir: Path | None) -> dict[Path, Path]:
+    def find(
+        point_dirs: list[tuple[Path, Path]], logs_dir: Path | None
+    ) -> tuple[dict[Path, Path], list[str]]:
         """Locate the log of each point.
+
+        Without *logs_dir*, a point's log is the one in its own directory. With it, the
+        logs come from *logs_dir* only: those are the stored run archives, while a log
+        committed in the PR is whatever the submitter put there, and must not stand in
+        for the stored one. A committed log that is not used is reported in a note,
+        unless it is identical to the stored one.
 
         Args:
             point_dirs: ``(point_dir, path relative to results/)`` pairs.
             logs_dir: A directory mirroring ``results/`` (``<system>/<model>/r<N>/``)
                 that holds the logs, for submissions that do not ship them.
+
+        Returns:
+            The log of each point that has one, and the notes.
         """
         found: dict[Path, Path] = {}
+        notes: list[str] = []
         for point_dir, rel in point_dirs:
-            places = [point_dir] + ([logs_dir / rel] if logs_dir is not None else [])
-            for place in places:
-                hit = next((place / n for n in LOG_NAMES if (place / n).is_file()), None)
-                if hit is not None:
-                    found[point_dir] = hit
-                    break
-        return found
+            shipped = _log_in(point_dir)
+            if logs_dir is None:
+                if shipped is not None:
+                    found[point_dir] = shipped
+                continue
+            stored = _log_in(logs_dir / rel)
+            if stored is not None:
+                found[point_dir] = stored
+            if shipped is None:
+                continue
+            where = quote(f"{rel.as_posix()}/{shipped.name}")
+            if stored is None:
+                notes.append(
+                    f"{where} in the submission is not used: --logs-dir has no log for this "
+                    "point, and only --logs-dir logs are read when it is given."
+                )
+            elif shipped.name != stored.name or not filecmp.cmp(shipped, stored, shallow=False):
+                notes.append(
+                    f"{where} in the submission differs from the log in --logs-dir; the "
+                    "--logs-dir log is the one checked."
+                )
+        return found, notes
+
+
+def _log_in(directory: Path) -> Path | None:
+    """The events log in *directory*, if there is one."""
+    return next((directory / n for n in LOG_NAMES if (directory / n).is_file()), None)

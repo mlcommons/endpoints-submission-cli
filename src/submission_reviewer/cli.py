@@ -74,7 +74,7 @@ def _label(submission: Path, start: Path) -> str:
     "--logs-dir",
     type=click.Path(exists=True, file_okay=False, path_type=Path),
     help="Directory mirroring results/ (<system>/<model>/r<N>/) holding each point's "
-    "events.jsonl, for submissions that do not ship them.",
+    "stored events.jsonl. When given, logs are read from it only, not from the submission.",
 )
 @click.option(
     "--step-summary/--no-step-summary",
@@ -108,7 +108,7 @@ def main(
 
     if pr_base:
         try:
-            base_ref = history.find_original(start, pr_base)
+            base_ref = history.find_original(start, pr_base, [s.name for s in submissions])
         except history.GitError as exc:
             click.echo(f"warning: could not find the original submission: {exc}", err=True)
             base_ref = pr_base  # the review then explains what is missing in its notes

@@ -37,6 +37,7 @@ from submission_checker.models.loader import (
 
 from . import history
 from .logs import LogStore
+from .text import quote
 from .thresholds import Thresholds
 
 __all__ = [
@@ -148,7 +149,7 @@ class ReviewContext:
         label: How the submission is named in the report.
         curves: Every Pareto frontier under ``results/``.
         thresholds: The heuristics' tolerances.
-        notes: What could not be read, in the order it was met.
+        notes: What could not be read, or was read from elsewhere, in the order it was met.
         inputs: The input kinds available, e.g. :data:`INPUT_SUMMARIES`.
         base: The original submission, loaded from ``base_ref``, when one was given and
             could be read. Its own ``base`` is always ``None``.
@@ -204,20 +205,23 @@ _Model = TypeVar("_Model")
 
 
 def _load(loader: Callable[..., tuple[_Model | None, Any]], *args: Any) -> _Model | None:
-    """Call one of the checker's loaders, and treat a file that is not UTF-8 as unloaded.
+    """Call one of the checker's loaders, and treat any failure as an unloaded file.
 
-    The loaders report parse and I/O errors as results but let ``UnicodeDecodeError``
-    through, and one such file must not stop the whole review.
+    The loaders report ordinary parse and I/O errors as results, but some failures
+    escape them: ``UnicodeDecodeError`` for a file that is not UTF-8, and
+    ``RecursionError`` for deeply nested JSON or YAML. The submitter controls these
+    files, and no single one may stop the whole review, so every exception counts as
+    "did not load"; the caller records the note.
     """
     try:
         return loader(*args)[0]
-    except UnicodeDecodeError:
+    except Exception:  # any failure means "did not load"; see the docstring
         return None
 
 
 def _load_point(point_dir: Path, root: Path, notes: list[str]) -> Point:
     def note(filename: str, what: str) -> None:
-        notes.append(f"`{_rel(point_dir / filename, root)}` {what}")
+        notes.append(f"{quote(_rel(point_dir / filename, root))} {what}")
 
     yaml_path = point_dir / layout.POINT_YAML
     config = _load(load_point_config, yaml_path, {"yaml_path": yaml_path})
@@ -252,14 +256,18 @@ def _load_power(system_dir: Path, root: Path, notes: list[str]) -> SystemPower |
         return None  # optional outside Standardized; §9.1 reports a missing one
     power = _load(load_system_power, path)
     if power is None:
-        notes.append(f"`{_rel(path, root)}` did not load; it is left out of hardware checks.")
+        notes.append(f"{quote(_rel(path, root))} did not load; it is left out of hardware checks.")
     return power
 
 
 def _load_base(
     root: Path, thresholds: Thresholds, base_ref: str, notes: list[str]
 ) -> tuple[ReviewContext | None, tuple[tuple[str, str], ...]]:
-    """Load the original submission from *base_ref*, or record why it could not be."""
+    """Load the original submission from *base_ref*, or record why it could not be.
+
+    Whatever goes wrong becomes a note and the review goes on without the original:
+    the original is submitter content too, and the rest of the review does not need it.
+    """
     try:
         with tempfile.TemporaryDirectory(prefix="submission-reviewer-") as tmp:
             snapshot = history.extract_base(root, base_ref, Path(tmp))
@@ -267,10 +275,16 @@ def _load_base(
             base = build_context(snapshot.root, thresholds, label=f"{base_ref}")
         changes = tuple(history.changed_files(root, base_ref))
     except history.GitError as exc:
-        notes.append(f"The original submission could not be read from `{base_ref}`: {exc}.")
+        notes.append(f"The original submission could not be read from {quote(base_ref)}: {exc}.")
+        return None, ()
+    except Exception as exc:  # the review goes on without the original
+        notes.append(
+            f"The original submission could not be read from {quote(base_ref)} "
+            f"({type(exc).__name__})."
+        )
         return None, ()
     # Without these, a comparison missing for an unreadable original goes unexplained.
-    notes.extend(f"In the original submission (`{base_ref}`): {note}" for note in base.notes)
+    notes.extend(f"In the original submission ({quote(base_ref)}): {note}" for note in base.notes)
     return base, changes
 
 
@@ -288,8 +302,8 @@ def build_context(
         thresholds: The tolerances the checks apply.
         label: How to name the submission in the report; defaults to *root*'s name.
         base_ref: A git revision holding the original submission, to compare against.
-        logs_dir: A directory mirroring ``results/`` that holds the per-request logs,
-            for a submission that does not ship them in its point directories.
+        logs_dir: A directory mirroring ``results/`` that holds the stored per-request
+            logs. When given, logs are read from it only; see :meth:`LogStore.find`.
     """
     notes: list[str] = []
     curves: list[Curve] = []
@@ -320,7 +334,10 @@ def build_context(
         inputs.add(INPUT_SYSTEM_DESCRIPTIONS)
 
     results = root / layout.RESULTS_DIR
-    log_paths = LogStore.find([(p.dir, p.dir.relative_to(results)) for p in all_points], logs_dir)
+    log_paths, log_notes = LogStore.find(
+        [(p.dir, p.dir.relative_to(results)) for p in all_points], logs_dir
+    )
+    notes.extend(log_notes)
     logs = LogStore(
         log_paths,
         keep_texts=thresholds.logs.max_text_samples,

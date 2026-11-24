@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from ..context import INPUT_LOGS, Curve, ReviewContext
 from ..findings import Finding, Level
+from ..text import quote
 from .base import Check, finding_factory, points_label
 
 __all__ = ["CHECK"]
@@ -58,7 +59,7 @@ def _curve(curve: Curve, ctx: ReviewContext) -> list[Finding]:
         )
         (salted if all(s.salted for s in overlap) else unsalted).append(row)
         if not examples and overlap[0].prompt_key:
-            examples.append(repr(log.prompt_examples.get(overlap[0].prompt_key, "")))
+            examples.append(quote(repr(log.prompt_examples.get(overlap[0].prompt_key, ""))))
 
     out: list[Finding] = []
     if unsalted:

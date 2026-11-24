@@ -16,7 +16,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from submission_reviewer import Level, review
+from submission_reviewer import Level, history, review
 from submission_reviewer.cli import main
 from submission_reviewer.history import GitError, changed_files, extract_base, find_original
 
@@ -47,11 +47,33 @@ def _git(repo: Path, *args: str, env: dict[str, str] | None = None) -> str:
     ).stdout.strip()
 
 
-def _commit(repo: Path, message: str, at: int | None = None) -> str:
-    """Commit everything; *at* sets the commit time in seconds since the epoch."""
-    dates = {"GIT_AUTHOR_DATE": f"@{at} +0000", "GIT_COMMITTER_DATE": f"@{at} +0000"}
+#: Who the lifecycle manager commits as.
+_MANAGER = "mlc-endpoints-lifecycle-manager[bot] <1+mlc-endpoints-lifecycle-manager[bot]@users.noreply.github.com>"
+
+
+def _commit(
+    repo: Path,
+    message: str,
+    at: int | None = None,
+    *,
+    committed_at: int | None = None,
+    author: str | None = None,
+) -> str:
+    """Commit everything.
+
+    *at* sets the author and commit time in seconds since the epoch; *committed_at*
+    sets the commit time alone, as a rebase does; *author* is ``"Name <email>"``.
+    """
+    env: dict[str, str] = {}
+    if at is not None:
+        env |= {"GIT_AUTHOR_DATE": f"@{at} +0000", "GIT_COMMITTER_DATE": f"@{at} +0000"}
+    if committed_at is not None:
+        env["GIT_COMMITTER_DATE"] = f"@{committed_at} +0000"
     _git(repo, "add", "-A")
-    _git(repo, "commit", "-q", "-m", message, env=dates if at is not None else None)
+    args = ["commit", "-q", "--allow-empty", "-m", message]
+    if author is not None:
+        args += ["--author", author]
+    _git(repo, *args, env=env or None)
     return _git(repo, "rev-parse", "HEAD")
 
 
@@ -89,6 +111,10 @@ def _each_desc(root: Path, edit: Callable[[dict[str, Any]], None]) -> None:
         _edit_json(path, edit)
 
 
+def _outcome(report, check: str) -> str:
+    return next(o.status for o in report.outcomes if o.check == check)
+
+
 def _updates(report):
     return checked(report, "updates")
 
@@ -112,6 +138,38 @@ def test_unreadable_original_files_are_reported(tmp_path: Path) -> None:
         n.startswith(f"In the original submission (`{base}`)") and "r64/result_summary.json" in n
         for n in report.notes
     )
+
+
+def test_deeply_nested_original_file_is_only_a_note(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "submission/abc")
+    root = write_submission(repo / "ACME" / "abc", clean_curve())
+    summary = root / _CURVE / "r64" / "result_summary.json"
+    good = summary.read_text()
+    summary.write_text("[" * 100_000)
+    base = _commit(repo, "Original submission")
+    summary.write_text(good)
+    _commit(repo, "Repair r64")
+    report = review(root, base_ref=base)
+    assert any(
+        n.startswith(f"In the original submission (`{base}`)") and "r64/result_summary.json" in n
+        for n in report.notes
+    )
+    assert _outcome(report, "updates") == "ran"
+
+
+def test_any_failure_reading_the_original_is_a_note(repo, monkeypatch: pytest.MonkeyPatch) -> None:
+    _, root, base = repo
+
+    def broken(*_args: object) -> None:
+        raise OSError("File name too long")
+
+    monkeypatch.setattr(history, "extract_base", broken)
+    report = review(root, base_ref=base)  # must not raise
+    assert f"The original submission could not be read from `{base}` (OSError)." in report.notes
+    assert _outcome(report, "updates") == "skipped"
+    assert _outcome(report, "pareto_shape") == "ran"
 
 
 def test_skipped_without_a_base_ref(repo) -> None:
@@ -231,8 +289,8 @@ def test_hardware_software_and_cosmetic_edits_are_graded(repo) -> None:
     (stack,) = titled(report, "Software stack or availability changed")
     (other,) = titled(report, "Other system description edits")
     assert (system.level, stack.level, other.level) == (Level.ATTENTION, Level.NOTE, Level.INFO)
-    assert "accelerator_model_name`: NVIDIA H100 SXM5 80GB → NVIDIA H200" in system.detail
-    assert "`node_types[0].driver`: 1.0 → 560.10" in stack.detail
+    assert "accelerator_model_name`: `NVIDIA H100 SXM5 80GB` → `NVIDIA H200`" in system.detail
+    assert "`node_types[0].driver`: `1.0` → `560.10`" in stack.detail
     assert "`system_name`" in other.detail
     assert system.curve == SYSTEM
 
@@ -309,9 +367,9 @@ def test_code_changes_and_overview(repo) -> None:
     report = review(root, base_ref=base)
     (overview,) = titled(report, "Files changed")
     assert "2 file(s) differ" in overview.detail
-    assert "docs/ 1, src/ 1" in overview.detail
+    assert "`docs/` 1, `src/` 1" in overview.detail
     (code,) = titled(report, "Implementation code changed")
-    assert (code.level, code.detail.startswith("A src/vllm/launch.sh")) == (Level.NOTE, True)
+    assert (code.level, code.detail.startswith("A `src/vllm/launch.sh`")) == (Level.NOTE, True)
 
 
 def test_gitattributes_cannot_hide_the_original(tmp_path: Path) -> None:
@@ -356,10 +414,14 @@ def test_cli_base_ref(repo, monkeypatch: pytest.MonkeyPatch) -> None:
     result = CliRunner().invoke(main, [str(repo_dir), "--base-ref", base])
     assert result.exit_code == 0, result.output
     assert "System changed since submission" in result.output
-    assert "`division`: Standardized → RDI" in result.output
+    assert "`division`: `Standardized` → `RDI`" in result.output
 
 
 # ── Finding the original in a review PR (--pr-base) ───────────────────────────
+
+
+#: The submission directory is the full submission id; commit subjects use its first 8.
+_SUB_DIR = "abc12345-6789-4abc-8def-0123456789ab"
 
 
 @pytest.fixture
@@ -376,16 +438,16 @@ def review_repo(tmp_path: Path) -> tuple[Path, str]:
 
 def test_original_is_the_add_commit(review_repo) -> None:
     repo, base = review_repo
-    write_submission(repo / "ACME" / "abc", clean_curve())
+    write_submission(repo / "ACME" / _SUB_DIR, clean_curve())
     original = _commit(repo, "Add submission abc12345")
-    (repo / "ACME" / "abc" / "docs" / "fix.md").write_text("fix\n")
+    (repo / "ACME" / _SUB_DIR / "docs" / "fix.md").write_text("fix\n")
     _commit(repo, "Update submission abc12345")
     assert find_original(repo, base) == original
 
 
 def test_original_spans_batched_add_commits(review_repo) -> None:
     repo, base = review_repo
-    root = write_submission(repo / "ACME" / "abc", clean_curve()[:3])
+    root = write_submission(repo / "ACME" / _SUB_DIR, clean_curve()[:3])
     shutil.move(str(root / "src"), str(repo / "held-src"))
     _commit(repo, "Add submission abc12345")
     shutil.move(str(repo / "held-src"), str(root / "src"))
@@ -405,7 +467,7 @@ def test_original_after_a_placeholder(review_repo) -> None:
     day = 1_790_000_000
     (repo / ".submission").write_text("submission_id: abc12345\n")
     _commit(repo, "Placeholder for abc12345 (source archive pending)", at=day)
-    root = write_submission(repo / "ACME" / "abc", clean_curve()[:3])
+    root = write_submission(repo / "ACME" / _SUB_DIR, clean_curve()[:3])
     shutil.move(str(root / "src"), str(repo / "held-src"))
     _commit(repo, "Update submission abc12345", at=day + 86_400)
     shutil.move(str(repo / "held-src"), str(root / "src"))
@@ -418,11 +480,86 @@ def test_original_after_a_placeholder(review_repo) -> None:
 
 def test_unknown_first_commit_is_the_original(review_repo) -> None:
     repo, base = review_repo
-    write_submission(repo / "ACME" / "abc", clean_curve())
+    write_submission(repo / "ACME" / _SUB_DIR, clean_curve())
     first = _commit(repo, "Hand-made submission")
-    (repo / "ACME" / "abc" / "docs" / "x.md").write_text("x\n")
+    (repo / "ACME" / _SUB_DIR / "docs" / "x.md").write_text("x\n")
     _commit(repo, "Hand-made submission")
     assert find_original(repo, base) == first
+
+
+def test_merging_the_base_branch_does_not_move_the_original(review_repo) -> None:
+    repo, base = review_repo
+    day = 1_790_000_000
+    write_submission(repo / "ACME" / _SUB_DIR, clean_curve()[:3])
+    original = _commit(repo, "Add submission abc12345", at=day + 100)
+    # A commit on main, dated before the PR's, that "Update branch" merges in.
+    _git(repo, "checkout", "-q", "main")
+    (repo / "OTHER.md").write_text("other\n")
+    _commit(repo, "Change on main", at=day)
+    _git(repo, "checkout", "-q", "submission/abc12345")
+    _git(
+        repo,
+        "merge",
+        "-q",
+        "--no-edit",
+        "main",
+        env={"GIT_COMMITTER_DATE": f"@{day + 200} +0000", "GIT_AUTHOR_DATE": f"@{day + 200} +0000"},
+    )
+    assert find_original(repo, base) == original
+
+
+def test_original_survives_a_rebase(review_repo) -> None:
+    repo, base = review_repo
+    day = 1_790_000_000
+    rebased = day + 10 * 86_400  # a rebase gives every commit the same commit date
+    (repo / ".submission").write_text("submission_id: abc12345\n")
+    _commit(repo, "Placeholder for abc12345 (source archive pending)", at=day, committed_at=rebased)
+    root = write_submission(repo / "ACME" / _SUB_DIR, clean_curve()[:3])
+    synced = _commit(repo, "Update submission abc12345", at=day + 86_400, committed_at=rebased)
+    (root / "docs" / "later.md").write_text("later\n")
+    _commit(repo, "Update submission abc12345", at=day + 2 * 86_400, committed_at=rebased)
+    assert find_original(repo, base) == synced
+
+
+def test_an_earlier_author_date_ends_the_run(review_repo) -> None:
+    repo, base = review_repo
+    day = 1_790_000_000
+    root = write_submission(repo / "ACME" / _SUB_DIR, clean_curve()[:3])
+    original = _commit(repo, "Add submission abc12345", at=day)
+    (root / "docs" / "x.md").write_text("x\n")
+    _commit(repo, "Add submission abc12345", at=day - 100)
+    assert find_original(repo, base) == original
+
+
+def test_another_author_ends_the_run(review_repo) -> None:
+    repo, base = review_repo
+    day = 1_790_000_000
+    root = write_submission(repo / "ACME" / _SUB_DIR, clean_curve()[:3])
+    original = _commit(repo, "Add submission abc12345", at=day, author=_MANAGER)
+    (root / "docs" / "x.md").write_text("x\n")
+    _commit(repo, "Add submission abc12345", at=day + 60, author="Someone <someone@test.invalid>")
+    assert find_original(repo, base) == original
+
+
+def test_the_subject_must_name_the_submission_under_review(review_repo) -> None:
+    repo, base = review_repo
+    write_submission(repo / "ACME" / _SUB_DIR, clean_curve()[:3])
+    _commit(repo, "Add submission ffff0000")
+    assert find_original(repo, base) == _git(repo, "rev-parse", "HEAD")  # no ids given
+    with pytest.raises(GitError, match="names submission ffff0000"):
+        find_original(repo, base, [_SUB_DIR])
+    assert find_original(repo, base, [_SUB_DIR, "ffff0000-1111"]) == _git(repo, "rev-parse", "HEAD")
+
+
+def test_the_test_merge_checkout_is_followed_to_the_pr_head(review_repo) -> None:
+    repo, base = review_repo
+    write_submission(repo / "ACME" / _SUB_DIR, clean_curve()[:3])
+    original = _commit(repo, "Add submission abc12345")
+    head = _git(repo, "rev-parse", "HEAD")
+    # actions/checkout's default: a merge of the PR head into the base, first parent base.
+    _git(repo, "checkout", "-q", "--detach", base)
+    _git(repo, "merge", "-q", "--no-ff", "--no-edit", head)
+    assert find_original(repo, base) == original
 
 
 def test_pr_without_commits(review_repo) -> None:
@@ -434,7 +571,7 @@ def test_pr_without_commits(review_repo) -> None:
 def test_cli_pr_base(review_repo, monkeypatch: pytest.MonkeyPatch) -> None:
     repo, base = review_repo
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
-    root = write_submission(repo / "ACME" / "abc", clean_curve())
+    root = write_submission(repo / "ACME" / _SUB_DIR, clean_curve())
     _commit(repo, "Add submission abc12345")
 
     def faster(summary: dict[str, Any]) -> None:

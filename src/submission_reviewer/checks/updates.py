@@ -26,6 +26,7 @@ from submission_checker.models.file import SystemDescription
 
 from ..context import INPUT_BASE, Curve, Point, ReviewContext
 from ..findings import Finding, Level
+from ..text import quote
 from .base import Check, PointMetrics, finding_factory, fmt, metrics, points_label
 
 __all__ = ["CHECK"]
@@ -127,8 +128,9 @@ def _leaf_key(path: str) -> str:
 def _show(value: object) -> str:
     if value is None:
         return "(absent)"
-    text = str(value)
-    return text if len(text) <= _VALUE_CHARS else text[: _VALUE_CHARS - 1] + "…"
+    if isinstance(value, str):
+        return quote(value, limit=_VALUE_CHARS)  # submitter text: shown literally
+    return str(value)  # a number or a boolean
 
 
 def _diff(old: Mapping[str, object], new: Mapping[str, object]) -> list[tuple[str, str]]:
@@ -142,7 +144,7 @@ def _diff(old: Mapping[str, object], new: Mapping[str, object]) -> list[tuple[st
 
 
 def _listing(changes: Iterable[tuple[str, str]]) -> str:
-    items = [f"`{path}`: {change}" for path, change in changes]
+    items = [f"{quote(path)}: {change}" for path, change in changes]
     shown = "; ".join(items[:_MAX_LISTED])
     return shown + (f"; and {len(items) - _MAX_LISTED} more" if len(items) > _MAX_LISTED else "")
 
@@ -374,13 +376,15 @@ def _file_changes(ctx: ReviewContext) -> list[Finding]:
     by_area: dict[str, list[str]] = {}
     for status, path in ctx.changed_files:
         area = path.split("/", 1)[0] if "/" in path else "(top level)"
-        by_area.setdefault(area, []).append(f"{status} {path}")
-    overview = ", ".join(f"{area}/ {len(files)}" for area, files in sorted(by_area.items()))
+        by_area.setdefault(area, []).append(f"{status} {quote(path)}")
+    overview = ", ".join(
+        f"{quote(area + '/')} {len(files)}" for area, files in sorted(by_area.items())
+    )
     out = [
         _finding(
             Level.INFO,
             "Files changed since submission",
-            f"{len(ctx.changed_files)} file(s) differ from `{ctx.base_ref}`: {overview}.",
+            f"{len(ctx.changed_files)} file(s) differ from {quote(ctx.base_ref)}: {overview}.",
             spec_ref=_SPEC,
             count=len(ctx.changed_files),
         )

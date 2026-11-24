@@ -228,7 +228,7 @@ class ReviewReport(BaseModel):
         submission: The submission directory, relative to where the review started.
         findings: Every finding, in check order.
         outcomes: One entry per registered check.
-        notes: Problems reading the submission, such as a file that did not parse.
+        notes: Notes on the inputs: a file that did not parse, or a log that was not used.
             They narrow what the checks could see; the §9.1 checker reports the
             underlying defects.
     """
