@@ -494,7 +494,7 @@ validation by the service or reviewers.
 | `steady-state-valid` | §4.4 | `status`, `verdict` and gating `state` use the spec's vocabulary |
 | `steady-state-consistency` | §4.4 | The reported status agrees with the window it describes |
 | `steady-state-basis` | §4.4 | Which basis supplies the official result; flags fallbacks and drift (warn) |
-| `min-query-count` | §6.4 | `n_samples_completed` meets the dataset minimum, and `n_samples_issued` is a positive integer multiple of the dataset size |
+| `min-query-count` | §6.4 | `n_samples_completed` meets the dataset minimum, and `n_samples_issued` is a positive integer multiple of the dataset size; warns when the dataset's size is unknown, so neither is checked |
 | `warmup-present` | §6.3.3 | Warmup declaration present; concurrency zero is valid only with zero duration and request counts |
 | `warmup-logs-retained` | §6.3.2 | Warmup log retention declared when warmup was performed (warn) |
 | `warmup-salt` | §6.3.3 | Warns when the warmup salt is enabled |

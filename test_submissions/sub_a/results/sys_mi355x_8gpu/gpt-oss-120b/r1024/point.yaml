@@ -1,5 +1,5 @@
 concurrency: 1024
-dataset: mlperf-perf-dataset-v1
+dataset: mlperf_gpt_oss_performance
 dataset_link: https://example.com/dataset
 dataset_name: CNN/DailyMail
 dataset_type: Performance

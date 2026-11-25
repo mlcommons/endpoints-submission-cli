@@ -9,6 +9,7 @@ import json
 import pytest
 
 from submission_checker.models import (
+    DATASET_SIZE,
     MIN_QUERY_COUNT,
     AccuracyResult,
     PercentileStats,
@@ -423,7 +424,8 @@ class TestMinQueryCountValidator:
                 for r in run_result._check_results
             ), f"Expected error for dataset '{dataset}' with {min_q - 1} completed"
 
-    def test_unknown_dataset_skipped(self, tmp_path):
+    def test_unknown_dataset_warns(self, tmp_path):
+        """A dataset with no known size is reported as unchecked, never silently passed."""
         run_result = PointResult.model_validate(
             {
                 "config": _config_with_dataset("unknown-dataset-xyz"),
@@ -432,7 +434,27 @@ class TestMinQueryCountValidator:
             },
             context={"summary_path": tmp_path / "summary.json"},
         )
-        assert not any(r.rule == "min-query-count" for r in run_result._check_results)
+        results = [r for r in run_result._check_results if r.rule == "min-query-count"]
+        assert [(r.severity, r.key) for r in results] == [(Severity.WARNING, "warn")]
+        assert "unknown-dataset-xyz" in results[0].message
+
+    def test_size_and_minimum_maps_name_the_same_datasets(self):
+        assert set(DATASET_SIZE) == set(MIN_QUERY_COUNT)
+
+    def test_preset_suffix_uses_base_dataset(self, tmp_path):
+        """``cnn_dailymail::llama3_8b`` is checked against ``cnn_dailymail``'s size."""
+        size = DATASET_SIZE["cnn_dailymail"]
+        for issued, bad in ((size * 10, False), (155_000, True)):
+            run_result = PointResult.model_validate(
+                {
+                    "config": _config_with_dataset("cnn_dailymail::llama3_8b"),
+                    "summary": _summary(n_completed=issued, n_issued=issued),
+                    "yaml_path": tmp_path / "run_64.yaml",
+                },
+                context={"summary_path": tmp_path / "summary.json"},
+            )
+            keys = {r.key for r in run_result._check_results if r.rule == "min-query-count"}
+            assert keys == ({"fail-2"} if bad else {"pass"})
 
     def test_aime25_boundary(self, tmp_path):
         """aime25 requires 30 queries — 29 fails, 30 passes."""
@@ -503,9 +525,9 @@ class TestMinQueryCountValidator:
         results = [r for r in run_result._check_results if r.rule == "min-query-count"]
         assert results and all(r.severity != Severity.ERROR for r in results)
 
-    @pytest.mark.parametrize("issued", [0, 99, 247, 341, 445])
+    @pytest.mark.parametrize("issued", [99, 247, 341, 445])
     def test_issued_fractional_multiple_errors(self, tmp_path, issued):
-        """§6.4: 0, 0.5, 1.25, 1.72 and 2.25 dataset passes are all rejected (#167)."""
+        """§6.4: 0.5, 1.25, 1.72 and 2.25 dataset passes are all rejected (#167)."""
         run_result = PointResult.model_validate(
             {
                 "config": _config_with_dataset("gpqa"),
@@ -518,6 +540,34 @@ class TestMinQueryCountValidator:
             r.rule == "min-query-count" and r.severity == Severity.ERROR and r.key == "fail-2"
             for r in run_result._check_results
         )
+
+    def test_remainder_visible_when_one_sample_short(self, tmp_path):
+        """A run one sample short of a full pass must not read as "1 × dataset size"."""
+        size = DATASET_SIZE["open_orca"]
+        run_result = PointResult.model_validate(
+            {
+                "config": _config_with_dataset("open_orca"),
+                "summary": _summary(n_completed=size, n_issued=size - 1, n_failed=0),
+                "yaml_path": tmp_path / "run_64.yaml",
+            },
+            context={"summary_path": tmp_path / "summary.json"},
+        )
+        (fail,) = [r for r in run_result._check_results if r.key == "fail-2"]
+        assert f"0 full passes of dataset size {size} + {size - 1} left over" in fail.message
+
+    def test_issued_zero_reports_not_recorded(self, tmp_path):
+        """§6.4: 0 issued (the field's unrecorded default) fails with its own message."""
+        run_result = PointResult.model_validate(
+            {
+                "config": _config_with_dataset("gpqa"),
+                "summary": _summary(n_completed=198, n_issued=0, n_failed=0),
+                "yaml_path": tmp_path / "run_64.yaml",
+            },
+            context={"summary_path": tmp_path / "summary.json"},
+        )
+        results = [r for r in run_result._check_results if r.rule == "min-query-count"]
+        assert [(r.severity, r.key) for r in results] == [(Severity.ERROR, "fail-3")]
+        assert "not recorded" in results[0].message
 
 
 # ---------------------------------------------------------------------------

@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-__all__ = ["MIN_QUERY_COUNT", "PointResult"]
+__all__ = ["DATASET_SIZE", "MIN_QUERY_COUNT", "PointResult", "dataset_key"]
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr, ValidationInfo, model_validator
 
@@ -16,9 +16,14 @@ from ..results import CheckResult, err, ok, warn
 
 _TPS_TOLERANCE = 0.01  # 1% relative tolerance for stored-vs-derived comparisons
 
-# Dataset → minimum completed query count (§6.4).
-# Values equal the full dataset size; every sample must be run for a valid submission.
-MIN_QUERY_COUNT: dict[str, int] = {
+# Dataset → number of samples in one full pass over it (§6.4: "the total number of
+# samples issued MUST be a positive integer multiple of the dataset size"). A name
+# written ``<dataset>::<preset>`` (the benchmark tool's preset syntax, e.g.
+# ``cnn_dailymail::llama3_8b``) is looked up by the part before ``::``. Datasets left
+# out are reported by ``min-query-count`` as unchecked. Multi-turn agentic datasets
+# are not listed until the working group defines whether a sample is a conversation
+# or a turn.
+DATASET_SIZE: dict[str, int] = {
     "open_orca": 24576,
     "cnn_dailymail": 13368,
     "aime25": 30,
@@ -29,7 +34,20 @@ MIN_QUERY_COUNT: dict[str, int] = {
     "mlperf_gpt_oss_performance": 6396,
     "mlperf_gpt_oss_accuracy": 4395,
     "math500": 500,
+    "deepseek_r1_eval": 4388,
+    "legacy_mlperf_deepseek_r1": 4388,
 }
+
+# Dataset → minimum completed query count (§6.4). Each minimum is currently one full
+# pass over the dataset. It is kept apart from DATASET_SIZE because §6.4 marks the
+# minimums as subject to ratification, so the two may diverge. Both maps must name
+# the same datasets.
+MIN_QUERY_COUNT: dict[str, int] = dict(DATASET_SIZE)
+
+
+def dataset_key(dataset: str) -> str:
+    """Return the name ``dataset`` is looked up by: the part before any ``::`` preset."""
+    return dataset.split("::", 1)[0]
 
 
 class PointResult(BaseModel):
@@ -143,22 +161,29 @@ class PointResult(BaseModel):
 
         Two conditions, each reported on its own:
 
-        - ``n_samples_completed`` meets the dataset's minimum query count;
+        - ``n_samples_completed`` meets the dataset's minimum query count
+          (MIN_QUERY_COUNT);
         - ``n_samples_issued`` is a positive integer multiple of the dataset size
-          ("the total number of samples issued MUST be a positive integer multiple
-          of the dataset size"), so no point runs a fractional dataset pass.
+          (DATASET_SIZE), so no point runs a fractional dataset pass. An issued count
+          of 0 is the field's default when the tool did not record it, and fails with
+          its own message.
 
-        Skipped when the dataset is not in MIN_QUERY_COUNT (unknown datasets are
-        not yet mapped; add them as the spec is ratified).
+        A dataset missing from either map is reported as a warning: neither condition
+        can be checked for it.
         """
         summary_path: Path | None = (info.context or {}).get("summary_path")
         dataset = self.config.dataset
-        min_queries = MIN_QUERY_COUNT.get(dataset)
-        if min_queries is None:
+        key = dataset_key(dataset)
+        min_queries = MIN_QUERY_COUNT.get(key)
+        dataset_size = DATASET_SIZE.get(key)
+        if min_queries is None or dataset_size is None:
+            self._check_results.append(
+                warn("min-query-count", "warn", summary_path, dataset=dataset)
+            )
             return self
         completed = self.summary.n_samples_completed
         issued = self.summary.n_samples_issued
-        passes, remainder = divmod(issued, min_queries)
+        passes, remainder = divmod(issued, dataset_size)
         failed = False
         if completed < min_queries:
             failed = True
@@ -172,7 +197,18 @@ class PointResult(BaseModel):
                     min_queries=min_queries,
                 )
             )
-        if passes < 1 or remainder != 0:
+        if issued == 0:
+            failed = True
+            self._check_results.append(
+                err(
+                    "min-query-count",
+                    "fail-3",
+                    summary_path,
+                    dataset=dataset,
+                    dataset_size=dataset_size,
+                )
+            )
+        elif passes < 1 or remainder != 0:
             failed = True
             self._check_results.append(
                 err(
@@ -181,8 +217,9 @@ class PointResult(BaseModel):
                     summary_path,
                     dataset=dataset,
                     issued=issued,
-                    min_queries=min_queries,
-                    ratio=issued / min_queries,
+                    passes=passes,
+                    remainder=remainder,
+                    dataset_size=dataset_size,
                 )
             )
         if not failed:
@@ -196,6 +233,7 @@ class PointResult(BaseModel):
                     min_queries=min_queries,
                     issued=issued,
                     passes=passes,
+                    dataset_size=dataset_size,
                 )
             )
         return self
