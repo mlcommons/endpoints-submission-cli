@@ -99,26 +99,51 @@ class TestRunDurationValidator:
             if r.rule == "point-duration"
         )
 
-    def test_out_of_range_concurrency_skipped(self, tmp_path):
-        config = _config(concurrency=9999)
-        run_result = PointResult.model_validate(
-            {"config": config, "summary": _summary(), "yaml_path": tmp_path / "run_9999.yaml"},
-            context={"regions": _REGIONS, "summary_path": tmp_path / "summary.json"},
-        )
-        # run-duration should not appear because concurrency is out of range
-        assert not any(r.rule == "point-duration" for r in run_result._check_results)
-
     @staticmethod
-    def _duration(tmp_path, config, seconds, regions=_REGIONS):
+    def _duration(tmp_path, config, seconds):
         run_result = PointResult.model_validate(
             {
                 "config": config,
                 "summary": _summary(duration_ns=seconds * 1e9),
                 "yaml_path": tmp_path / "point.yaml",
             },
-            context={"regions": regions, "summary_path": tmp_path / "summary.json"},
+            context={"summary_path": tmp_path / "summary.json"},
         )
         return [r for r in run_result._check_results if r.rule == "point-duration"]
+
+    def test_out_of_range_concurrency_still_checked(self, tmp_path):
+        """§6.2 keys on concurrency alone, so a point outside the computed regions —
+        reported separately by ``concurrency-in-range`` — is still held to it."""
+        assert _REGIONS.margin.end < 9999
+        results = self._duration(tmp_path, _config(concurrency=9999), 100)
+        assert results[0].severity == Severity.WARNING
+
+    def test_dedicated_offline_point_checked(self, tmp_path):
+        """§6.2 "applies to the Offline point unchanged", even though a dedicated run's
+        concurrency (the dataset cardinality) routinely sits beyond every region."""
+        config = _config(concurrency=24_576).model_copy(update={"offline": "dedicated"})
+        assert [r.severity for r in self._duration(tmp_path, config, 1_199)] == [Severity.WARNING]
+        assert [r.severity for r in self._duration(tmp_path, config, 1_200)] == [Severity.INFO]
+
+    @pytest.mark.parametrize(
+        ("concurrency", "lp_type", "minimum_s"),
+        [
+            (1, "concurrency", 600),
+            (32, "concurrency", 600),
+            (33, "concurrency", 1_200),
+            (1024, "concurrency", 1_200),
+            (1, "agentic_inference", 600),
+            (32, "agentic_inference", 600),
+            (33, "agentic_inference", 2_400),
+            (1024, "agentic_inference", 2_400),
+        ],
+    )
+    def test_minimum_follows_section_6_2_tables(self, tmp_path, concurrency, lp_type, minimum_s):
+        config = _config(concurrency=concurrency, lp_type=lp_type)
+        (below,) = self._duration(tmp_path, config, minimum_s - 1)
+        (at,) = self._duration(tmp_path, config, minimum_s)
+        assert below.severity == Severity.WARNING
+        assert at.severity == Severity.INFO
 
     @pytest.mark.parametrize(
         ("lp_type", "seconds", "warns"),
@@ -136,25 +161,31 @@ class TestRunDurationValidator:
         assert (results[0].severity == Severity.WARNING) is warns
 
     @pytest.mark.parametrize("lp_type", ["concurrency", "agentic_inference"])
-    def test_ultra_low_is_one_to_32_whatever_c_min(self, tmp_path, lp_type):
-        """§6.2 keys its 600 s row to concurrency 1–32, so a point above C_min but at or
-        below 32 takes it even though it falls outside the computed low-latency band."""
-        regions = compute_regions(1024, 16)
-        assert not regions.low_latency.contains(32)
-        results = self._duration(tmp_path, _config(concurrency=32, lp_type=lp_type), 600, regions)
-        assert results[0].severity != Severity.WARNING
+    @pytest.mark.parametrize("overridden", [False, True])
+    def test_minimum_ignores_region_and_c_min_override(self, tmp_path, lp_type, overridden):
+        """§6.2's own example: concurrency 24 "uses the 1–32 requirements even when
+        ``c_min_override=16`` places it in the Low Concurrency region"."""
+        regions = compute_regions(1024, 16, c_min_overridden=overridden)
+        assert regions.low_concurrency.contains(24)
+        results = self._duration(tmp_path, _config(concurrency=24, lp_type=lp_type), 600)
+        assert results[0].severity == Severity.INFO
+
+    def test_message_names_table_and_tier_not_region(self, tmp_path):
+        (agentic,) = self._duration(
+            tmp_path, _config(concurrency=64, lp_type="agentic_inference"), 100
+        )
+        assert agentic.message.endswith("< minimum 2400000 ms (agentic, concurrency >32)")
+        (legacy,) = self._duration(tmp_path, _config(concurrency=24), 600)
+        assert legacy.message.endswith("meets minimum 600000 ms (Legacy LLM, concurrency 1–32)")
 
     def test_duration_cites_section_6_2(self, tmp_path):
         results = self._duration(tmp_path, _config(concurrency=64), 100)
         assert results[0].spec_ref == "§6.2"
 
-    def test_no_regions_skips(self, tmp_path):
-        config = _config(concurrency=64)
-        run_result = PointResult.model_validate(
-            {"config": config, "summary": _summary(), "yaml_path": tmp_path / "run_64.yaml"},
-            context={"summary_path": tmp_path / "summary.json"},
-        )
-        assert not any(r.rule == "point-duration" for r in run_result._check_results)
+    def test_runs_without_regions(self, tmp_path):
+        """No ``C_max`` means no region boundaries, but §6.2 does not need them."""
+        results = self._duration(tmp_path, _config(concurrency=64), 100)
+        assert [r.severity for r in results] == [Severity.WARNING]
 
 
 @pytest.mark.unit
