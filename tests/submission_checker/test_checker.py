@@ -849,3 +849,14 @@ def test_fixture_error_profile(request, fixture_name, expected):
         f"{fixture_name}: unexpected {sorted(actual - expected)}, "
         f"missing {sorted(expected - actual)}"
     )
+
+
+def test_min_query_count_runs_on_corpus(sub_a):
+    """sub_a's points use a mapped dataset, so §6.4 is checked end to end and passes.
+
+    Every point issues 6396 samples, one full pass over ``mlperf_gpt_oss_performance``.
+    """
+    report = _check(sub_a)
+    results = [r for r in report.results if r.rule == "min-query-count"]
+    assert len(results) == 7
+    assert {r.key for r in results} == {"pass"}

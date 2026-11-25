@@ -372,7 +372,13 @@ min-query-count:
   spec: §12
   messages:
     fail: 'Dataset ''{dataset}'': completed {completed} < minimum {min_queries} (§6.4)'
-    pass: 'Dataset ''{dataset}'': completed {completed} ≥ minimum {min_queries}'
+    fail-2: 'Dataset ''{dataset}'': issued {issued} samples = {passes} full passes of dataset size {dataset_size}
+      + {remainder} left over; §6.4 requires a positive integer multiple of the dataset size'
+    fail-3: 'Dataset ''{dataset}'': n_samples_issued is 0 (not recorded); §6.4 requires the issued count to
+      be a positive integer multiple of dataset size {dataset_size}'
+    warn: 'Dataset ''{dataset}'' has no known size; §6.4 minimum and dataset-multiple checks not run'
+    pass: 'Dataset ''{dataset}'': completed {completed} ≥ minimum {min_queries}; issued {issued} = {passes}
+      × dataset size {dataset_size}'
 model-name-consistency:
   title: Model name consistency
   spec: §8.1

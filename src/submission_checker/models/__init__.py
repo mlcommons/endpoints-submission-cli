@@ -1,6 +1,7 @@
 """Data models for MLPerf Endpoints submission checking."""
 
 from .aggregate import (
+    DATASET_SIZE,
     MIN_QUERY_COUNT,
     DrafterBinding,
     ModelContext,
@@ -45,6 +46,7 @@ __all__ = [
     "DrafterBinding",
     "Division",
     "AGENTIC_MIN_DURATION_MS",
+    "DATASET_SIZE",
     "MIN_DURATION_MS",
     "MIN_QUERY_COUNT",
     "ModelContext",
