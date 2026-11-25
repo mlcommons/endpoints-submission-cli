@@ -12,6 +12,8 @@ docs/_build/
 env/
 *.log
 *.jsonl
+# Test fixtures, e.g. the client log the reviewer tests parse.
+!tests/**/data/*.jsonl
 
 # Test / lint caches
 .pytest_cache/

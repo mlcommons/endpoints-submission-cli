@@ -47,6 +47,8 @@ def _metadata(wheel: zipfile.ZipFile, name: str) -> str:
         "endpoints_submission_cli/skills/mlperf-submissions/SKILL.md",
         "submission_checker/data/seed_sets.yaml",
         "submission_checker/data/approved_drafters.yaml",
+        "submission_reviewer/checks/pareto_shape.py",
+        "submission_reviewer/data/reviewer_thresholds.yaml",
     ],
 )
 def test_wheel_contains(wheel: zipfile.ZipFile, member: str) -> None:
@@ -57,6 +59,7 @@ def test_both_scripts_are_installed(wheel: zipfile.ZipFile) -> None:
     entry_points = _metadata(wheel, "entry_points.txt")
     assert "endpoints-submission-cli = endpoints_submission_cli.main:main" in entry_points
     assert "endpoints-submission-mcp = endpoints_submission_cli.mcp_server:main" in entry_points
+    assert "endpoints-submission-reviewer = submission_reviewer.cli:main" in entry_points
 
 
 def test_mcp_is_an_extra_not_a_dependency(wheel: zipfile.ZipFile) -> None:
